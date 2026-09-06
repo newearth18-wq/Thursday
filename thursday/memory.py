@@ -70,6 +70,20 @@ CREATE TABLE IF NOT EXISTS usage (
 );
 CREATE INDEX IF NOT EXISTS idx_usage_time ON usage(created_at);
 
+CREATE TABLE IF NOT EXISTS jobs (
+    id          INTEGER PRIMARY KEY AUTOINCREMENT,
+    title       TEXT NOT NULL,
+    instruction TEXT NOT NULL,
+    -- queued | running | done | failed | cancelled
+    status      TEXT NOT NULL DEFAULT 'queued',
+    result      TEXT NOT NULL DEFAULT '',
+    session_id  TEXT NOT NULL DEFAULT '',
+    created_at  REAL NOT NULL,
+    started_at  REAL,
+    finished_at REAL
+);
+CREATE INDEX IF NOT EXISTS idx_jobs_status ON jobs(status, id);
+
 CREATE TABLE IF NOT EXISTS schedules (
     name        TEXT PRIMARY KEY,
     -- What to carry out: either a saved routine's name or a literal instruction.
@@ -469,6 +483,66 @@ class Memory:
         rows = self._query("SELECT SUM(cost) AS total FROM usage WHERE created_at >= ?", (since,))
         return float(rows[0]["total"] or 0.0) if rows else 0.0
 
+    # ------------------------------------------------------------------- jobs
+
+    def add_job(self, title: str, instruction: str, session_id: str = "") -> int:
+        cur = self._execute(
+            "INSERT INTO jobs (title, instruction, session_id, created_at) VALUES (?,?,?,?)",
+            (title.strip(), instruction.strip(), session_id, _now()),
+        )
+        return int(cur.lastrowid or 0)
+
+    def next_job(self) -> dict[str, Any] | None:
+        """Claim the oldest queued job, marking it running in the same breath.
+
+        Done under the lock so two runners cannot pick up the same job.
+        """
+        with self._lock:
+            row = self._conn.execute(
+                "SELECT * FROM jobs WHERE status='queued' ORDER BY id LIMIT 1"
+            ).fetchone()
+            if row is None:
+                return None
+            self._conn.execute(
+                "UPDATE jobs SET status='running', started_at=? WHERE id=?", (_now(), row["id"])
+            )
+            self._conn.commit()
+            return _job_dict(row) | {"status": "running"}
+
+    def finish_job(self, job_id: int, result: str, failed: bool = False) -> None:
+        self._execute(
+            "UPDATE jobs SET status=?, result=?, finished_at=? WHERE id=?",
+            ("failed" if failed else "done", result[:20000], _now(), job_id),
+        )
+
+    def cancel_job(self, job_id: int) -> bool:
+        return self._execute(
+            "UPDATE jobs SET status='cancelled', finished_at=? WHERE id=? "
+            "AND status IN ('queued','running')",
+            (_now(), job_id),
+        ).rowcount > 0
+
+    def jobs(self, limit: int = 20, status: str = "") -> list[dict[str, Any]]:
+        sql = "SELECT * FROM jobs"
+        params: list[Any] = []
+        if status:
+            sql += " WHERE status=?"
+            params.append(status)
+        sql += " ORDER BY id DESC LIMIT ?"
+        params.append(limit)
+        return [_job_dict(row) for row in self._query(sql, params)]
+
+    def job(self, job_id: int) -> dict[str, Any] | None:
+        rows = self._query("SELECT * FROM jobs WHERE id=?", (job_id,))
+        return _job_dict(rows[0]) if rows else None
+
+    def unfinished_jobs(self) -> list[dict[str, Any]]:
+        """Jobs left running when the process died, so they can be re-queued."""
+        return [_job_dict(row) for row in self._query("SELECT * FROM jobs WHERE status='running'")]
+
+    def requeue_job(self, job_id: int) -> None:
+        self._execute("UPDATE jobs SET status='queued', started_at=NULL WHERE id=?", (job_id,))
+
     # -------------------------------------------------------------- schedules
 
     def save_schedule(self, name: str, routine: str, spec: str, next_run: float | None) -> None:
@@ -587,6 +661,18 @@ def _note_dict(row: sqlite3.Row) -> dict[str, Any]:
         "body": row["body"],
         "tags": row["tags"],
         "updated_at": iso(row["updated_at"]),
+    }
+
+
+def _job_dict(row: sqlite3.Row) -> dict[str, Any]:
+    return {
+        "id": row["id"],
+        "title": row["title"],
+        "instruction": row["instruction"],
+        "status": row["status"],
+        "result": row["result"],
+        "created_at": iso(row["created_at"]),
+        "finished_at": iso(row["finished_at"]) if row["finished_at"] else None,
     }
 
 

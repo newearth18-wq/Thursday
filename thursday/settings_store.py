@@ -106,6 +106,26 @@ FIELDS: tuple[Field, ...] = (
           help="Hours between reviewing recent conversation for things worth remembering. 0 is off."),
     Field("THURSDAY_MAX_TOOL_ITERATIONS", "Tool steps per turn", "Agents", kind="number", placeholder="12", attr="max_tool_iterations"),
 
+    # ---- documents -------------------------------------------------------
+    Field("THURSDAY_EMBED_PROVIDER", "Embeddings", "Documents", kind="choice",
+          choices=("ollama", "lmstudio", "llamacpp", "openai", "gemini", "together"),
+          help="Local by default, so your documents never leave the machine."),
+    Field("THURSDAY_EMBED_MODEL", "Embedding model", "Documents", placeholder="nomic-embed-text"),
+    Field("THURSDAY_EMBED_BASE_URL", "Embedding endpoint", "Documents",
+          placeholder="http://localhost:11434/v1"),
+    Field("THURSDAY_EMBED_API_KEY", "Embedding key", "Documents", kind="password",
+          help="Only for a hosted embedding provider."),
+
+    # ---- calendar and mail ------------------------------------------------
+    Field("THURSDAY_CALENDARS", "Calendar feeds", "Connected",
+          placeholder="https://…/basic.ics, ~/cal.ics",
+          help="One or more .ics URLs or files, comma separated. Every calendar app publishes one."),
+    Field("THURSDAY_IMAP_HOST", "Mail server", "Connected", placeholder="imap.gmail.com"),
+    Field("THURSDAY_IMAP_USER", "Mail user", "Connected", placeholder="you@example.com"),
+    Field("THURSDAY_IMAP_PASSWORD", "Mail password", "Connected", kind="password",
+          help="Gmail and Outlook need an app password, not your account password."),
+    Field("THURSDAY_IMAP_FOLDER", "Mail folder", "Connected", placeholder="INBOX"),
+
     # ---- who may use it --------------------------------------------------
     Field("THURSDAY_AUTH", "Require token", "Access", kind="choice",
           choices=("off", "remote", "always"), attr="auth",
@@ -122,6 +142,10 @@ FIELDS: tuple[Field, ...] = (
     Field("THURSDAY_REQUIRE_CONFIRMATION", "Ask before risky tools", "Safety", kind="bool", attr="require_confirmation"),
     Field("THURSDAY_ALLOW_SHELL", "Allow shell", "Safety", kind="bool", attr="allow_shell"),
     Field("THURSDAY_ENABLE_WEB_SEARCH", "Web search", "Safety", kind="bool", attr="enable_web_search"),
+    Field("THURSDAY_BROWSER_VISIBLE", "Show the browser", "Safety", kind="bool",
+          attr="browser_visible", help="Watch what it does rather than letting it work unseen."),
+    Field("THURSDAY_BROWSER_BINARY", "Browser binary", "Safety", kind="path",
+          help="Leave empty for Playwright's own Chromium; set it to use a system Chrome."),
 
     # ---- money -----------------------------------------------------------
     Field("THURSDAY_DAILY_BUDGET", "Daily budget (USD)", "Spending", kind="number",

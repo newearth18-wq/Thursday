@@ -61,6 +61,11 @@ class Proactive:
             self._task = None
 
     async def run(self) -> None:
+        # A job that was running when the process died would sit there for
+        # ever; put it back in the queue.
+        for job_id in self.recover_jobs():
+            log.info("re-queued job %s after a restart", job_id)
+
         while True:
             try:
                 await self.tick_once()
@@ -73,6 +78,7 @@ class Proactive:
     async def tick_once(self) -> None:
         await self.fire_reminders()
         await self.run_schedules()
+        await self.work_a_job()
         await self.reflect()
 
     # ------------------------------------------------------------- reminders
@@ -123,6 +129,58 @@ class Proactive:
                 )
             ran.append(entry["name"])
         return ran
+
+    # ----------------------------------------------------------------- jobs
+
+    def recover_jobs(self) -> list[int]:
+        """Re-queue anything left running when the process last died."""
+        stranded = self.agent.memory.unfinished_jobs()
+        for job in stranded:
+            self.agent.memory.requeue_job(job["id"])
+        return [job["id"] for job in stranded]
+
+    async def work_a_job(self) -> str | None:
+        """Take one queued job and see it through.
+
+        One at a time on purpose: two long jobs racing would interleave their
+        tool calls through the same agent and confuse each other's context.
+        """
+        job = self.agent.memory.next_job()
+        if job is None:
+            return None
+
+        await self.announce("job", f"{job['title']} — starting")
+        prompt = (
+            "You are working on this on your own, with nobody waiting on the "
+            "other end. Take the steps you need, then finish with the result "
+            "itself - not a description of what you did.\n\n"
+            f"{job['instruction']}"
+        )
+        try:
+            result = await self.agent.run(
+                prompt, session_id=f"job-{job['id']}", on_event=self.on_event
+            )
+            failed = False
+        except Exception as exc:
+            log.exception("job %s failed", job["id"])
+            result, failed = f"{type(exc).__name__}: {exc}", True
+
+        # A job cancelled while it ran should not be marked done.
+        current = self.agent.memory.job(job["id"])
+        if current and current["status"] == "cancelled":
+            await self.announce("job", f"{job['title']} — cancelled")
+            return job["title"]
+
+        self.agent.memory.finish_job(job["id"], result or "(nothing came back)", failed)
+        await self.announce(
+            "job", f"{job['title']} — {'failed' if failed else 'done'}: {(result or '')[:200]}"
+        )
+        await asyncio.to_thread(
+            notify_desktop,
+            f"{self.agent.settings.assistant_name}: {job['title']}",
+            (result or "")[:220],
+        )
+        return job["title"]
 
     # ------------------------------------------------------------- learning
 

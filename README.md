@@ -24,6 +24,8 @@ pip install -e ".[web]"     # เพิ่มหน้าเว็บ
 pip install -e ".[voice]"   # เพิ่มเสียง (ไมค์ + ลำโพง)
 pip install -e ".[vision]"  # เพิ่มการย่อรูป/สกรีนช็อต (Pillow)
 pip install -e ".[identity]" # เพิ่มจดจำหน้า/เสียง (หนัก: dlib ต้องคอมไพล์)
+pip install -e ".[documents]" # เพิ่มอ่าน PDF/Word
+pip install -e ".[browser]"  # เพิ่มคุมเบราว์เซอร์ (ต้อง playwright install chromium)
 pip install -e ".[all]"     # ทั้งหมด + เครื่องมือทดสอบ
 
 cp .env.example .env        # แล้วใส่ ANTHROPIC_API_KEY
@@ -349,6 +351,76 @@ THURSDAY_DAILY_BUDGET=5    # เกิน 5 ดอลลาร์ต่อวั
 (Anthropic ณ 2026-06-24) โมเดลในเครื่องคิดเป็นศูนย์ ที่เหลือรายงานเป็น
 `cost unknown` แทนที่จะเดา — เพิ่มเองได้ใน `pricing.json`
 
+## อ่านเอกสารของคุณ
+
+`search_files` คือ grep — ต้องรู้คำที่ใช้เป๊ะ ๆ ส่วนอันนี้หา**ใจความ**ที่ต้องการ
+
+```
+"สัญญาฉบับนั้นเขียนเรื่องยกเลิกว่าไง"
+"รายงานเดือนที่แล้วสรุปยอดไว้เท่าไหร่"
+```
+
+รองรับ PDF, Word, Markdown, ข้อความ และโค้ด — ตัดเป็นชิ้นซ้อนเหลื่อมกันเล็กน้อย
+(ประโยคที่คร่อมรอยต่อจะได้ไม่หายไปทั้งสองฝั่ง) แล้วทำ embedding เก็บใน SQLite
+ไฟล์เดิม ไฟล์ที่ไม่เปลี่ยนจะถูกข้าม
+
+**ใช้โมเดลในเครื่องเป็นค่าเริ่มต้น** — เอกสารของคุณไม่ออกเน็ต
+
+```bash
+ollama pull nomic-embed-text     # แล้วใช้ได้เลย ไม่ต้องตั้งอะไร
+```
+
+| `THURSDAY_EMBED_PROVIDER` | |
+| --- | --- |
+| `ollama` (ค่าเริ่มต้น), `lmstudio`, `llamacpp` | ในเครื่อง ไม่ต้องมี key |
+| `openai`, `gemini`, `together` | ถ้าอยากใช้แบบ hosted |
+
+ถ้าไม่มีโมเดล embedding เลย มันจะ**ยังทำดัชนีและค้นได้ด้วยคำ** (ให้คะแนนตามจำนวนคำที่ตรง)
+แค่ไม่เข้าใจความหมาย — บอกตรง ๆ แทนที่จะแกล้งฉลาด
+
+## ปฏิทินกับอีเมล
+
+```
+"วันนี้มีอะไรบ้าง"        "อาทิตย์นี้ว่างวันไหน"
+"มีเมลอะไรที่ต้องตอบ"
+```
+
+**ปฏิทิน** — ตั้ง `THURSDAY_CALENDARS` เป็น URL `.ics` หรือไฟล์ในเครื่อง คั่นด้วยจุลภาค
+ทุกแอปปฏิทิน (Google, iCloud, Fastmail, Outlook, Nextcloud) เผยแพร่ ICS ได้หมด
+จึงไม่ผูกกับเจ้าไหน อ่านอย่างเดียว
+
+**อีเมล** — IMAP ธรรมดา ตั้ง `THURSDAY_IMAP_HOST/_USER/_PASSWORD`
+(Gmail กับ Outlook ต้องใช้ app password — ข้อความ error บอกไว้)
+เปิดแบบ `readonly` จึงไม่ไปทำให้เมลกลายเป็น "อ่านแล้ว" และ**อ่านอย่างเดียว
+ส่งไม่ได้** — ผู้ช่วยที่ส่งเมลแทนคุณได้เป็นการตัดสินใจคนละเรื่องกัน
+
+## งานยาว ๆ เบื้องหลัง
+
+เทิร์นหนึ่งต้องจบตอนที่คุณรออยู่ และ `max_tool_iterations` จำกัดว่าทำได้แค่ไหน
+งานที่ใหญ่กว่านั้นให้สั่งเป็น job
+
+```
+"ไปเทียบสามเจ้านี้แล้วสรุปมาให้หน่อย"   → คิวไว้ ทำเบื้องหลัง เสร็จแล้วเด้งบอก
+```
+
+- **ทำทีละงาน** — สองงานยาวพร้อมกันจะเอา tool call ไปปนกันในเอเจนต์ตัวเดียว
+- **งานที่ค้างตอนเครื่องดับ จะถูกเอากลับเข้าคิว** ไม่ใช่ค้างเป็น "running" ตลอดกาล
+- ยกเลิกระหว่างทางได้ และจะไม่ถูกบันทึกว่าเสร็จ
+
+## คุมเบราว์เซอร์
+
+`fetch_url` อ่านหน้าเว็บได้ แต่ล็อกอิน กดปุ่ม กรอกฟอร์มไม่ได้ — ซึ่งเป็นงานส่วนใหญ่จริง ๆ
+
+```bash
+pip install -e ".[browser]" && playwright install chromium
+```
+
+- **ทุกคำสั่งต้องขออนุมัติ** เหมือน shell เพราะเบราว์เซอร์ที่ล็อกอินบัญชีคุณอยู่
+  ใช้จ่ายเงินและส่งข้อความได้
+- **เปิดให้เห็นหน้าจอเป็นค่าเริ่มต้น** (`THURSDAY_BROWSER_VISIBLE=1`) จะได้ดูว่ามันทำอะไร
+- session อยู่ข้ามคำสั่ง ล็อกอินครั้งเดียวแล้วทำงานต่อได้
+- `THURSDAY_BROWSER_BINARY` ชี้ไปที่ Chrome ของระบบได้ถ้าไม่อยากให้ Playwright โหลดเอง
+
 ## ค้นประวัติการคุย
 
 ความจำไม่ได้มีแค่ 40 ข้อความล่าสุดอีกต่อไป — `search_history` ค้นได้ทุกบทสนทนา
@@ -378,6 +450,10 @@ THURSDAY_DAILY_BUDGET=5    # เกิน 5 ดอลลาร์ต่อวั
 | เวลา | `current_time` `set_timer` `set_reminder` `list_reminders` `cancel_reminder` |
 | **Routines** | `save_routine` `run_routine` `list_routines` `delete_routine` |
 | **ตามเวลา** | `schedule_routine` `list_schedules` `cancel_schedule` |
+| **เอกสาร** | `index_documents` `search_documents` `list_documents` `forget_document` |
+| **ปฏิทิน/เมล** | `whats_on` `check_mail` `read_mail` |
+| **งานเบื้องหลัง** | `start_job` `check_jobs` `job_result` `cancel_job` |
+| **เบราว์เซอร์** | `browse`* `browser_act`* `browser_screenshot`* `close_browser` |
 | ความจำ | `remember_fact` `recall_facts` `forget_fact` `add_note` `search_notes` `delete_note` `search_history` |
 | เว็บ | `get_weather` `fetch_url` + `web_search` / `web_fetch` (ฝั่ง Anthropic) |
 
@@ -462,6 +538,8 @@ thursday/
   settings_store.py  schema ของค่าตั้งทั้งหมด + ไฟล์ overlay ที่หน้าเว็บเขียน
   proactive.py    ลูปเดียวที่ทำงานเอง: เตือน, schedule, ทบทวนความจำ
   schedule.py     แปลง "weekdays 08:00" เป็นเวลาถัดไป
+  embeddings.py   embedding แบบ local-first
+  documents.py    ทำดัชนี/ค้นเอกสาร (ถอยไปใช้คำเมื่อไม่มีโมเดล)
   service.py      systemd/launchd unit
   auth.py         access token, session, การล็อกเมื่อเดาผิด (กำแพงจริง)
   identity.py     จดจำหน้า/เสียง + นโยบาย (ระบุตัวตน ไม่ใช่ความปลอดภัย)
@@ -492,7 +570,7 @@ tests/            pytest, ไม่แตะ network
 
 ```bash
 pip install -e ".[dev]"
-pytest            # 333 tests, ไม่ต้องใช้ API key และไม่ต่อเน็ต
+pytest            # 390 tests, ไม่ต้องใช้ API key และไม่ต่อเน็ต
 ```
 
 เทสต์ของ provider ยิงผ่าน socket จริงไปยังเซิร์ฟเวอร์ OpenAI-compatible ปลอม

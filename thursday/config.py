@@ -176,6 +176,8 @@ class Settings:
     require_confirmation: bool = True
     allow_shell: bool = True
     enable_web_search: bool = True
+    # Show the browser window while Thursday drives it, so you can watch.
+    browser_visible: bool = True
 
     # Stop before starting a turn once today's spend passes this many US
     # dollars. Zero means no limit. Only counts models with a known price.
@@ -243,6 +245,7 @@ class Settings:
             require_confirmation=_env_bool("THURSDAY_REQUIRE_CONFIRMATION", True),
             allow_shell=_env_bool("THURSDAY_ALLOW_SHELL", True),
             enable_web_search=_env_bool("THURSDAY_ENABLE_WEB_SEARCH", True),
+            browser_visible=_env_bool("THURSDAY_BROWSER_VISIBLE", True),
             reflect_hours=_env_float("THURSDAY_REFLECT_HOURS", 0.0),
             daily_budget=_env_float("THURSDAY_DAILY_BUDGET", 0.0),
             show_cost=_env_bool("THURSDAY_SHOW_COST", False),
