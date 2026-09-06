@@ -395,6 +395,7 @@ def load_plugins(dirs: Iterable[Path], registry: ToolRegistry | None = None) -> 
 
 #: Importing one of these is what registers the tools inside it.
 BUILTIN_TOOL_MODULES = (
+    "briefing",
     "browser",
     "calendar",
     "desktop",

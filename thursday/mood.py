@@ -96,6 +96,7 @@ ACTIVITIES = {
     "delete_file": "deleting a file",
     "show_changes": "checking what I have changed",
     "undo_change": "putting that back",
+    "daily_brief": "pulling your day together",
     "read_mail": "reading an email",
     "get_weather": "checking the weather",
     "fetch_url": "reading a page",

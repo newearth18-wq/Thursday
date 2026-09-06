@@ -16,6 +16,7 @@ from pathlib import Path
 from typing import Any
 
 from .agent import Agent
+from .briefing import Briefing
 from .config import Settings
 from .events import Event
 from .auth import COOKIE, Gate, ensure_token
@@ -581,6 +582,21 @@ def create_app(settings: Settings | None = None) -> Any:
         finally:
             memory.close()
         return JSONResponse({"change": change.as_dict()})
+
+    @app.get("/api/brief")
+    async def read_brief(request: Request) -> Any:
+        """Your day, gathered from every source at once."""
+        if not guard(request):
+            return JSONResponse({"error": "unauthorised"}, status_code=401)
+        agent = Agent(settings=current(), household=household)
+        agent.speaking_to(state.get("person") or None)
+        try:
+            brief = await Briefing(agent).gather(
+                person=getattr(agent.person, "key", "") or ""
+            )
+        finally:
+            await agent.close()
+        return JSONResponse(brief.as_dict())
 
     @app.get("/api/status")
     async def status() -> Any:

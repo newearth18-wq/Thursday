@@ -138,6 +138,15 @@
                    background: rgba(255,204,102,.12); z-index: 60; }
   body.rehearsing .rehearse-band { display: block; }
 
+  .brief h3 { margin: 8px 0 3px; font-size: 10px; letter-spacing: .18em;
+              text-transform: uppercase; color: var(--mood); font-weight: 500; }
+  .brief h3:first-child { margin-top: 0; }
+  .brief div { font-size: 11.5px; padding: 2px 0 2px 10px; position: relative;
+               color: var(--text); }
+  .brief div::before { content: "·"; position: absolute; left: 0; color: var(--muted); }
+  .brief .quiet { color: var(--muted); font-style: italic; padding-left: 0; }
+  .brief .quiet::before { content: ""; }
+
   .steps { list-style: none; margin: 0; padding: 0; font-size: 11.5px; }
   .steps li { display: flex; gap: 7px; padding: 3px 0; color: var(--muted);
               align-items: baseline; }
@@ -457,6 +466,7 @@
     <button id="handsfree" aria-pressed="false" title="Listen for my name">Wake word</button>
     <button id="mic" aria-pressed="false" title="Push to talk">Mic</button>
     <button id="speak" aria-pressed="false" title="Read replies out loud">Voice</button>
+    <button id="brief" title="Your day, in one go">Brief</button>
     <button id="dryrun" aria-pressed="false" title="Say what you would do, change nothing">Rehearse</button>
     <button id="toAvatar" title="Leave the HUD (Esc)">Avatar</button>
     <button id="toConfig" title="Settings">Config</button>
@@ -484,6 +494,11 @@
         <div class="meter"><i id="mOut" style="width:0%"></i></div>
         <div class="row"><span>session cost</span><span id="sCost">—</span></div>
       </div>
+    </section>
+
+    <section class="panel" id="briefPanel" style="flex:none" hidden>
+      <h2>Your day <span id="briefWhen" style="float:right;letter-spacing:.1em"></span></h2>
+      <div class="body" id="briefBox"></div>
     </section>
 
     <section class="panel" id="draftsPanel" style="flex:none" hidden>
@@ -862,6 +877,7 @@ function showAvatar(on) {
 
 $("toAvatar").onclick = () => showAvatar(true);
 $("dryrun").onclick = () => setRehearsing(!rehearsing);
+$("brief").onclick = loadBrief;
 $("toHud").onclick = () => showAvatar(false);
 
 // Leaving the page hands over to the avatar, so coming back finds it there.
@@ -936,6 +952,55 @@ async function loadAccess() {
     line.textContent = `✗ ${entry.tool} — ${entry.reason}`;
     line.title = entry.arguments || "";
     box.append(line);
+  }
+}
+
+/* ----------------------------------------------------------------- brief */
+
+// Everything that needs you, from six places at once. Fetched rather than
+// pushed: it is a thing you ask for, not a thing that interrupts.
+async function loadBrief() {
+  let data;
+  try {
+    const response = await fetch("/api/brief");
+    if (!response.ok) return;
+    data = await response.json();
+  } catch { return; }
+
+  const panel = $("briefPanel");
+  const box = $("briefBox");
+  box.className = "body brief";
+  box.replaceChildren();
+  panel.hidden = false;
+  $("briefWhen").textContent = (data.when || "").slice(11, 16);
+
+  if (!data.anything) {
+    const quiet = document.createElement("div");
+    quiet.className = "quiet";
+    quiet.textContent = "Nothing needs you.";
+    box.append(quiet);
+    return;
+  }
+
+  for (const section of data.sections || []) {
+    // Empty sections are left out: a list of things you do not have is not
+    // a brief.
+    if (!section.items.length && !section.note) continue;
+    const heading = document.createElement("h3");
+    heading.textContent = section.name;
+    box.append(heading);
+    if (!section.items.length) {
+      const note = document.createElement("div");
+      note.className = "quiet";
+      note.textContent = section.note;
+      box.append(note);
+      continue;
+    }
+    for (const item of section.items) {
+      const line = document.createElement("div");
+      line.textContent = item;
+      box.append(line);
+    }
   }
 }
 

@@ -103,6 +103,9 @@ class Agent:
         # but this is the choke point every call goes through.
         self.policy = Policy.from_settings(self.settings)
         self.context.state["policy"] = self.policy
+        # The brief reads from six places at once; rather than passing six
+        # handles around, it borrows the assistant that already has them.
+        self.context.state["agent"] = self
 
         # Who lives here, and what each of them may do. With nobody listed,
         # everything behaves exactly as it did before there were people.

@@ -44,6 +44,7 @@ Commands:
   /memory            show what I remember about you
   /forget <key>      make me forget one thing
   /reminders         list pending reminders
+  /brief             your day: calendar, inbox, reminders, drafts, work
   /plan              the long job in progress, and which step
   /watching          what I am keeping an eye on
   /people            who lives here, and what each may do
@@ -421,6 +422,21 @@ def handle_command(line: str, agent: Agent, session_id: str, printer: Printer) -
                   f"{entry['target'][:50]}  ({what}, every {int(entry['every_seconds'])}s)")
             if entry["last_error"]:
                 print(printer.paint(f"      last error: {entry['last_error'][:120]}", RED))
+    elif command == "brief":
+        from .briefing import Briefing
+
+        brief = asyncio.run(Briefing(agent).gather())
+        print(printer.paint(f"  {brief.greeting}", BOLD))
+        if not brief.anything:
+            print(printer.paint("  nothing needs you", DIM))
+        for section in brief.sections:
+            if section.empty:
+                if section.note:
+                    print(printer.paint(f"  {section.name}: {section.note}", DIM))
+                continue
+            print(f"  {printer.paint(section.name.upper(), CYAN)}")
+            for item in section.items:
+                print(f"    · {item}")
     elif command == "plan":
         from .planner import Planner
 
