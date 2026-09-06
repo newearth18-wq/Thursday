@@ -49,6 +49,22 @@ def delete_note(note_id: int, ctx: ToolContext = None) -> str:
 
 
 @tool
+def search_history(query: str, limit: int = 8, this_session_only: bool = False, ctx: ToolContext = None) -> list[dict[str, Any]]:
+    """Search everything the user has ever said to you, not just this conversation.
+
+    Reach for this whenever the user refers to something from before - "what did
+    we decide about the database", "the restaurant I mentioned last week".
+
+    Args:
+        query: Words to look for.
+        limit: How many matches to return.
+        this_session_only: Restrict the search to the current conversation.
+    """
+    session = ctx.state.get("session_id") if (ctx and this_session_only) else None
+    return _memory(ctx).search_messages(query, limit, session)
+
+
+@tool
 def remember_fact(key: str, value: str, ctx: ToolContext = None) -> str:
     """Store a durable fact about the user, e.g. a preference or a birthday.
 

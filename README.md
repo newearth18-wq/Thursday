@@ -40,6 +40,7 @@ thursday tools        # ดูว่ามีความสามารถอ�
 thursday profiles     # ดู profile และโมเดลที่อยู่เบื้องหลังแต่ละอัน
 thursday providers    # เช็คว่าต่อ backend ไหนได้บ้างตอนนี้
 thursday models       # ถามว่า provider ปัจจุบันมีโมเดลอะไร
+thursday usage        # ดู token กับค่าใช้จ่ายย้อนหลัง
 thursday ask "ตอนนี้กี่โมง"    # ถามครั้งเดียวแล้วจบ
 
 thursday --local                     # ทุกอย่างรันบน Ollama ในเครื่อง
@@ -57,6 +58,8 @@ thursday --provider custom --base-url http://192.168.1.9:8000/v1
 | `/tools` | รายการเครื่องมือทั้งหมด |
 | `/see <path> [คำถาม]` | ให้ดูรูปแล้วถาม |
 | `/routines` | routine ที่บันทึกไว้ |
+| `/usage [วัน]` | token กับค่าใช้จ่าย แยกตามโมเดล |
+| `/mcp` | MCP server ที่ต่ออยู่ |
 | `/memory` | สิ่งที่ Thursday จำเกี่ยวกับคุณ |
 | `/forget <key>` | ลบความจำหนึ่งอย่าง |
 | `/reminders` | การเตือนที่ยังค้างอยู่ |
@@ -152,6 +155,77 @@ thursday --profile deep          # ปักไว้ตั้งแต่เร
 เพิ่ม profile ของตัวเองได้ที่ `profiles.json` (ดูตัวอย่างใน `profiles.example.json`)
 ชื่อซ้ำกับของเดิม = แก้ทับเฉพาะฟิลด์ที่ใส่
 
+## เรียกชื่อสั่งงาน
+
+ชื่อผู้ช่วยคือคำปลุก — เปลี่ยน `THURSDAY_NAME` แล้วมันจะตอบชื่อใหม่ทันที
+ไม่ต้องแก้ที่อื่น `THURSDAY_WAKE_WORDS` ใช้ *เพิ่ม* คำสะกดอื่น ไม่ใช่แทนที่
+(ระบบรู้จำเสียงสะกดชื่อต่างประเทศได้หลายแบบ)
+
+ใช้ได้ทั้งสามหน้าตา:
+
+- **โหมดเสียง** — พูด "Thursday ..." หรือพูดชื่อเฉย ๆ แล้วรอ "Yes?"
+- **หน้าเว็บ** — กดปุ่ม 👂 แล้วมันจะฟังตลอด แต่ตอบเฉพาะประโยคที่มีชื่อ
+  (ปุ่ม 🎙 คือส่งทุกประโยคเหมือนเดิม)
+- **เทอร์มินัล** — พิมพ์ได้ตรง ๆ ไม่ต้องเรียกชื่อ
+
+## MCP — ยืม tool จากคนอื่นมาใช้
+
+รองรับ [MCP](https://modelcontextprotocol.io) server ทำให้เสียบเครื่องมือสำเร็จรูป
+ได้ทั้งระบบนิเวศ (GitHub, Slack, Google Drive, Postgres, Puppeteer) โดยไม่ต้อง
+เขียน tool เอง
+
+```bash
+pip install -e ".[mcp]"
+cp mcp.example.json mcp.json   # แล้วแก้ตามต้องการ
+thursday                        # ตอนเริ่มจะบอกว่าต่อได้กี่ตัว
+/mcp                            # ดูสถานะ
+```
+
+```json
+{
+  "servers": {
+    "filesystem": {"command": "npx", "args": ["-y", "@modelcontextprotocol/server-filesystem", "/home/me/docs"]},
+    "notes": {"url": "https://example.com/mcp"}
+  }
+}
+```
+
+tool ที่ได้มาจะชื่อ `<server>_<tool>` เช่น `filesystem_read_file` — ชนกับของเดิม
+ไม่ได้ และดูออกทันทีว่ามาจากไหน server ที่สตาร์ตไม่ขึ้นจะถูกข้ามพร้อมบอกเหตุผล
+ไม่ทำให้ทั้งระบบล่ม
+
+## ค่าใช้จ่ายกับ token
+
+ทุกเทิร์นถูกบันทึกว่าใช้ token เท่าไหร่ บน provider/profile ไหน
+
+```bash
+thursday usage --days 7    # แยกตามโมเดล / profile / provider
+/usage 3                   # ในเทอร์มินัลระหว่างคุย
+THURSDAY_SHOW_COST=1       # แสดงต่อท้ายทุกคำตอบ
+THURSDAY_DAILY_BUDGET=5    # เกิน 5 ดอลลาร์ต่อวันแล้วหยุดรับงาน
+```
+
+จำนวน token แม่นเสมอเพราะมาจาก provider ส่วน**ราคา**มีเฉพาะโมเดลที่อยู่ในตาราง
+(Anthropic ณ 2026-06-24) โมเดลในเครื่องคิดเป็นศูนย์ ที่เหลือรายงานเป็น
+`cost unknown` แทนที่จะเดา — เพิ่มเองได้ใน `pricing.json`
+
+## ค้นประวัติการคุย
+
+ความจำไม่ได้มีแค่ 40 ข้อความล่าสุดอีกต่อไป — `search_history` ค้นได้ทุกบทสนทนา
+ที่เคยผ่านมา
+
+> "อาทิตย์ก่อนเราสรุปเรื่องฐานข้อมูลว่าไง"
+
+ใช้ FTS5 แบบ **trigram** เพราะภาษาไทยไม่เว้นวรรคระหว่างคำ — tokenizer ปกติจะ
+เก็บทั้งประโยคเป็นคำเดียวแล้วค้นข้างในไม่เจอ trigram ยังได้การค้นกลางคำและ
+ไม่สนตัวพิมพ์ใหญ่เล็กมาด้วย (คำค้นสั้นกว่า 3 ตัวจะถอยไปใช้ LIKE)
+
+## หยุดกลางคัน
+
+- **เทอร์มินัล** — Ctrl-C หยุดคำตอบที่กำลังพิมพ์ (Ctrl-D ถึงจะออกจากโปรแกรม)
+- **เว็บ** — ปุ่ม ⏹ หรือกด Esc
+- สิ่งที่พูดไปแล้วยังถูกเก็บไว้ ไม่ถูกทิ้ง
+
 ## ความสามารถ (Tools)
 
 | กลุ่ม | เครื่องมือ |
@@ -163,7 +237,7 @@ thursday --profile deep          # ปักไว้ตั้งแต่เร
 | **เดสก์ท็อป** | `read_clipboard` `write_clipboard` `set_volume` `media_control` `show_notification` `lock_screen` |
 | เวลา | `current_time` `set_timer` `set_reminder` `list_reminders` `cancel_reminder` |
 | **Routines** | `save_routine` `run_routine` `list_routines` `delete_routine` |
-| ความจำ | `remember_fact` `recall_facts` `forget_fact` `add_note` `search_notes` `delete_note` |
+| ความจำ | `remember_fact` `recall_facts` `forget_fact` `add_note` `search_notes` `delete_note` `search_history` |
 | เว็บ | `get_weather` `fetch_url` + `web_search` / `web_fetch` (ฝั่ง Anthropic) |
 
 \* ต้องให้คุณกดอนุมัติก่อนทุกครั้ง
@@ -242,6 +316,8 @@ thursday/
   persona.py      system prompt (ส่วนคงที่แยกจากส่วนที่เปลี่ยนทุกครั้ง)
   events.py       เหตุการณ์ที่ front end ทุกตัวใช้ร่วมกัน
   notify.py       desktop notification ข้ามแพลตฟอร์ม
+  mcp.py          MCP client (เสียบ server ภายนอก)
+  pricing.py      ตารางราคาและการคิดค่าใช้จ่าย
   tools/          registry + เครื่องมือมาตรฐาน (มี vision, desktop, routines)
   voice/          stt.py, tts.py, loop.py (คำปลุก + VAD)
   cli.py          เทอร์มินัล
@@ -268,12 +344,17 @@ tests/            pytest, ไม่แตะ network
 
 ```bash
 pip install -e ".[dev]"
-pytest            # 165 tests, ไม่ต้องใช้ API key และไม่ต่อเน็ต
+pytest            # 215 tests, ไม่ต้องใช้ API key และไม่ต่อเน็ต
 ```
 
 เทสต์ของ provider ยิงผ่าน socket จริงไปยังเซิร์ฟเวอร์ OpenAI-compatible ปลอม
 (`tests/fake_openai_server.py`) จึงครอบคลุม SSE, tool call ที่ถูกหั่นเป็นชิ้น
 และการรันครบลูปบนโมเดลในเครื่อง โดยไม่ต้องติดตั้ง Ollama
+
+เทสต์ MCP ก็สตาร์ต server จริง (`tests/mcp_test_server.py`) เป็น subprocess
+ไม่ได้ mock — จึงครอบคลุม stdio transport, การอ่าน schema และเส้นทาง error จริง
+
+CI รันทุก push บน Python 3.10-3.13 พร้อม pyflakes
 
 ## License
 

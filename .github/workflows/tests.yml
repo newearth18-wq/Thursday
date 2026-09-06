@@ -1,0 +1,51 @@
+name: tests
+
+on:
+  push:
+    branches: ["**"]
+  pull_request:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version: ["3.10", "3.11", "3.12", "3.13"]
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+          cache: pip
+
+      - name: Install
+        # Voice extras pull in audio libraries that need a sound stack; the
+        # voice tests import lazily and skip what is missing. The MCP tests
+        # start a server from tests/, so no package downloads at test time.
+        run: |
+          python -m pip install --upgrade pip
+          pip install -e ".[web,vision,mcp,dev]"
+
+      - name: Test
+        # No API key and no network: every provider test runs against the
+        # fake OpenAI-compatible server in tests/.
+        run: pytest -q
+
+  lint:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+      - run: pip install pyflakes
+      - name: Unused imports and undefined names
+        run: pyflakes thursday/ tests/ plugins/

@@ -10,13 +10,17 @@ without the rest of the code noticing.
 
 from __future__ import annotations
 
+import asyncio
 import logging
+from datetime import datetime
 from typing import Any, Iterable
 
 from .config import Settings
 from .events import Event, EventHandler
+from .mcp import MCPManager
 from .memory import Memory
 from .persona import situational_context, system_prompt
+from .pricing import estimate_cost, format_cost, load_prices, normalise_usage
 from .profiles import Profile, load_profiles
 from .providers import (
     ANTHROPIC,
@@ -43,6 +47,12 @@ def server_tools(settings: Settings, profile: Profile | None = None) -> list[dic
         {"type": "web_search_20260209", "name": "web_search", "max_uses": 6},
         {"type": "web_fetch_20260209", "name": "web_fetch", "max_uses": 6},
     ]
+
+
+def _start_of_day() -> float:
+    """Midnight local time, as a timestamp."""
+    now = datetime.now().astimezone()
+    return now.replace(hour=0, minute=0, second=0, microsecond=0).timestamp()
 
 
 def strip_images(tool_results: list[dict[str, Any]]) -> list[dict[str, Any]]:
@@ -99,8 +109,32 @@ class Agent:
             classifier_model=self.settings.classifier_model,
         )
         self._providers: dict[str, Provider] = {}
+        self.prices = load_prices(self.settings.pricing_paths)
+        self.mcp = MCPManager.from_settings(self.settings)
+        self._started = False
+        #: The turn currently in flight, so a front end can stop it.
+        self._turn: asyncio.Task[Any] | None = None
+        #: Text streamed so far this turn, handed back if it is cancelled.
+        self._partial = ""
+        self._cancelled_here = False
 
     # ------------------------------------------------------------------ setup
+
+    async def start(self) -> list[str]:
+        """Connect anything that needs a connection. Safe to call twice.
+
+        Front ends call this before the first turn; skipping it just means no
+        MCP tools, not a broken assistant.
+        """
+        if self._started:
+            return self.mcp.tool_names
+        self._started = True
+        names = await self.mcp.connect(self.registry)
+        if names:
+            log.info("MCP added %d tools", len(names))
+        for server, problem in self.mcp.failures.items():
+            log.warning("MCP server %s unavailable: %s", server, problem)
+        return names
 
     def set_confirm_handler(self, handler) -> None:
         """Install the callback tools use to ask the user for approval."""
@@ -200,6 +234,18 @@ class Agent:
                 log.debug("no classifier provider: %s", exc)
         return await self.router.route(text, classifier, override=override)
 
+    @property
+    def busy(self) -> bool:
+        return self._turn is not None and not self._turn.done()
+
+    def cancel(self) -> bool:
+        """Stop the turn in flight. Returns False when there was nothing to stop."""
+        if not self.busy:
+            return False
+        self._cancelled_here = True
+        self._turn.cancel()  # type: ignore[union-attr]
+        return True
+
     async def run(
         self,
         user_input: str,
@@ -212,11 +258,55 @@ class Agent:
 
         `images` are (media_type, base64) pairs to show the model alongside the
         text; `profile` forces a profile instead of letting the router choose.
+
+        The turn runs as a task so `cancel()` can stop it mid-stream. A
+        cancelled turn returns what had been said so far rather than raising -
+        the user asked it to stop, which is not an error.
         """
+        self._turn = asyncio.ensure_future(
+            self._run_turn(user_input, session_id, on_event, images, profile)
+        )
+        try:
+            return await self._turn
+        except asyncio.CancelledError:
+            # Only swallow a cancel we caused; a cancel from outside must
+            # keep propagating or the caller cannot shut down.
+            if not self._cancelled_here:
+                raise
+            self._cancelled_here = False
+            partial = self._partial
+            if on_event is not None:
+                await on_event(Event("cancelled", text=partial))
+            return partial
+        finally:
+            self._turn = None
+
+    async def _run_turn(
+        self,
+        user_input: str,
+        session_id: str = "default",
+        on_event: EventHandler | None = None,
+        images: list[tuple[str, str]] | None = None,
+        profile: str | None = None,
+    ) -> str:
+        self._partial = ""
+        # Tools that scope themselves to "this conversation" need to know which.
+        self.context.state["session_id"] = session_id
 
         async def emit(event: Event) -> None:
             if on_event is not None:
                 await on_event(event)
+
+        if self.over_budget():
+            spent = self.memory.spend_since(_start_of_day())
+            message = (
+                f"today's spend is {format_cost(spent)}, past the "
+                f"{format_cost(self.settings.daily_budget)} budget. Raise "
+                "THURSDAY_DAILY_BUDGET, or switch to a local profile with /profile private."
+            )
+            await emit(Event("error", text=message))
+            await emit(Event("done", text=message))
+            return message
 
         routing = await self.route(user_input, override=profile)
         active = routing.profile
@@ -267,6 +357,8 @@ class Agent:
         reply_parts: list[str] = []
 
         async def on_delta(kind: str, chunk: str) -> None:
+            if kind == "text":
+                self._partial += chunk
             await emit(Event("text" if kind == "text" else "thinking", text=chunk))
 
         for _ in range(self.settings.max_tool_iterations):
@@ -287,6 +379,8 @@ class Agent:
                 message = str(exc)
                 await emit(Event("error", text=message))
                 return message
+
+            await self._meter(result, session_id, active.name, provider_name, model, emit)
 
             text = result.text()
             if text:
@@ -322,6 +416,47 @@ class Agent:
         final = "\n".join(part for part in reply_parts if part).strip()
         await emit(Event("done", text=final))
         return final
+
+    def over_budget(self) -> bool:
+        """Whether today's known spend has passed the configured ceiling."""
+        if self.settings.daily_budget <= 0:
+            return False
+        return self.memory.spend_since(_start_of_day()) >= self.settings.daily_budget
+
+    async def _meter(
+        self,
+        result: Any,
+        session_id: str,
+        profile_name: str,
+        provider_name: str,
+        model: str,
+        emit,
+    ) -> None:
+        """Record what the turn used, and say so if asked to."""
+        counts = normalise_usage(result.usage)
+        if not any(counts.values()):
+            return  # a provider that reports nothing - nothing to record
+        cost = estimate_cost(model, result.usage, provider_name, self.prices)
+        try:
+            self.memory.record_usage(
+                session_id, profile_name, provider_name, model, counts, cost
+            )
+        except Exception:  # metering must never break a conversation
+            log.exception("could not record usage")
+
+        await emit(
+            Event(
+                "usage",
+                text=format_cost(cost) if self.settings.show_cost else "",
+                data={
+                    "input": counts["input"],
+                    "output": counts["output"],
+                    "cached": counts["cache_read"] + counts["cache_write"],
+                    "cost": cost,
+                    "model": model,
+                },
+            )
+        )
 
     async def _run_tools(
         self, content: Iterable[dict[str, Any]], profile: Profile, emit
@@ -400,6 +535,7 @@ class Agent:
         return results
 
     async def close(self) -> None:
+        await self.mcp.close()
         for provider in self._providers.values():
             await provider.close()
         self._providers.clear()

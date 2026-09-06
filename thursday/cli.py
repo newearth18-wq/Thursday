@@ -6,7 +6,9 @@ Plain ANSI - no extra dependencies, so `thursday chat` works on a fresh install.
 from __future__ import annotations
 
 import asyncio
+import signal
 import sys
+import time
 
 from .agent import Agent
 from .config import Settings
@@ -36,15 +38,19 @@ Commands:
   /profile [name]    show or pin the profile (empty name unpins)
   /profiles          list profiles and the model behind each
   /providers         which backends are reachable right now
+  /mcp               MCP servers and what they contributed
   /tools             list the tools I can use
   /see <path> [ask]  show me an image and ask about it
   /memory            show what I remember about you
   /forget <key>      make me forget one thing
   /reminders         list pending reminders
+  /usage [days]      tokens and cost, by model
   /routines          list saved routines
   /clear             wipe this session's history
   /thinking          toggle showing my reasoning
   /quit              exit
+
+Ctrl-C stops the answer in progress; Ctrl-D leaves.
 """
 
 
@@ -93,6 +99,21 @@ class Printer:
         elif event.type == "error":
             self._newline()
             print(self.paint(event.text, RED))
+        elif event.type == "usage":
+            if event.text:
+                data = event.data
+                self._newline()
+                print(
+                    self.paint(
+                        f"  ∑ {data['input']:,} in / {data['output']:,} out"
+                        + (f" / {data['cached']:,} cached" if data["cached"] else "")
+                        + f" · {event.text}",
+                        DIM,
+                    )
+                )
+        elif event.type == "cancelled":
+            self._newline()
+            print(self.paint("  ⏹ stopped", YELLOW))
         elif event.type == "done":
             self._newline()
 
@@ -143,6 +164,43 @@ async def check_providers(settings: Settings) -> list[tuple[str, bool, str]]:
             await provider.close()
         results.append((name, ok, detail))
     return results
+
+
+async def run_turn(
+    agent: Agent,
+    text: str,
+    session_id: str,
+    printer: Printer,
+    images: list[tuple[str, str]] | None = None,
+) -> str:
+    """Run one turn with Ctrl-C wired to stopping it rather than quitting.
+
+    A long answer from the `deep` profile should be interruptible the way any
+    other long-running terminal command is.
+    """
+    loop = asyncio.get_running_loop()
+    turn = asyncio.ensure_future(
+        agent.run(text, session_id=session_id, on_event=printer, images=images)
+    )
+
+    def interrupt() -> None:
+        if not agent.cancel():
+            turn.cancel()
+
+    try:
+        loop.add_signal_handler(signal.SIGINT, interrupt)
+    except (NotImplementedError, RuntimeError):  # Windows, or no running loop
+        return await turn
+
+    try:
+        return await turn
+    except asyncio.CancelledError:
+        return ""
+    finally:
+        try:
+            loop.remove_signal_handler(signal.SIGINT)
+        except (NotImplementedError, RuntimeError):
+            pass
 
 
 async def watch_reminders(agent: Agent, printer: Printer) -> None:
@@ -225,6 +283,36 @@ def handle_command(line: str, agent: Agent, session_id: str, printer: Printer) -
             repeat = f" (every {round(reminder.repeat_seconds / 3600)}h)" if reminder.repeat_seconds else ""
             lines.append(f"  [{reminder.id}] {reminder.text} - {detail['due_at']}{repeat}")
         print("\n".join(lines) or "  (none)")
+    elif command == "mcp":
+        rows = agent.mcp.status()
+        if not rows:
+            print("  no MCP servers configured (see mcp.example.json)")
+        for row in rows:
+            mark = printer.paint("ok", GREEN) if row["connected"] else printer.paint("--", RED)
+            detail = f"{row['tools']} tools" if row["connected"] else row["problem"]
+            print(f"  [{mark}] {row['name']} ({row['kind']}) - {detail}")
+    elif command == "usage":
+        from .pricing import format_cost
+
+        try:
+            days = max(1, int(argument.strip() or 1))
+        except ValueError:
+            days = 1
+        since = time.time() - days * 86400
+        rows = agent.memory.usage_summary(since=since)
+        if not rows:
+            print(f"  nothing recorded in the last {days} day(s)")
+        else:
+            print(f"  last {days} day(s):")
+            total = 0.0
+            for row in rows:
+                cost = format_cost(row["cost"]) + ("+" if row["partial"] else "")
+                print(
+                    f"    {row['key']:26} {row['turns']:>4} turns  "
+                    f"{row['input_tokens']:>9,} in  {row['output_tokens']:>8,} out  {cost:>10}"
+                )
+                total += row["cost"] or 0.0
+            print(f"    {'total':26} {'':>4}        {'':>9}     {'':>8}      {format_cost(total):>10}")
     elif command == "routines":
         routines = agent.memory.list_routines()
         for routine in routines:
@@ -250,7 +338,14 @@ async def chat(settings: Settings | None = None, session_id: str = "cli") -> Non
     agent.set_confirm_handler(confirm_in_terminal)
 
     printer = Printer(color=supports_color())
-    print(BANNER if printer.color else "Thursday at your service - /help for commands")
+    print(BANNER if printer.color else f"{settings.assistant_name} at your service - /help for commands")
+
+    mcp_tools = await agent.start()
+    for row in agent.mcp.status():
+        if row["problem"]:
+            print(f"{YELLOW}  MCP {row['name']}: {row['problem']}{RESET}")
+    if mcp_tools:
+        print(f"{DIM}  MCP added {len(mcp_tools)} tools{RESET}")
     default_profile = agent.profiles[agent.router.default_name]
     print(
         f"{DIM}{agent.provider_name_for(default_profile)}/{agent.model_for(default_profile)} · "
@@ -277,10 +372,11 @@ async def chat(settings: Settings | None = None, session_id: str = "cli") -> Non
                 except Exception as exc:
                     print(printer.paint(f"  {exc}", RED))
                     continue
-                await agent.run(
+                await run_turn(
+                    agent,
                     question.strip() or "What am I looking at?",
-                    session_id=session_id,
-                    on_event=printer,
+                    session_id,
+                    printer,
                     images=images,
                 )
                 continue
@@ -290,7 +386,7 @@ async def chat(settings: Settings | None = None, session_id: str = "cli") -> Non
                     break
                 continue
 
-            await agent.run(line, session_id=session_id, on_event=printer)
+            await run_turn(agent, line, session_id, printer)
     finally:
         watcher.cancel()
         await agent.close()

@@ -106,6 +106,7 @@ def create_app(settings: Settings | None = None) -> Any:
         await websocket.accept()
         session_id = websocket.query_params.get("session") or f"web-{uuid.uuid4().hex[:8]}"
         agent = Agent(settings=settings)
+        await agent.start()
 
         # Pending confirmations, keyed by request id, resolved by the browser.
         pending: dict[str, asyncio.Future[bool]] = {}
@@ -182,6 +183,8 @@ def create_app(settings: Settings | None = None) -> Any:
                 {
                     "type": "ready",
                     "session": session_id,
+                    "name": settings.assistant_name,
+                    "wake_words": list(settings.voice.wake_words),
                     "provider": agent.provider_name_for(default_profile),
                     "model": agent.model_for(default_profile),
                     "routing": agent.router.mode,
@@ -212,6 +215,12 @@ def create_app(settings: Settings | None = None) -> Any:
                     if future is not None and not future.done():
                         future.set_result(bool(payload.get("approved")))
                     continue
+                if kind == "cancel":
+                    stopped = agent.cancel()
+                    await websocket.send_text(
+                        json.dumps({"type": "cancel_ack", "stopped": stopped})
+                    )
+                    continue
                 if kind == "clear":
                     agent.memory.clear_session(session_id)
                     await websocket.send_text(json.dumps({"type": "cleared"}))
@@ -237,6 +246,7 @@ def create_app(settings: Settings | None = None) -> Any:
         finally:
             reminder_task.cancel()
             worker_task.cancel()
+            await agent.close()
 
     return app
 

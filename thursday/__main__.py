@@ -19,11 +19,14 @@ def build_parser() -> argparse.ArgumentParser:
         "mode",
         nargs="?",
         default="chat",
-        choices=["chat", "voice", "serve", "tools", "ask", "providers", "profiles", "models"],
+        choices=[
+            "chat", "voice", "serve", "tools", "ask",
+            "providers", "profiles", "models", "usage",
+        ],
         help="chat: terminal · voice: wake word + speech · serve: web UI · "
         "tools: list capabilities · ask: one-shot question · "
         "providers: which backends are reachable · profiles: task profiles · "
-        "models: models a provider offers",
+        "models: models a provider offers · usage: tokens and cost",
     )
     parser.add_argument("question", nargs="*", help="the question, for `ask`")
     parser.add_argument("--model", help="override the model id")
@@ -46,6 +49,7 @@ def build_parser() -> argparse.ArgumentParser:
     )
     parser.add_argument("--effort", choices=["low", "medium", "high", "xhigh", "max"])
     parser.add_argument("--session", default=None, help="conversation to continue")
+    parser.add_argument("--days", type=int, default=7, help="window for `usage`")
     parser.add_argument("--host", help="web UI bind address")
     parser.add_argument("--port", type=int, help="web UI port")
     parser.add_argument("--no-confirm", action="store_true", help="do not ask before risky tools")
@@ -125,6 +129,37 @@ def list_models(settings: Settings) -> None:
         print(f"  {model}")
 
 
+def show_usage(settings: Settings, days: int = 7) -> None:
+    """Report tokens and cost over the last few days."""
+    import time
+
+    from .memory import Memory
+    from .pricing import format_cost
+
+    memory = Memory(settings.db_path)
+    since = time.time() - max(1, days) * 86400
+
+    if not memory.usage_summary(since=since):
+        print(f"nothing recorded in the last {days} day(s)")
+        return
+
+    for group in ("model", "profile", "provider"):
+        rows = memory.usage_summary(since=since, group_by=group)
+        if not rows:
+            continue
+        print(f"\nby {group}:")
+        for row in rows:
+            cost = format_cost(row["cost"]) + ("+" if row["partial"] else "")
+            print(
+                f"  {row['key']:28} {row['turns']:>4} turns  "
+                f"{row['input_tokens']:>10,} in  {row['output_tokens']:>9,} out  {cost:>10}"
+            )
+
+    total = memory.spend_since(since)
+    print(f"\nlast {days} day(s): {format_cost(total)}")
+    print("(+ means some turns ran on a model with no price in the table)")
+
+
 def list_tools(settings: Settings) -> None:
     from .agent import server_tools
     from .tools import build_registry
@@ -146,8 +181,12 @@ async def ask_once(settings: Settings, question: str, session: str) -> int:
 
     agent = Agent(settings=settings)
     agent.set_confirm_handler(confirm_in_terminal)
+    await agent.start()
     printer = Printer(color=supports_color())
-    await agent.run(question, session_id=session, on_event=printer)
+    try:
+        await agent.run(question, session_id=session, on_event=printer)
+    finally:
+        await agent.close()
     return 0
 
 
@@ -199,6 +238,9 @@ def main(argv: list[str] | None = None) -> int:
         return 0
     if args.mode == "models":
         list_models(settings)
+        return 0
+    if args.mode == "usage":
+        show_usage(settings, args.days)
         return 0
     if args.mode == "serve":
         from .server import serve

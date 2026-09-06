@@ -23,6 +23,7 @@ from __future__ import annotations
 import asyncio
 import contextlib
 import dataclasses
+import importlib
 import importlib.util
 import inspect
 import json
@@ -392,10 +393,24 @@ def load_plugins(dirs: Iterable[Path], registry: ToolRegistry | None = None) -> 
     return loaded
 
 
+#: Importing one of these is what registers the tools inside it.
+BUILTIN_TOOL_MODULES = (
+    "desktop",
+    "files",
+    "knowledge",
+    "routines",
+    "shell",
+    "system",
+    "timekeeping",
+    "vision",
+    "web",
+)
+
+
 def build_registry(settings: Any = None) -> ToolRegistry:
     """Import the built-in tool modules, load plugins, and return the registry."""
-    from . import desktop, files, knowledge, routines, system, timekeeping, vision, web  # noqa: F401
-    from . import shell  # noqa: F401
+    for module_name in BUILTIN_TOOL_MODULES:
+        importlib.import_module(f".{module_name}", __package__)
 
     registry = ToolRegistry()
     registry.extend(list(REGISTRY))
@@ -416,6 +431,7 @@ __all__ = [
     "ToolError",
     "ToolRegistry",
     "build_registry",
+    "BUILTIN_TOOL_MODULES",
     "build_schema",
     "load_plugins",
     "registering_into",

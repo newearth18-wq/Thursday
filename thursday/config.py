@@ -53,16 +53,44 @@ def _env_float(name: str, default: float) -> float:
         return default
 
 
+def wake_words_for(assistant_name: str) -> tuple[str, ...]:
+    """What the assistant answers to: its name, plus any configured aliases.
+
+    The name always counts, so renaming the assistant renames the wake word.
+    THURSDAY_WAKE_WORDS adds alternatives - useful because speech recognition
+    spells a foreign name several ways.
+    """
+    name = assistant_name.strip().lower()
+    raw = os.environ.get("THURSDAY_WAKE_WORDS")
+    if raw is None:
+        # Only the stock name gets the stock Thai spellings; a renamed
+        # assistant would not answer to them.
+        aliases: tuple[str, ...] = THAI_ALIASES if name == "thursday" else ()
+    else:
+        aliases = tuple(word.strip().lower() for word in raw.split(",") if word.strip())
+    seen: list[str] = []
+    for word in (name, *aliases):
+        if word and word not in seen:
+            seen.append(word)
+    return tuple(seen)
+
+
 def _env_path(name: str, default: Path) -> Path:
     raw = os.environ.get(name)
     return Path(raw).expanduser() if raw else default
+
+
+#: Thai spellings of "Thursday" that speech recognition tends to produce.
+THAI_ALIASES = ("เธิร์สเดย์", "เทิร์สเดย์", "เธิสเดย์")
 
 
 @dataclass
 class VoiceSettings:
     """Wake word, speech-to-text and text-to-speech settings."""
 
-    wake_words: tuple[str, ...] = ("thursday", "เธิร์สเดย์", "เทิร์สเดย์")
+    # Filled in from the assistant's name by Settings.from_env, so renaming
+    # the assistant renames what it answers to.
+    wake_words: tuple[str, ...] = ()
     # Skip the wake word entirely and treat every utterance as a command.
     always_listening: bool = False
     # Seconds of silence that end an utterance.
@@ -82,11 +110,9 @@ class VoiceSettings:
     tts_rate: int = 175
 
     @classmethod
-    def from_env(cls) -> "VoiceSettings":
-        wake_raw = os.environ.get("THURSDAY_WAKE_WORDS", "")
-        wake = tuple(w.strip().lower() for w in wake_raw.split(",") if w.strip())
+    def from_env(cls, assistant_name: str = "Thursday") -> "VoiceSettings":
         return cls(
-            wake_words=wake or cls.wake_words,
+            wake_words=wake_words_for(assistant_name),
             always_listening=_env_bool("THURSDAY_ALWAYS_LISTENING", False),
             silence_timeout=_env_float("THURSDAY_SILENCE_TIMEOUT", 1.2),
             max_utterance=_env_float("THURSDAY_MAX_UTTERANCE", 20.0),
@@ -145,6 +171,12 @@ class Settings:
     allow_shell: bool = True
     enable_web_search: bool = True
 
+    # Stop before starting a turn once today's spend passes this many US
+    # dollars. Zero means no limit. Only counts models with a known price.
+    daily_budget: float = 0.0
+    # Show what each turn cost as it finishes.
+    show_cost: bool = False
+
     max_tool_iterations: int = 12
     history_turns: int = 40
 
@@ -156,6 +188,7 @@ class Settings:
     @classmethod
     def from_env(cls) -> "Settings":
         load_dotenv()
+        assistant_name = os.environ.get("THURSDAY_NAME", "Thursday")
         plugin_raw = os.environ.get("THURSDAY_PLUGIN_DIRS", "")
         plugin_dirs = tuple(
             Path(p).expanduser() for p in plugin_raw.split(os.pathsep) if p.strip()
@@ -174,7 +207,7 @@ class Settings:
             effort=os.environ.get("THURSDAY_EFFORT", "medium"),
             thinking=_env_bool("THURSDAY_THINKING", True),
             show_thinking=_env_bool("THURSDAY_SHOW_THINKING", False),
-            assistant_name=os.environ.get("THURSDAY_NAME", "Thursday"),
+            assistant_name=assistant_name,
             user_name=os.environ.get("THURSDAY_USER_NAME", "sir"),
             language_hint=os.environ.get(
                 "THURSDAY_LANGUAGE_HINT",
@@ -186,16 +219,34 @@ class Settings:
             require_confirmation=_env_bool("THURSDAY_REQUIRE_CONFIRMATION", True),
             allow_shell=_env_bool("THURSDAY_ALLOW_SHELL", True),
             enable_web_search=_env_bool("THURSDAY_ENABLE_WEB_SEARCH", True),
+            daily_budget=_env_float("THURSDAY_DAILY_BUDGET", 0.0),
+            show_cost=_env_bool("THURSDAY_SHOW_COST", False),
             max_tool_iterations=_env_int("THURSDAY_MAX_TOOL_ITERATIONS", 12),
             history_turns=_env_int("THURSDAY_HISTORY_TURNS", 40),
             host=os.environ.get("THURSDAY_HOST", "127.0.0.1"),
             port=_env_int("THURSDAY_PORT", 8765),
-            voice=VoiceSettings.from_env(),
+            voice=VoiceSettings.from_env(assistant_name),
         )
 
     @property
     def db_path(self) -> Path:
         return self.data_dir / "thursday.db"
+
+    @property
+    def mcp_paths(self) -> tuple[Path, ...]:
+        """Where MCP server definitions may live; the first hit wins."""
+        override = os.environ.get("THURSDAY_MCP_CONFIG")
+        if override:
+            return (Path(override).expanduser(),)
+        return (PROJECT_ROOT / "mcp.json", self.data_dir / "mcp.json")
+
+    @property
+    def pricing_paths(self) -> tuple[Path, ...]:
+        """Where a user-supplied price table may live."""
+        override = os.environ.get("THURSDAY_PRICING")
+        if override:
+            return (Path(override).expanduser(),)
+        return (PROJECT_ROOT / "pricing.json", self.data_dir / "pricing.json")
 
     @property
     def profile_paths(self) -> tuple[Path, ...]:

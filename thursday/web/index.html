@@ -90,7 +90,9 @@
     border-radius: 10px; padding: 12px 14px; color: var(--text); font: inherit; outline: none;
   }
   .composer input:focus { border-color: var(--accent-dim); }
-  #mic[aria-pressed="true"] { color: var(--user); border-color: var(--user); }
+  #mic[aria-pressed="true"], #handsfree[aria-pressed="true"] { color: var(--user); border-color: var(--user); }
+  #stop { color: var(--warn); border-color: var(--warn); }
+  .waiting { color: var(--muted); font-style: italic; }
   .tray { max-width: 860px; margin: 0 auto 10px; display: flex; gap: 8px; flex-wrap: wrap; }
   .tray:empty { display: none; }
   .chip { position: relative; border: 1px solid var(--line); border-radius: 8px; overflow: hidden; height: 60px; }
@@ -136,10 +138,12 @@
   <div class="tray" id="tray"></div>
   <form id="form">
     <button type="button" id="mic" aria-pressed="false" title="Hold a conversation by voice">🎙</button>
+    <button type="button" id="handsfree" aria-pressed="false" title="Listen for my name">👂</button>
     <button type="button" id="attach" title="Attach an image (or paste / drop one)">📎</button>
     <input type="file" id="file" accept="image/png,image/jpeg,image/gif,image/webp" multiple hidden>
     <input id="input" autocomplete="off" placeholder="Ask Thursday anything…" autofocus>
-    <button type="submit">Send</button>
+    <button type="button" id="stop" hidden title="Stop the answer">⏹ Stop</button>
+    <button type="submit" id="send">Send</button>
   </form>
 </div>
 
@@ -162,6 +166,8 @@ const speakButton = document.getElementById("speak");
 const dialog = document.getElementById("confirm");
 const tray = document.getElementById("tray");
 const profileSelect = document.getElementById("profile");
+const stopButton = document.getElementById("stop");
+const handsFreeButton = document.getElementById("handsfree");
 const fileInput = document.getElementById("file");
 
 let socket = null;
@@ -170,6 +176,9 @@ let pendingConfirm = null;
 let speakReplies = false;
 let voiceTurn = false;       // the current question arrived by voice
 let spokenUpTo = 0;          // how much of the reply has been sent to the synthesiser
+let handsFree = false;       // ignore speech until my name is said
+let wakeWords = ["thursday"];
+let assistantName = "Thursday";
 
 function scroll() { window.requestAnimationFrame(() => log.lastElementChild?.scrollIntoView({ block: "end" })); }
 
@@ -233,6 +242,31 @@ function handle(event) {
     case "ready":
       statusEl.textContent = `online · ${event.provider}/${event.model} · ${event.routing} routing`;
       fillProfiles(event.profiles || []);
+      assistantName = event.name || assistantName;
+      wakeWords = (event.wake_words || []).map((word) => word.toLowerCase());
+      handsFreeButton.title = `Listen for "${assistantName}"`;
+      input.placeholder = `Ask ${assistantName} anything…`;
+      break;
+
+    case "usage": {
+      const { input, output, cost } = event.data || {};
+      const node = addTurn("", "routed");
+      node.classList.add("routed");
+      node.textContent =
+        `${input.toLocaleString()} in · ${output.toLocaleString()} out` +
+        (cost === null || cost === undefined ? "" : ` · $${cost.toFixed(4)}`);
+      break;
+    }
+
+    case "cancelled":
+      document.body.classList.remove("thinking");
+      stopButton.hidden = true;
+      addLine("stopped", "waiting");
+      currentBody = null;
+      break;
+
+    case "cancel_ack":
+      if (!event.stopped) stopButton.hidden = true;
       break;
 
     case "profile": {
@@ -304,6 +338,7 @@ function handle(event) {
 
     case "done":
       document.body.classList.remove("thinking");
+      stopButton.hidden = true;
       if (currentBody && (voiceTurn || speakReplies)) {
         speak(currentBody.textContent.slice(spokenUpTo));  // whatever was left
       }
@@ -442,6 +477,7 @@ function send(text, byVoice) {
   voiceTurn = !!byVoice;
   currentBody = null;
   document.body.classList.add("thinking");
+  stopButton.hidden = false;
   socket.send(JSON.stringify({
     type: "message",
     text,
@@ -467,6 +503,20 @@ speakButton.onclick = () => {
   if (!speakReplies) synth?.cancel();
 };
 
+/* ------------------------------------------------------------- wake word */
+
+/** Split a heard phrase at the assistant's name. */
+function afterWakeWord(heard) {
+  const lowered = heard.toLowerCase();
+  for (const word of wakeWords) {
+    const at = lowered.indexOf(word);
+    if (at !== -1) {
+      return { woken: true, command: heard.slice(at + word.length).replace(/^[\s,.!?ๆ]+/, "").trim() };
+    }
+  }
+  return { woken: false, command: heard.trim() };
+}
+
 /* --------------------------------------------------------------- speech in */
 
 const Recognition = window.SpeechRecognition || window.webkitSpeechRecognition;
@@ -475,7 +525,9 @@ let listening = false;
 
 if (!Recognition) {
   micButton.disabled = true;
+  handsFreeButton.disabled = true;
   micButton.title = "This browser has no speech recognition - try Chrome or Edge";
+  handsFreeButton.title = micButton.title;
 } else {
   recognition = new Recognition();
   recognition.continuous = false;
@@ -490,10 +542,24 @@ if (!Recognition) {
       else interim += result[0].transcript;
     }
     input.value = finalText || interim;
-    if (finalText.trim()) {
-      send(finalText, true);
-      input.value = "";
+    if (!finalText.trim()) return;
+
+    let spoken = finalText;
+    if (handsFree) {
+      const { woken, command } = afterWakeWord(finalText);
+      if (!woken) {          // not addressed to us - go back to listening
+        input.value = "";
+        return;
+      }
+      if (!command) {        // just the name: acknowledge and wait
+        speak("Yes?");
+        input.value = "";
+        return;
+      }
+      spoken = command;
     }
+    send(spoken, true);
+    input.value = "";
   };
   recognition.onend = () => { if (listening) recognition.start(); };  // keep the mic open
   recognition.onerror = (event) => {
@@ -518,7 +584,33 @@ function stopListening() {
   try { recognition?.stop(); } catch { /* already stopped */ }
 }
 
-micButton.onclick = () => (listening ? stopListening() : startListening());
+micButton.onclick = () => {
+  handsFree = false;
+  handsFreeButton.setAttribute("aria-pressed", "false");
+  listening ? stopListening() : startListening();
+};
+
+handsFreeButton.onclick = () => {
+  if (handsFree) {
+    handsFree = false;
+    handsFreeButton.setAttribute("aria-pressed", "false");
+    stopListening();
+    return;
+  }
+  handsFree = true;
+  handsFreeButton.setAttribute("aria-pressed", "true");
+  startListening();
+  addLine(`Listening for "${assistantName}"…`, "waiting");
+};
+
+stopButton.onclick = () => socket?.send(JSON.stringify({ type: "cancel" }));
+
+// Escape stops the answer, the way Ctrl-C does in the terminal.
+window.addEventListener("keydown", (event) => {
+  if (event.key === "Escape" && !stopButton.hidden) {
+    socket.send(JSON.stringify({ type: "cancel" }));
+  }
+});
 
 connect();
 </script>

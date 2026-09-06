@@ -41,6 +41,9 @@ class Preset:
     # Newer OpenAI models reject `max_tokens`; most other servers require it.
     max_tokens_field: str = "max_tokens"
     supports_reasoning_effort: bool = False
+    # Hosted APIs need asking for token counts on a streamed response; local
+    # runners tend to send them anyway and some reject the option.
+    supports_stream_usage: bool = False
     supports_images: bool = True
     note: str = ""
 
@@ -54,6 +57,7 @@ PRESETS: dict[str, Preset] = {
         name="openai",
         base_url="https://api.openai.com/v1",
         key_env="OPENAI_API_KEY",
+        supports_stream_usage=True,
         default_model="gpt-4o",
         max_tokens_field="max_completion_tokens",
         supports_reasoning_effort=True,
@@ -69,12 +73,14 @@ PRESETS: dict[str, Preset] = {
         name="groq",
         base_url="https://api.groq.com/openai/v1",
         key_env="GROQ_API_KEY",
+        supports_stream_usage=True,
         default_model="llama-3.3-70b-versatile",
     ),
     "openrouter": Preset(
         name="openrouter",
         base_url="https://openrouter.ai/api/v1",
         key_env="OPENROUTER_API_KEY",
+        supports_stream_usage=True,
         default_model="anthropic/claude-sonnet-4.5",
         supports_reasoning_effort=True,
     ),
@@ -82,6 +88,7 @@ PRESETS: dict[str, Preset] = {
         name="deepseek",
         base_url="https://api.deepseek.com/v1",
         key_env="DEEPSEEK_API_KEY",
+        supports_stream_usage=True,
         default_model="deepseek-chat",
         supports_images=False,
     ),
@@ -89,18 +96,21 @@ PRESETS: dict[str, Preset] = {
         name="mistral",
         base_url="https://api.mistral.ai/v1",
         key_env="MISTRAL_API_KEY",
+        supports_stream_usage=True,
         default_model="mistral-large-latest",
     ),
     "xai": Preset(
         name="xai",
         base_url="https://api.x.ai/v1",
         key_env="XAI_API_KEY",
+        supports_stream_usage=True,
         default_model="grok-2-latest",
     ),
     "together": Preset(
         name="together",
         base_url="https://api.together.xyz/v1",
         key_env="TOGETHER_API_KEY",
+        supports_stream_usage=True,
         default_model="meta-llama/Llama-3.3-70B-Instruct-Turbo",
     ),
     # ---- local runners: no key, nothing leaves the machine -----------------
@@ -357,6 +367,8 @@ class OpenAICompatProvider(Provider):
             payload["tool_choice"] = "auto"
         if request.temperature is not None:
             payload["temperature"] = request.temperature
+        if self.preset.supports_stream_usage:
+            payload["stream_options"] = {"include_usage": True}
         if self.preset.supports_reasoning_effort and request.effort:
             # OpenAI accepts low/medium/high only.
             payload["reasoning_effort"] = {
@@ -372,6 +384,7 @@ class OpenAICompatProvider(Provider):
         # Tool calls stream in fragments keyed by index.
         calls: dict[int, dict[str, Any]] = {}
         finish_reason = "stop"
+        usage: dict[str, Any] = {}
 
         try:
             async with self.client().stream("POST", "/chat/completions", json=payload) as response:
@@ -396,6 +409,11 @@ class OpenAICompatProvider(Provider):
                         chunk = json.loads(data)
                     except json.JSONDecodeError:
                         continue
+
+                    # Token counts arrive in their own final chunk, which
+                    # carries no choices at all.
+                    if chunk.get("usage"):
+                        usage = chunk["usage"]
 
                     choices = chunk.get("choices") or []
                     if not choices:
@@ -437,7 +455,7 @@ class OpenAICompatProvider(Provider):
         # Reasoning text was streamed to the front end above; it is not kept
         # as a block, because only Anthropic's thinking blocks are signed
         # and replayable and fabricating one would lie to the next turn.
-        return self._build_result(text, calls, finish_reason, request)
+        return self._build_result(text, calls, finish_reason, request, usage)
 
     async def _from_complete_response(
         self, body: dict[str, Any], on_delta: DeltaHandler, request: TurnRequest
@@ -457,7 +475,9 @@ class OpenAICompatProvider(Provider):
             }
             for index, call in enumerate(message.get("tool_calls") or [])
         }
-        return self._build_result(text, calls, choice.get("finish_reason", "stop"), request)
+        return self._build_result(
+            text, calls, choice.get("finish_reason", "stop"), request, body.get("usage") or {}
+        )
 
     def _build_result(
         self,
@@ -465,6 +485,7 @@ class OpenAICompatProvider(Provider):
         calls: dict[int, dict[str, Any]],
         finish_reason: str,
         request: TurnRequest,
+        usage: dict[str, Any] | None = None,
     ) -> TurnResult:
         content: list[dict[str, Any]] = []
         if text:
@@ -484,7 +505,12 @@ class OpenAICompatProvider(Provider):
             stop_reason = "tool_use"
         if not content:
             content = [{"type": "text", "text": ""}]
-        return TurnResult(content=content, stop_reason=stop_reason, model=request.model)
+        return TurnResult(
+            content=content,
+            stop_reason=stop_reason,
+            model=request.model,
+            usage=usage or {},
+        )
 
     # ------------------------------------------------------------ diagnostics
 

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import importlib.util
 import logging
 import re
 import time
@@ -59,12 +60,10 @@ class Microphone:
     """Records utterances: waits for speech, stops on silence."""
 
     def __init__(self, sample_rate: int = 16000, block_ms: int = 30) -> None:
-        try:
-            import sounddevice  # noqa: F401
-        except ImportError as exc:  # pragma: no cover - depends on the install
+        if importlib.util.find_spec("sounddevice") is None:  # pragma: no cover
             raise RuntimeError(
                 "sounddevice is not installed; run: pip install 'thursday[voice]'"
-            ) from exc
+            )
         self.sample_rate = sample_rate
         self.block_size = int(sample_rate * block_ms / 1000)
 
@@ -225,6 +224,7 @@ class VoiceLoop:
     async def run(self) -> None:
         """Listen until interrupted."""
         self._running = True
+        await self.agent.start()
         watcher = asyncio.create_task(self._reminder_watcher())
         wake_words = self.settings.wake_words
         try:
@@ -254,6 +254,7 @@ class VoiceLoop:
         finally:
             self._running = False
             watcher.cancel()
+            await self.agent.close()
 
     def stop(self) -> None:
         self._running = False
