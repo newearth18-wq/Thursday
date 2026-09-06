@@ -203,3 +203,43 @@ def test_an_unknown_profile_from_the_page_falls_back_to_routing(plain_client):
         chosen = _profile_of(socket, {"type": "message", "text": "hello", "profile": "../etc/passwd"})
 
     assert chosen["profile"] == "default"
+
+
+def test_the_page_is_told_the_mood_as_the_turn_runs(client, tmp_path):
+    """The HUD and the avatar both draw the state, so it has to arrive."""
+    with client.websocket_connect("/ws") as socket:
+        socket.receive_text()
+        socket.send_text(json.dumps({"type": "message", "text": "write a note"}))
+
+        states = []
+        while True:
+            event = json.loads(socket.receive_text())
+            if event["type"] == "state":
+                states.append((event["mood"], event["activity"]))
+            if event["type"] == "confirm":
+                socket.send_text(
+                    json.dumps({"type": "confirm_response", "id": event["id"], "approved": True})
+                )
+            if event["type"] == "done":
+                # The state for a finished turn is sent just after `done`.
+                for _ in range(3):
+                    trailing = json.loads(socket.receive_text())
+                    if trailing["type"] == "state":
+                        states.append((trailing["mood"], trailing["activity"]))
+                        break
+                break
+
+    moods = [mood for mood, _ in states]
+    assert moods[0] == "attentive"          # it heard you
+    assert "working" in moods               # it ran the tool
+    assert moods[-1] == "pleased"           # and it went well
+    # The activity is a phrase a person can read, not a tool identifier.
+    assert ("working", "writing a file") in states
+
+
+def test_the_wake_words_reach_the_page(plain_client):
+    with plain_client.websocket_connect("/ws") as socket:
+        ready = json.loads(socket.receive_text())
+
+    assert ready["name"] == "Thursday"
+    assert "thursday" in ready["wake_words"]

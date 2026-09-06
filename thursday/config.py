@@ -185,6 +185,12 @@ class Settings:
 
     voice: VoiceSettings = field(default_factory=VoiceSettings)
 
+    def __post_init__(self) -> None:
+        # Derive the wake words here rather than only in from_env, so a
+        # Settings built in code still answers to its own name.
+        if not self.voice.wake_words:
+            self.voice.wake_words = wake_words_for(self.assistant_name)
+
     @classmethod
     def from_env(cls) -> "Settings":
         load_dotenv()

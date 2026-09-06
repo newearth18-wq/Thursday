@@ -16,6 +16,7 @@ from typing import Any
 from .agent import Agent
 from .config import Settings
 from .events import Event
+from .mood import MoodTracker
 from .notify import notify_desktop
 from .persona import system_prompt
 
@@ -129,8 +130,31 @@ def create_app(settings: Settings | None = None) -> Any:
 
         agent.set_confirm_handler(confirm)
 
+        mood = MoodTracker(settings.assistant_name)
+
         async def on_event(event: Event) -> None:
             await websocket.send_text(json.dumps(event.as_dict(), ensure_ascii=False))
+            # The page draws the state as a HUD readout and as the avatar's
+            # face, so it comes from here rather than being guessed there.
+            changed = mood.update(event)
+            if changed is not None:
+                await websocket.send_text(json.dumps(changed.as_dict(), ensure_ascii=False))
+
+        async def settle() -> None:
+            """Drift back to calm after a spell of quiet."""
+            while True:
+                await asyncio.sleep(20)
+                if agent.busy or turns.qsize():
+                    continue
+                if mood.state.mood in {"pleased", "concerned", "apologetic"}:
+                    resting = mood.idle()
+                    if resting is not None:
+                        try:
+                            await websocket.send_text(
+                                json.dumps(resting.as_dict(), ensure_ascii=False)
+                            )
+                        except Exception:
+                            return
 
         async def push_reminders() -> None:
             while True:
@@ -156,6 +180,9 @@ def create_app(settings: Settings | None = None) -> Any:
         async def worker() -> None:
             while True:
                 text, spoken, images, profile = await turns.get()
+                started = mood.start_turn(text)
+                if started is not None:
+                    await websocket.send_text(json.dumps(started.as_dict(), ensure_ascii=False))
                 try:
                     # Spoken input gets the shorter, markdown-free persona.
                     if spoken != agent.voice:
@@ -177,6 +204,7 @@ def create_app(settings: Settings | None = None) -> Any:
 
         reminder_task = asyncio.create_task(push_reminders())
         worker_task = asyncio.create_task(worker())
+        settle_task = asyncio.create_task(settle())
         default_profile = agent.profiles[agent.router.default_name]
         await websocket.send_text(
             json.dumps(
@@ -246,6 +274,7 @@ def create_app(settings: Settings | None = None) -> Any:
         finally:
             reminder_task.cancel()
             worker_task.cancel()
+            settle_task.cancel()
             await agent.close()
 
     return app

@@ -2,209 +2,688 @@
 <html lang="en">
 <head>
 <meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <title>Thursday</title>
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns=%27http://www.w3.org/2000/svg%27 viewBox=%270 0 32 32%27%3E%3Ccircle cx=%2716%27 cy=%2716%27 r=%2713%27 fill=%27none%27 stroke=%27%235eeaff%27 stroke-width=%272%27/%3E%3Ccircle cx=%2716%27 cy=%2716%27 r=%275%27 fill=%27%23ffb347%27/%3E%3C/svg%3E">
 <style>
   :root {
-    --bg: #05080f;
-    --panel: rgba(14, 24, 40, 0.72);
-    --line: rgba(94, 234, 255, 0.18);
-    --accent: #5eeaff;
-    --accent-dim: rgba(94, 234, 255, 0.55);
-    --text: #dbe7f3;
-    --muted: #6d8299;
+    --void: #02060c;
+    --deep: #04101c;
+    --cyan: #5eeaff;
+    --cyan-dim: rgba(94, 234, 255, .45);
+    --line: rgba(94, 234, 255, .16);
+    --amber: #ffb347;
+    --amber-hot: #ffd89b;
+    --text: #cfe6f5;
+    --muted: #5f7f96;
+    --user: #9ef0c0;
     --warn: #ffcc66;
     --err: #ff7a7a;
-    --user: #9ef0c0;
+
+    /* Repainted per mood by the state handler. */
+    --mood: var(--cyan);
+    --mood-soft: rgba(94, 234, 255, .18);
+    --spin: 26s;
   }
+
   * { box-sizing: border-box; }
+  html, body { height: 100%; }
   body {
-    margin: 0; min-height: 100vh; background: var(--bg); color: var(--text);
-    font: 15px/1.6 "SF Mono", ui-monospace, "JetBrains Mono", Menlo, Consolas, monospace;
-    display: flex; flex-direction: column;
-    background-image:
-      radial-gradient(1200px 600px at 50% -10%, rgba(94,234,255,.10), transparent 60%),
-      radial-gradient(800px 400px at 100% 100%, rgba(94,234,255,.05), transparent 60%);
+    margin: 0; overflow: hidden; background: var(--void); color: var(--text);
+    font: 13px/1.55 "SF Mono", ui-monospace, "JetBrains Mono", Menlo, Consolas, monospace;
+    -webkit-font-smoothing: antialiased;
   }
-  header {
-    display: flex; align-items: center; gap: 14px; padding: 14px 20px;
-    border-bottom: 1px solid var(--line); background: var(--panel);
-    backdrop-filter: blur(12px); position: sticky; top: 0; z-index: 5;
+
+  /* The ground the whole HUD sits on: grid, glow, vignette. */
+  .backdrop { position: fixed; inset: 0; pointer-events: none; z-index: 0; }
+  .backdrop::before {
+    content: ""; position: absolute; inset: 0; opacity: .5;
+    background:
+      linear-gradient(var(--line) 1px, transparent 1px) 0 0 / 100% 46px,
+      linear-gradient(90deg, var(--line) 1px, transparent 1px) 0 0 / 46px 100%;
+    mask-image: radial-gradient(ellipse 90% 75% at 50% 45%, #000 30%, transparent 78%);
   }
-  .mark {
-    width: 34px; height: 34px; border-radius: 50%; flex: none;
-    border: 1px solid var(--accent-dim); position: relative;
-    box-shadow: 0 0 18px rgba(94,234,255,.25) inset, 0 0 12px rgba(94,234,255,.15);
+  .backdrop::after {
+    content: ""; position: absolute; inset: 0;
+    background:
+      radial-gradient(ellipse 65% 55% at 50% 48%, var(--mood-soft), transparent 65%),
+      radial-gradient(ellipse 120% 90% at 50% 120%, rgba(255,179,71,.07), transparent 60%);
+    transition: background .8s ease;
   }
-  .mark::after {
-    content: ""; position: absolute; inset: 9px; border-radius: 50%;
-    background: var(--accent); opacity: .85;
-    animation: pulse 3.4s ease-in-out infinite;
+  .vignette {
+    position: fixed; inset: 0; pointer-events: none; z-index: 6;
+    background: radial-gradient(ellipse 80% 70% at 50% 50%, transparent 55%, rgba(0,0,0,.75) 100%);
   }
-  body.listening .mark::after { animation-duration: .9s; background: var(--user); }
-  body.thinking .mark::after { animation-duration: 1.4s; background: var(--warn); }
-  @keyframes pulse { 0%,100% { transform: scale(.72); opacity:.55 } 50% { transform: scale(1); opacity:1 } }
-  h1 { font-size: 15px; margin: 0; letter-spacing: .22em; text-transform: uppercase; color: var(--accent); }
-  .sub { font-size: 12px; color: var(--muted); }
-  .spacer { flex: 1; }
-  header button, .composer button {
-    background: transparent; color: var(--accent); border: 1px solid var(--line);
-    border-radius: 8px; padding: 8px 14px; font: inherit; font-size: 13px; cursor: pointer;
-    transition: background .15s, border-color .15s;
+  /* Scanline sweep, slow enough not to nag. */
+  .sweep {
+    position: fixed; left: 0; right: 0; height: 140px; z-index: 5; pointer-events: none;
+    background: linear-gradient(180deg, transparent, rgba(94,234,255,.045), transparent);
+    animation: sweep 9s linear infinite; opacity: .8;
   }
-  header button:hover, .composer button:hover { background: rgba(94,234,255,.08); border-color: var(--accent-dim); }
-  header button[aria-pressed="true"] { background: rgba(94,234,255,.16); border-color: var(--accent); }
-  header select {
-    background: rgba(255,255,255,.03); color: var(--accent); border: 1px solid var(--line);
-    border-radius: 8px; padding: 8px 10px; font: inherit; font-size: 13px; cursor: pointer;
+  @keyframes sweep { from { top: -140px } to { top: 100% } }
+
+  /* ---------------------------------------------------------------- frame */
+
+  .hud { position: fixed; inset: 0; z-index: 2; display: grid;
+         grid-template-rows: auto 1fr auto; grid-template-columns: 300px 1fr 320px;
+         grid-template-areas: "top top top" "left core right" "dock dock dock";
+         gap: 14px; padding: 16px 18px 14px; }
+  body.avatar-mode .hud { display: none; }
+
+  .corner { position: fixed; width: 34px; height: 34px; border: 1px solid var(--cyan-dim); z-index: 4; pointer-events: none; opacity: .7; }
+  .corner.tl { top: 10px; left: 10px; border-right: 0; border-bottom: 0; }
+  .corner.tr { top: 10px; right: 10px; border-left: 0; border-bottom: 0; }
+  .corner.bl { bottom: 10px; left: 10px; border-right: 0; border-top: 0; }
+  .corner.br { bottom: 10px; right: 10px; border-left: 0; border-top: 0; }
+  body.avatar-mode .corner { opacity: .25; }
+
+  /* ------------------------------------------------------------------ top */
+
+  .top { grid-area: top; display: flex; align-items: center; gap: 18px; }
+  .wordmark { font-size: 17px; letter-spacing: .42em; text-transform: uppercase;
+              color: var(--mood); text-shadow: 0 0 18px var(--mood-soft); transition: color .6s; }
+  .state-line { display: flex; flex-direction: column; gap: 1px; min-width: 0; }
+  .activity { font-size: 13px; color: var(--text); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .mood-tag { font-size: 10.5px; letter-spacing: .2em; text-transform: uppercase; color: var(--mood); transition: color .6s; }
+  .top .spacer { flex: 1; }
+  .link { font-size: 11px; letter-spacing: .14em; text-transform: uppercase; color: var(--muted); }
+
+  button, select {
+    background: rgba(94,234,255,.04); color: var(--cyan); border: 1px solid var(--line);
+    border-radius: 3px; padding: 7px 12px; font: inherit; font-size: 11px; letter-spacing: .1em;
+    text-transform: uppercase; cursor: pointer; transition: background .15s, border-color .15s, color .15s;
   }
-  header select:focus { outline: none; border-color: var(--accent-dim); }
-  .routed {
-    font-size: 12px; color: var(--muted); letter-spacing: .04em;
-    border-left: 2px solid var(--line); padding: 2px 0 2px 12px;
-  }
-  .routed b { color: var(--accent-dim); font-weight: 500; }
-  main { flex: 1; overflow-y: auto; padding: 24px 20px 8px; }
-  .log { max-width: 860px; margin: 0 auto; display: flex; flex-direction: column; gap: 14px; }
-  .turn { display: flex; gap: 12px; }
-  .who { flex: none; width: 76px; text-align: right; color: var(--muted); font-size: 12px; padding-top: 3px; text-transform: uppercase; letter-spacing: .1em; }
-  .body { flex: 1; min-width: 0; white-space: pre-wrap; word-wrap: break-word; }
-  .turn.you .body { color: var(--user); }
-  .turn.thursday .body { color: var(--text); }
-  .tool {
-    font-size: 13px; color: var(--muted); border-left: 2px solid var(--line);
-    padding: 4px 0 4px 12px; margin: 2px 0;
-  }
-  .tool b { color: var(--accent-dim); font-weight: 500; }
-  .tool pre { margin: 4px 0 0; white-space: pre-wrap; opacity: .8; max-height: 8em; overflow: auto; }
-  .reasoning { color: var(--muted); font-style: italic; font-size: 13px; }
-  .error { color: var(--err); }
-  .reminder { color: var(--warn); }
-  .composer {
-    border-top: 1px solid var(--line); background: var(--panel); backdrop-filter: blur(12px);
-    padding: 14px 20px; position: sticky; bottom: 0;
-  }
-  .composer form { max-width: 860px; margin: 0 auto; display: flex; gap: 10px; align-items: center; }
-  .composer input {
-    flex: 1; background: rgba(255,255,255,.03); border: 1px solid var(--line);
-    border-radius: 10px; padding: 12px 14px; color: var(--text); font: inherit; outline: none;
-  }
-  .composer input:focus { border-color: var(--accent-dim); }
-  #mic[aria-pressed="true"], #handsfree[aria-pressed="true"] { color: var(--user); border-color: var(--user); }
-  #stop { color: var(--warn); border-color: var(--warn); }
-  .waiting { color: var(--muted); font-style: italic; }
-  .tray { max-width: 860px; margin: 0 auto 10px; display: flex; gap: 8px; flex-wrap: wrap; }
+  button:hover, select:hover { background: rgba(94,234,255,.12); border-color: var(--cyan-dim); }
+  button[aria-pressed="true"] { background: rgba(94,234,255,.2); border-color: var(--cyan); color: #eafcff; }
+  button:disabled { opacity: .3; cursor: not-allowed; }
+  #stop { color: var(--warn); border-color: rgba(255,204,102,.4); }
+
+  /* ---------------------------------------------------------------- panels */
+
+  .panel { border: 1px solid var(--line); background: linear-gradient(180deg, rgba(6,20,34,.72), rgba(3,10,18,.72));
+           backdrop-filter: blur(6px); position: relative; overflow: hidden; }
+  .panel::before { content: ""; position: absolute; top: 0; left: 0; right: 0; height: 1px;
+                   background: linear-gradient(90deg, transparent, var(--cyan-dim), transparent); }
+  .panel h2 { margin: 0; padding: 9px 12px 7px; font-size: 10px; font-weight: 500;
+              letter-spacing: .26em; text-transform: uppercase; color: var(--muted);
+              border-bottom: 1px solid var(--line); }
+  .panel .body { padding: 10px 12px; overflow-y: auto; }
+  .panel .body::-webkit-scrollbar { width: 5px; }
+  .panel .body::-webkit-scrollbar-thumb { background: var(--line); }
+
+  .left { grid-area: left; display: flex; flex-direction: column; gap: 14px; min-height: 0; }
+  .right { grid-area: right; display: flex; flex-direction: column; gap: 14px; min-height: 0; }
+  .left .panel, .right .panel { display: flex; flex-direction: column; min-height: 0; }
+  /* The last panel in a column takes the slack, so the frame reaches the
+     bottom instead of leaving the rail floating. */
+  .left .panel:last-child, .right .panel:last-child { flex: 1; }
+  .left .panel .body, .right .panel .body { flex: 1; }
+
+  .row { display: flex; justify-content: space-between; gap: 10px; padding: 3px 0; font-size: 11.5px; }
+  .row span:first-child { color: var(--muted); letter-spacing: .08em; text-transform: uppercase; font-size: 10px; }
+  .row span:last-child { color: var(--text); text-align: right; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+  .meter { height: 3px; background: rgba(94,234,255,.1); margin: 5px 0 9px; overflow: hidden; }
+  .meter i { display: block; height: 100%; background: var(--mood); box-shadow: 0 0 10px var(--mood);
+             transition: width .5s ease, background .6s; }
+
+  /* ------------------------------------------------------------------ core */
+
+  .core { grid-area: core; display: flex; flex-direction: column; align-items: center;
+          justify-content: center; position: relative; min-height: 0; }
+  .reactor { width: min(46vh, 400px); aspect-ratio: 1; position: relative; flex: none; }
+  .reactor svg { position: absolute; inset: 0; width: 100%; height: 100%; overflow: visible; }
+  .ring { fill: none; stroke: var(--mood); transition: stroke .6s; transform-origin: 50% 50%; }
+  .r1 { animation: spin var(--spin) linear infinite; }
+  .r2 { animation: spin calc(var(--spin) * .6) linear infinite reverse; }
+  .r3 { animation: spin calc(var(--spin) * 1.9) linear infinite; }
+  .r4 { animation: spin calc(var(--spin) * .38) linear infinite reverse; }
+  @keyframes spin { to { transform: rotate(360deg) } }
+
+  .heart { animation: heart 3.4s ease-in-out infinite; transform-origin: 50% 50%; }
+  @keyframes heart { 0%,100% { opacity: .55; transform: scale(.94) } 50% { opacity: 1; transform: scale(1.04) } }
+  body[data-mood="working"] .heart, body[data-mood="thinking"] .heart { animation-duration: 1.1s; }
+
+  .core-caption { margin-top: 20px; text-align: center; }
+  .core-caption .big { font-size: 15px; letter-spacing: .2em; text-transform: uppercase; color: var(--mood); transition: color .6s; }
+  .core-caption .small { font-size: 11px; color: var(--muted); margin-top: 4px; letter-spacing: .1em; }
+
+  /* ------------------------------------------------------------------ dock */
+
+  .dock { grid-area: dock; display: flex; flex-direction: column; gap: 10px; }
+  .stream { max-height: 25vh; overflow-y: auto; display: flex; flex-direction: column; gap: 8px;
+            padding-right: 6px; }
+  .stream::-webkit-scrollbar { width: 5px; }
+  .stream::-webkit-scrollbar-thumb { background: var(--line); }
+  .turn { display: flex; gap: 12px; font-size: 13px; line-height: 1.6; }
+  .who { flex: none; width: 62px; text-align: right; font-size: 9.5px; letter-spacing: .18em;
+         text-transform: uppercase; color: var(--muted); padding-top: 4px; }
+  .say { flex: 1; min-width: 0; white-space: pre-wrap; overflow-wrap: anywhere; }
+  .turn.you .say { color: var(--user); }
+  .turn.tool .say, .turn.routed .say, .turn.meta .say { color: var(--muted); font-size: 11.5px; }
+  .turn.tool .say b { color: var(--amber); font-weight: 500; }
+  .turn.tool pre { margin: 4px 0 0; white-space: pre-wrap; opacity: .75; max-height: 7em;
+                   overflow: auto; font-size: 11px; border-left: 1px solid var(--line); padding-left: 8px; }
+  .turn.reasoning .say { color: var(--muted); font-style: italic; font-size: 11.5px; }
+  .turn.error .say { color: var(--err); }
+  .turn.reminder .say { color: var(--warn); }
+  .say img.shot { max-width: 220px; display: block; margin-top: 6px; border: 1px solid var(--line); }
+
+  .tray { display: flex; gap: 8px; flex-wrap: wrap; }
   .tray:empty { display: none; }
-  .chip { position: relative; border: 1px solid var(--line); border-radius: 8px; overflow: hidden; height: 60px; }
+  .chip { position: relative; height: 52px; border: 1px solid var(--line); overflow: hidden; }
   .chip img { height: 100%; display: block; }
-  .chip button {
-    position: absolute; top: 2px; right: 2px; width: 20px; height: 20px; line-height: 1;
-    padding: 0; border-radius: 50%; background: rgba(0,0,0,.65); color: var(--text);
-    border: none; cursor: pointer; font-size: 13px;
+  .chip button { position: absolute; top: 2px; right: 2px; width: 18px; height: 18px; padding: 0;
+                 border-radius: 50%; background: rgba(0,0,0,.7); border: 0; color: var(--text); font-size: 12px; }
+
+  .composer { display: flex; gap: 8px; align-items: center; }
+  .composer input {
+    flex: 1; background: rgba(94,234,255,.04); border: 1px solid var(--line);
+    padding: 12px 14px; color: var(--text); font: inherit; font-size: 13.5px; outline: none;
   }
-  .turn .shot { max-width: 260px; border-radius: 8px; border: 1px solid var(--line); margin-top: 6px; display: block; }
-  body.dragging { outline: 2px dashed var(--accent); outline-offset: -8px; }
-  dialog {
-    background: #0b1420; color: var(--text); border: 1px solid var(--accent-dim);
-    border-radius: 12px; padding: 20px; max-width: 560px; font: inherit;
+  .composer input:focus { border-color: var(--mood); box-shadow: 0 0 18px var(--mood-soft); }
+  .composer input::placeholder { color: var(--muted); }
+
+  dialog { background: #04121f; color: var(--text); border: 1px solid var(--amber);
+           max-width: 560px; font: inherit; box-shadow: 0 0 60px rgba(255,179,71,.15); }
+  dialog::backdrop { background: rgba(0,4,10,.8); }
+  dialog h2 { margin: 0 0 8px; font-size: 12px; letter-spacing: .2em; text-transform: uppercase; color: var(--amber); }
+  dialog pre { background: rgba(0,0,0,.4); padding: 10px; overflow: auto; max-height: 40vh; font-size: 12px; }
+  dialog .actions { display: flex; gap: 10px; justify-content: flex-end; margin-top: 14px; }
+  dialog button.ok { color: var(--user); border-color: rgba(158,240,192,.45); }
+
+  /* ================================================================ AVATAR */
+  /* A Pixar-ish robot: big glossy eyes, soft rim light, and a float that
+     squashes as it lands. Every mood changes the eyes, brows and mouth. */
+
+  .stage {
+    position: fixed; inset: 0; z-index: 3; display: none;
+    align-items: center; justify-content: center; flex-direction: column;
+    background: radial-gradient(ellipse 70% 60% at 50% 42%, rgba(94,234,255,.09), transparent 70%), var(--void);
   }
-  dialog::backdrop { background: rgba(0,0,0,.6); }
-  dialog h2 { margin: 0 0 8px; font-size: 15px; color: var(--warn); }
-  dialog pre { background: rgba(0,0,0,.35); padding: 10px; border-radius: 8px; overflow: auto; max-height: 40vh; font-size: 13px; }
-  dialog .row { display: flex; gap: 10px; justify-content: flex-end; margin-top: 14px; }
-  dialog button { font: inherit; padding: 8px 16px; border-radius: 8px; cursor: pointer; border: 1px solid var(--line); background: transparent; color: var(--text); }
-  dialog button.ok { border-color: var(--user); color: var(--user); }
-  @media (max-width: 620px) { .who { width: 0; display: none; } header .sub { display: none; } }
+  body.avatar-mode .stage { display: flex; }
+
+  .bot { width: min(64vh, 460px); height: auto; overflow: visible; }
+  .bot .float { animation: float 4.2s ease-in-out infinite; transform-origin: 200px 430px; }
+  @keyframes float {
+    0%, 100% { transform: translateY(0) scale(1, 1); }
+    45%      { transform: translateY(-16px) scale(.995, 1.01); }
+    92%      { transform: translateY(2px) scale(1.02, .975); }
+  }
+  body[data-mood="working"] .bot .float { animation-duration: 1.9s; }
+  body[data-mood="asleep"] .bot .float { animation-duration: 7s; }
+
+  .bot .shadow { animation: shadow 4.2s ease-in-out infinite; transform-origin: 200px 452px; }
+  @keyframes shadow {
+    0%, 100% { transform: scale(1); opacity: .5 }
+    45%      { transform: scale(.86); opacity: .3 }
+    92%      { transform: scale(1.06); opacity: .55 }
+  }
+
+  .bot .blink { animation: blink 5.4s infinite; transform-origin: center; transform-box: fill-box; }
+  @keyframes blink {
+    0%, 92%, 100% { transform: scaleY(1) }
+    95%           { transform: scaleY(.08) }
+  }
+  body[data-mood="asleep"] .bot .blink { animation: none; transform: scaleY(.1); transform-box: fill-box; transform-origin: center; }
+
+  /* The antenna light keeps time with the mood. */
+  .bot .bulb { animation: bulb 2.6s ease-in-out infinite; }
+  @keyframes bulb { 0%,100% { opacity: .45 } 50% { opacity: 1 } }
+  body[data-mood="working"] .bot .bulb { animation-duration: .8s; }
+  body[data-mood="thinking"] .bot .bulb { animation-duration: 1.4s; }
+
+  /* Mood-driven features: the JS sets data-mood on <body>. */
+  .bot .brow { transition: transform .35s cubic-bezier(.34,1.4,.64,1); transform-box: fill-box; transform-origin: center; }
+  .bot .eye-group { transition: transform .35s cubic-bezier(.34,1.4,.64,1); transform-box: fill-box; transform-origin: center; }
+  .bot .mouth { transition: d .35s ease, opacity .3s; }
+  .bot .blush { opacity: 0; transition: opacity .4s; }
+
+  body[data-mood="pleased"] .bot .blush { opacity: .55; }
+  body[data-mood="pleased"] .bot .brow-l { transform: translateY(-4px) rotate(-6deg); }
+  body[data-mood="pleased"] .bot .brow-r { transform: translateY(-4px) rotate(6deg); }
+
+  body[data-mood="thinking"] .bot .brow-l { transform: translateY(-7px) rotate(-13deg); }
+  body[data-mood="thinking"] .bot .brow-r { transform: translateY(2px) rotate(4deg); }
+  body[data-mood="thinking"] .bot .eyes { transform: translateX(10px); }
+
+  body[data-mood="working"] .bot .brow-l { transform: translateY(-2px) rotate(-4deg); }
+  body[data-mood="working"] .bot .brow-r { transform: translateY(-2px) rotate(4deg); }
+
+  body[data-mood="attentive"] .bot .eye-group { transform: scale(1.1); }
+  body[data-mood="attentive"] .bot .brow-l { transform: translateY(-8px); }
+  body[data-mood="attentive"] .bot .brow-r { transform: translateY(-8px); }
+
+  body[data-mood="concerned"] .bot .brow-l { transform: translateY(1px) rotate(15deg); }
+  body[data-mood="concerned"] .bot .brow-r { transform: translateY(1px) rotate(-15deg); }
+  body[data-mood="concerned"] .bot .eye-group { transform: scaleY(.86); }
+
+  body[data-mood="apologetic"] .bot .brow-l { transform: translateY(-3px) rotate(11deg); }
+  body[data-mood="apologetic"] .bot .brow-r { transform: translateY(-3px) rotate(-11deg); }
+  body[data-mood="apologetic"] .bot .eye-group { transform: scaleY(.8) translateY(3px); }
+
+  body[data-mood="asleep"] .bot .brow { transform: translateY(4px); }
+
+  .bot .eyes { transition: transform .5s cubic-bezier(.34,1.2,.64,1); }
+
+  .speech {
+    margin-top: 26px; text-align: center; max-width: min(560px, 84vw);
+  }
+  .speech .what {
+    font-size: clamp(17px, 2.6vh, 24px); color: var(--text); letter-spacing: .01em;
+    min-height: 1.5em;
+  }
+  .speech .feel {
+    margin-top: 8px; font-size: 11px; letter-spacing: .3em; text-transform: uppercase;
+    color: var(--mood); transition: color .6s;
+  }
+  .speech .detail { margin-top: 6px; font-size: 11px; color: var(--muted); }
+
+  .stage .exit { position: fixed; top: 18px; right: 18px; }
+  .stage .hint { position: fixed; bottom: 20px; font-size: 10.5px; letter-spacing: .18em;
+                 text-transform: uppercase; color: var(--muted); }
+
+  @media (prefers-reduced-motion: reduce) {
+    .sweep, .bot .float, .bot .shadow, .bot .blink, .bot .bulb,
+    .ring, .heart { animation: none !important; }
+  }
+
+  @media (max-width: 1100px) {
+    .hud { grid-template-columns: 1fr; grid-template-areas: "top" "core" "dock"; }
+    .left, .right { display: none; }
+  }
 </style>
 </head>
-<body>
-<header>
-  <div class="mark"></div>
-  <div>
-    <h1>Thursday</h1>
-    <div class="sub" id="status">connecting…</div>
+<body data-mood="asleep">
+
+<div class="backdrop"></div>
+<div class="sweep"></div>
+<div class="vignette"></div>
+<i class="corner tl"></i><i class="corner tr"></i><i class="corner bl"></i><i class="corner br"></i>
+
+<!-- ============================================================== HUD -->
+<div class="hud">
+
+  <header class="top">
+    <div class="wordmark" id="wordmark">THURSDAY</div>
+    <div class="state-line">
+      <div class="activity" id="activity">standing by</div>
+      <div class="mood-tag" id="moodTag">asleep</div>
+    </div>
+    <div class="spacer"></div>
+    <select id="profile" title="Which profile handles the next message">
+      <option value="">auto</option>
+    </select>
+    <button id="handsfree" aria-pressed="false" title="Listen for my name">Wake word</button>
+    <button id="mic" aria-pressed="false" title="Push to talk">Mic</button>
+    <button id="speak" aria-pressed="false" title="Read replies out loud">Voice</button>
+    <button id="toAvatar" title="Leave the HUD (Esc)">Avatar</button>
+  </header>
+
+  <!-- ---------------------------------------------------------- left -->
+  <aside class="left">
+    <section class="panel" style="flex:none">
+      <h2>Core</h2>
+      <div class="body">
+        <div class="row"><span>provider</span><span id="sProvider">—</span></div>
+        <div class="row"><span>model</span><span id="sModel">—</span></div>
+        <div class="row"><span>profile</span><span id="sProfile">—</span></div>
+        <div class="row"><span>routing</span><span id="sRouting">—</span></div>
+        <div class="row"><span>link</span><span id="sLink">connecting</span></div>
+      </div>
+    </section>
+
+    <section class="panel" style="flex:none">
+      <h2>Load</h2>
+      <div class="body">
+        <div class="row"><span>context</span><span id="sCtx">0 tok</span></div>
+        <div class="meter"><i id="mCtx" style="width:0%"></i></div>
+        <div class="row"><span>output</span><span id="sOut">0 tok</span></div>
+        <div class="meter"><i id="mOut" style="width:0%"></i></div>
+        <div class="row"><span>session cost</span><span id="sCost">—</span></div>
+      </div>
+    </section>
+
+    <section class="panel">
+      <h2>Reasoning</h2>
+      <div class="body" id="reasoning" style="font-size:11.5px;color:var(--muted);font-style:italic">
+        idle
+      </div>
+    </section>
+  </aside>
+
+  <!-- ---------------------------------------------------------- core -->
+  <main class="core">
+    <div class="reactor">
+      <svg viewBox="0 0 400 400" aria-hidden="true">
+        <defs>
+          <radialGradient id="coreGlow">
+            <stop offset="0%" stop-color="var(--amber-hot)" stop-opacity=".95"/>
+            <stop offset="45%" stop-color="var(--amber)" stop-opacity=".5"/>
+            <stop offset="100%" stop-color="var(--amber)" stop-opacity="0"/>
+          </radialGradient>
+          <filter id="soften" x="-60%" y="-60%" width="220%" height="220%">
+            <feGaussianBlur stdDeviation="5"/>
+          </filter>
+        </defs>
+
+        <!-- outer scale ticks -->
+        <g class="ring r3" stroke-width="1" opacity=".5">
+          <circle cx="200" cy="200" r="186" stroke-dasharray="2 10"/>
+        </g>
+        <!-- fixed bracket plates, the part that does not turn -->
+        <g stroke="var(--mood)" fill="none" opacity=".55" stroke-width="1.5">
+          <path d="M28 168 A176 176 0 0 1 62 92"/>
+          <path d="M372 232 A176 176 0 0 1 338 308"/>
+          <path d="M14 200 h20 M366 200 h20 M200 14 v20 M200 366 v20"/>
+        </g>
+        <g fill="var(--mood)" opacity=".8">
+          <rect x="186" y="6" width="28" height="3"/>
+          <rect x="186" y="391" width="28" height="3"/>
+        </g>
+        <!-- broken outer ring -->
+        <g class="ring r1" stroke-width="1.5" opacity=".85">
+          <circle cx="200" cy="200" r="168" stroke-dasharray="150 40 90 40"/>
+        </g>
+        <!-- data arcs -->
+        <g class="ring r2" stroke-width="6" opacity=".28">
+          <circle cx="200" cy="200" r="146" stroke-dasharray="60 300"/>
+          <circle cx="200" cy="200" r="146" stroke-dasharray="26 300" stroke-dashoffset="-180"/>
+        </g>
+        <!-- inner geometry -->
+        <g class="ring r4" stroke-width="1" opacity=".75">
+          <circle cx="200" cy="200" r="118" stroke-dasharray="4 6"/>
+          <polygon points="200,96 290,252 110,252" fill="none"/>
+        </g>
+        <g class="ring r1" stroke-width="1.5" opacity=".6">
+          <circle cx="200" cy="200" r="96" stroke-dasharray="230 40"/>
+        </g>
+
+        <!-- the heart -->
+        <g class="heart">
+          <circle cx="200" cy="200" r="86" fill="url(#coreGlow)"/>
+          <circle cx="200" cy="200" r="40" fill="var(--amber-hot)" opacity=".55" filter="url(#soften)"/>
+          <circle cx="200" cy="200" r="21" fill="#fff6e6"/>
+          <circle cx="200" cy="200" r="52" fill="none" stroke="var(--amber)" stroke-width="1.2" opacity=".7"/>
+        </g>
+      </svg>
+    </div>
+
+    <div class="core-caption">
+      <div class="big" id="coreMood">standing by</div>
+      <div class="small" id="coreDetail">say something, or press the mic</div>
+    </div>
+  </main>
+
+  <!-- --------------------------------------------------------- right -->
+  <aside class="right">
+    <section class="panel">
+      <h2>Activity</h2>
+      <div class="body" id="activityLog" style="font-size:11.5px"></div>
+    </section>
+  </aside>
+
+  <!-- ---------------------------------------------------------- dock -->
+  <div class="dock">
+    <div class="stream" id="stream"></div>
+    <div class="tray" id="tray"></div>
+    <form class="composer" id="form">
+      <button type="button" id="attach" title="Attach an image">Attach</button>
+      <input id="input" autocomplete="off" placeholder="Ask Thursday anything…" autofocus>
+      <input type="file" id="file" accept="image/png,image/jpeg,image/gif,image/webp" multiple hidden>
+      <button type="button" id="stop" hidden title="Stop (Esc)">Stop</button>
+      <button type="submit">Send</button>
+    </form>
   </div>
-  <div class="spacer"></div>
-  <select id="profile" title="Which profile handles the next message">
-    <option value="">auto</option>
-  </select>
-  <button id="speak" aria-pressed="false" title="Read replies out loud">🔊 Voice</button>
-  <button id="clear" title="Clear this conversation">Clear</button>
-</header>
+</div>
 
-<main><div class="log" id="log"></div></main>
+<!-- =========================================================== AVATAR -->
+<div class="stage">
+  <button class="exit" id="toHud" title="Back to the HUD (Esc)">HUD</button>
 
-<div class="composer">
-  <div class="tray" id="tray"></div>
-  <form id="form">
-    <button type="button" id="mic" aria-pressed="false" title="Hold a conversation by voice">🎙</button>
-    <button type="button" id="handsfree" aria-pressed="false" title="Listen for my name">👂</button>
-    <button type="button" id="attach" title="Attach an image (or paste / drop one)">📎</button>
-    <input type="file" id="file" accept="image/png,image/jpeg,image/gif,image/webp" multiple hidden>
-    <input id="input" autocomplete="off" placeholder="Ask Thursday anything…" autofocus>
-    <button type="button" id="stop" hidden title="Stop the answer">⏹ Stop</button>
-    <button type="submit" id="send">Send</button>
-  </form>
+  <svg class="bot" viewBox="0 0 400 480" aria-label="Thursday">
+    <defs>
+      <radialGradient id="headSheen" cx="35%" cy="26%" r="78%">
+        <stop offset="0%"  stop-color="#dff3fb"/>
+        <stop offset="52%" stop-color="#8fb6cc"/>
+        <stop offset="100%" stop-color="#3d6076"/>
+      </radialGradient>
+      <radialGradient id="bodySheen" cx="34%" cy="20%" r="85%">
+        <stop offset="0%"  stop-color="#cfe6f3"/>
+        <stop offset="55%" stop-color="#7ba4bd"/>
+        <stop offset="100%" stop-color="#2f4f64"/>
+      </radialGradient>
+      <linearGradient id="visor" x1="0" y1="0" x2="0" y2="1">
+        <stop offset="0%"   stop-color="#0b1a26"/>
+        <stop offset="100%" stop-color="#04101a"/>
+      </linearGradient>
+      <radialGradient id="eyeGlow">
+        <stop offset="0%"  stop-color="#eafcff"/>
+        <stop offset="55%" stop-color="var(--mood)"/>
+        <stop offset="100%" stop-color="var(--mood)" stop-opacity=".25"/>
+      </radialGradient>
+      <filter id="botGlow" x="-50%" y="-50%" width="200%" height="200%">
+        <feGaussianBlur stdDeviation="7" result="b"/>
+        <feMerge><feMergeNode in="b"/><feMergeNode in="SourceGraphic"/></feMerge>
+      </filter>
+      <filter id="blurShadow"><feGaussianBlur stdDeviation="10"/></filter>
+    </defs>
+
+    <!-- contact shadow, so it reads as hovering rather than pasted on -->
+    <ellipse class="shadow" cx="200" cy="452" rx="96" ry="16" fill="#000" opacity=".5" filter="url(#blurShadow)"/>
+
+    <g class="float">
+      <!-- antenna -->
+      <path d="M200 96 Q198 66 204 48" stroke="#6c93aa" stroke-width="6" fill="none" stroke-linecap="round"/>
+      <g class="bulb">
+        <circle cx="205" cy="42" r="16" fill="var(--mood)" opacity=".3" filter="url(#botGlow)"/>
+        <circle cx="205" cy="42" r="8" fill="var(--mood)"/>
+        <circle cx="202" cy="39" r="2.6" fill="#fff" opacity=".9"/>
+      </g>
+
+      <!-- torso -->
+      <path d="M132 300 Q128 262 200 258 Q272 262 268 300 L276 396 Q278 428 200 430 Q122 428 124 396 Z"
+            fill="url(#bodySheen)"/>
+      <ellipse cx="200" cy="262" rx="70" ry="14" fill="#000" opacity=".18"/>
+      <circle cx="200" cy="342" r="30" fill="#08161f" opacity=".85"/>
+      <circle cx="200" cy="342" r="19" fill="var(--mood)" opacity=".85" filter="url(#botGlow)"/>
+      <circle cx="200" cy="342" r="8" fill="#fff" opacity=".92"/>
+      <!-- arms -->
+      <rect x="98"  y="300" width="26" height="86" rx="13" fill="#6f97af"/>
+      <rect x="276" y="300" width="26" height="86" rx="13" fill="#6f97af"/>
+
+      <!-- head -->
+      <rect x="82" y="96" width="236" height="188" rx="76" fill="url(#headSheen)"/>
+      <rect x="82" y="96" width="236" height="188" rx="76" fill="none"
+            stroke="var(--mood)" stroke-width="1.5" opacity=".35"/>
+      <!-- rim light along the top left, the Pixar giveaway -->
+      <path d="M110 168 Q118 116 176 106" stroke="#fff" stroke-width="6" fill="none"
+            opacity=".5" stroke-linecap="round"/>
+
+      <!-- face plate -->
+      <rect x="104" y="124" width="192" height="132" rx="60" fill="url(#visor)"/>
+
+      <!-- brows -->
+      <rect class="brow brow-l" x="132" y="150" width="52" height="9" rx="4.5" fill="var(--mood)" opacity=".9"/>
+      <rect class="brow brow-r" x="216" y="150" width="52" height="9" rx="4.5" fill="var(--mood)" opacity=".9"/>
+
+      <!-- eyes -->
+      <g class="eyes">
+        <g class="eye-group">
+          <g class="blink">
+            <ellipse cx="158" cy="196" rx="30" ry="32" fill="url(#eyeGlow)"/>
+            <ellipse cx="158" cy="198" rx="15" ry="16" fill="#04121c" opacity=".55"/>
+            <circle cx="149" cy="185" r="8" fill="#fff" opacity=".95"/>
+            <circle cx="167" cy="207" r="3.5" fill="#fff" opacity=".6"/>
+          </g>
+        </g>
+        <g class="eye-group">
+          <g class="blink">
+            <ellipse cx="242" cy="196" rx="30" ry="32" fill="url(#eyeGlow)"/>
+            <ellipse cx="242" cy="198" rx="15" ry="16" fill="#04121c" opacity=".55"/>
+            <circle cx="233" cy="185" r="8" fill="#fff" opacity=".95"/>
+            <circle cx="251" cy="207" r="3.5" fill="#fff" opacity=".6"/>
+          </g>
+        </g>
+      </g>
+
+      <!-- blush, for when it is pleased with itself -->
+      <ellipse class="blush" cx="126" cy="228" rx="17" ry="9" fill="#ff9aa8"/>
+      <ellipse class="blush" cx="274" cy="228" rx="17" ry="9" fill="#ff9aa8"/>
+
+      <!-- mouth: the path is swapped per mood -->
+      <path class="mouth" id="mouth" d="M176 238 Q200 250 224 238"
+            stroke="var(--mood)" stroke-width="6" fill="none" stroke-linecap="round" opacity=".9"/>
+    </g>
+  </svg>
+
+  <div class="speech">
+    <div class="what" id="botWhat">standing by</div>
+    <div class="feel" id="botFeel">asleep</div>
+    <div class="detail" id="botDetail"></div>
+  </div>
+
+  <div class="hint">press Esc for the HUD · type anywhere to talk</div>
 </div>
 
 <dialog id="confirm">
-  <h2 id="confirm-title"></h2>
-  <pre id="confirm-detail"></pre>
-  <div class="row">
-    <button id="confirm-no">Decline</button>
-    <button id="confirm-yes" class="ok">Approve</button>
+  <h2 id="confirmTitle"></h2>
+  <pre id="confirmDetail"></pre>
+  <div class="actions">
+    <button id="confirmNo">Decline</button>
+    <button id="confirmYes" class="ok">Approve</button>
   </div>
 </dialog>
 
 <script>
-const log = document.getElementById("log");
-const statusEl = document.getElementById("status");
-const form = document.getElementById("form");
-const input = document.getElementById("input");
-const micButton = document.getElementById("mic");
-const speakButton = document.getElementById("speak");
-const dialog = document.getElementById("confirm");
-const tray = document.getElementById("tray");
-const profileSelect = document.getElementById("profile");
-const stopButton = document.getElementById("stop");
-const handsFreeButton = document.getElementById("handsfree");
-const fileInput = document.getElementById("file");
+/* =====================================================================
+   Thursday - HUD and avatar.
+   The server tells us what it is doing and how it feels; both views are
+   just two ways of drawing that same state.
+   ===================================================================== */
+
+const $ = (id) => document.getElementById(id);
+const stream = $("stream"), input = $("input"), form = $("form");
+const tray = $("tray"), fileInput = $("file"), dialog = $("confirm");
+const profileSelect = $("profile"), stopButton = $("stop");
 
 let socket = null;
-let currentBody = null;      // the <div> the streaming reply is written into
+let currentSay = null;       // the <div> the streamed reply writes into
 let pendingConfirm = null;
-let speakReplies = false;
-let voiceTurn = false;       // the current question arrived by voice
-let spokenUpTo = 0;          // how much of the reply has been sent to the synthesiser
-let handsFree = false;       // ignore speech until my name is said
-let wakeWords = ["thursday"];
-let assistantName = "Thursday";
+let speakReplies = false, voiceTurn = false, spokenUpTo = 0;
+let handsFree = false, listening = false;
+let wakeWords = ["thursday"], assistantName = "Thursday";
+let sessionCost = 0;
+let lastReply = "";          // shown by the avatar while it answers
 
-function scroll() { window.requestAnimationFrame(() => log.lastElementChild?.scrollIntoView({ block: "end" })); }
+/* ------------------------------------------------------------- moods */
+
+// Each mood gets a colour, a mouth, and a word for how it feels.
+const MOODS = {
+  asleep:     { color: "#3f6d86", mouth: "M180 240 L220 240",                 feel: "resting" },
+  calm:       { color: "#5eeaff", mouth: "M178 236 Q200 246 222 236",         feel: "ready" },
+  attentive:  { color: "#9ef0c0", mouth: "M186 234 Q200 250 214 234",         feel: "listening" },
+  thinking:   { color: "#b79dff", mouth: "M182 240 Q200 236 218 244",         feel: "thinking" },
+  working:    { color: "#ffb347", mouth: "M180 236 Q200 252 220 236",         feel: "on it" },
+  pleased:    { color: "#7dffb0", mouth: "M170 232 Q200 262 230 232",         feel: "pleased" },
+  concerned:  { color: "#ff9d5c", mouth: "M180 246 Q200 232 220 246",         feel: "concerned" },
+  apologetic: { color: "#ff7a7a", mouth: "M182 244 Q200 236 218 244",         feel: "sorry" },
+};
+
+/** The avatar says what it is saying, or what it is doing when it is silent. */
+function renderAvatarSpeech(activity, detail) {
+  if (activity !== undefined) renderAvatarSpeech.activity = activity;
+  if (detail !== undefined) renderAvatarSpeech.detail = detail;
+
+  const talking = lastReply.trim();
+  $("botWhat").textContent = talking || renderAvatarSpeech.activity || "standing by";
+  $("botDetail").textContent = talking
+    ? renderAvatarSpeech.activity
+    : (renderAvatarSpeech.detail || "");
+}
+renderAvatarSpeech.activity = "standing by";
+renderAvatarSpeech.detail = "";
+
+function hexToRgba(hex, alpha) {
+  const n = parseInt(hex.slice(1), 16);
+  return `rgba(${(n >> 16) & 255}, ${(n >> 8) & 255}, ${n & 255}, ${alpha})`;
+}
+
+function applyState({ mood, activity, detail }) {
+  const spec = MOODS[mood] || MOODS.calm;
+  document.body.dataset.mood = mood;
+  document.documentElement.style.setProperty("--mood", spec.color);
+  document.documentElement.style.setProperty("--mood-soft", hexToRgba(spec.color, 0.18));
+  $("mouth").setAttribute("d", spec.mouth);
+
+  $("activity").textContent = activity;
+  $("moodTag").textContent = spec.feel;
+  $("coreMood").textContent = activity;
+  $("coreDetail").textContent = detail || `${assistantName} is ${spec.feel}`;
+  $("botFeel").textContent = spec.feel;
+  renderAvatarSpeech(activity, detail);
+
+  // Visible in the tab strip while the page is in the background.
+  document.title = mood === "calm" || mood === "asleep"
+    ? assistantName
+    : `${assistantName} — ${activity}`;
+}
+
+/* -------------------------------------------------------------- view */
+
+function showAvatar(on) {
+  document.body.classList.toggle("avatar-mode", on);
+  if (!on) input.focus();
+}
+
+$("toAvatar").onclick = () => showAvatar(true);
+$("toHud").onclick = () => showAvatar(false);
+
+// Leaving the page hands over to the avatar, so coming back finds it there.
+document.addEventListener("visibilitychange", () => {
+  if (document.hidden) showAvatar(true);
+});
+
+/* ------------------------------------------------------------ stream */
+
+function scroll() {
+  requestAnimationFrame(() => stream.lastElementChild?.scrollIntoView({ block: "end" }));
+}
 
 function addTurn(who, cssClass) {
   const turn = document.createElement("div");
-  turn.className = "turn " + (cssClass || who.toLowerCase());
+  turn.className = "turn " + (cssClass || "");
   const label = document.createElement("div");
   label.className = "who";
   label.textContent = who;
-  const body = document.createElement("div");
-  body.className = "body";
-  turn.append(label, body);
-  log.append(turn);
+  const say = document.createElement("div");
+  say.className = "say";
+  turn.append(label, say);
+  stream.append(turn);
   scroll();
-  return body;
+  return say;
 }
 
 function addLine(text, cssClass) {
-  const body = addTurn("", cssClass);
-  body.textContent = text;
-  return body;
+  const say = addTurn("", cssClass);
+  say.textContent = text;
+  return say;
 }
 
-/* ---------------------------------------------------------------- speech out */
+function logActivity(text) {
+  const log = $("activityLog");
+  const line = document.createElement("div");
+  line.style.cssText = "padding:3px 0;border-bottom:1px solid rgba(94,234,255,.07)";
+  line.textContent = text;
+  log.append(line);
+  while (log.children.length > 60) log.firstElementChild.remove();
+  log.scrollTop = log.scrollHeight;
+}
+
+/* -------------------------------------------------------- speech out */
 
 const synth = window.speechSynthesis;
+
 function speak(text) {
   if (!speakReplies || !synth || !text.trim()) return;
   const utterance = new SpeechSynthesisUtterance(text.replace(/https?:\/\/\S+/g, "a link"));
@@ -213,7 +692,7 @@ function speak(text) {
   synth.speak(utterance);
 }
 
-// Speak complete sentences as they stream in, so replies start out loud early.
+// Speak whole sentences as they stream, so replies start out loud early.
 function speakStreamed(full) {
   const pending = full.slice(spokenUpTo);
   const match = /^[\s\S]*[.!?ฯ\n]/.exec(pending);
@@ -222,16 +701,16 @@ function speakStreamed(full) {
   spokenUpTo += match[0].length;
 }
 
-/* ------------------------------------------------------------------ socket */
+/* ------------------------------------------------------------ socket */
 
 function connect() {
   const protocol = location.protocol === "https:" ? "wss" : "ws";
   socket = new WebSocket(`${protocol}://${location.host}/ws`);
 
-  socket.onopen = () => { statusEl.textContent = "online"; };
+  socket.onopen = () => { $("sLink").textContent = "online"; };
   socket.onclose = () => {
-    statusEl.textContent = "reconnecting…";
-    document.body.classList.remove("thinking");
+    $("sLink").textContent = "reconnecting";
+    stopButton.hidden = true;
     setTimeout(connect, 2000);
   };
   socket.onmessage = (message) => handle(JSON.parse(message.data));
@@ -240,79 +719,65 @@ function connect() {
 function handle(event) {
   switch (event.type) {
     case "ready":
-      statusEl.textContent = `online · ${event.provider}/${event.model} · ${event.routing} routing`;
-      fillProfiles(event.profiles || []);
       assistantName = event.name || assistantName;
       wakeWords = (event.wake_words || []).map((word) => word.toLowerCase());
-      handsFreeButton.title = `Listen for "${assistantName}"`;
+      $("wordmark").textContent = assistantName.toUpperCase();
       input.placeholder = `Ask ${assistantName} anything…`;
+      $("handsfree").title = `Listen for "${assistantName}"`;
+      $("sProvider").textContent = event.provider || "—";
+      $("sModel").textContent = event.model || "—";
+      $("sRouting").textContent = event.routing || "—";
+      $("sProfile").textContent = "auto";
+      fillProfiles(event.profiles || []);
+      applyState({ mood: "calm", activity: "standing by", detail: "" });
       break;
 
-    case "usage": {
-      const { input, output, cost } = event.data || {};
-      const node = addTurn("", "routed");
-      node.classList.add("routed");
-      node.textContent =
-        `${input.toLocaleString()} in · ${output.toLocaleString()} out` +
-        (cost === null || cost === undefined ? "" : ` · $${cost.toFixed(4)}`);
-      break;
-    }
-
-    case "cancelled":
-      document.body.classList.remove("thinking");
-      stopButton.hidden = true;
-      addLine("stopped", "waiting");
-      currentBody = null;
-      break;
-
-    case "cancel_ack":
-      if (!event.stopped) stopButton.hidden = true;
+    case "state":
+      applyState(event);
       break;
 
     case "profile": {
       const { profile, provider, model, reason } = event.data || {};
-      currentBody = null;
-      const node = addTurn("", "routed");
-      node.classList.add("routed");
-      node.append(Object.assign(document.createElement("b"), { textContent: profile }));
-      node.append(` · ${provider}/${model} · ${reason}`);
+      $("sProfile").textContent = profile;
+      $("sProvider").textContent = provider;
+      $("sModel").textContent = model;
+      logActivity(`▸ ${profile} · ${provider}/${model} (${reason})`);
+      currentSay = null;
       break;
     }
 
     case "text":
-      if (!currentBody) { currentBody = addTurn("Thursday", "thursday"); spokenUpTo = 0; }
-      currentBody.textContent += event.text;
-      if (voiceTurn || speakReplies) speakStreamed(currentBody.textContent);
+      if (!currentSay) { currentSay = addTurn(assistantName, "thursday"); spokenUpTo = 0; lastReply = ""; }
+      currentSay.textContent += event.text;
+      lastReply = currentSay.textContent;
+      renderAvatarSpeech();
+      if (voiceTurn || speakReplies) speakStreamed(currentSay.textContent);
       scroll();
       break;
 
     case "thinking": {
-      // Keep appending to the reasoning block already at the end of the log,
-      // rather than starting a fresh one for every delta.
-      const last = log.lastElementChild;
-      const node = last?.classList.contains("reasoning")
-        ? last.querySelector(".body")
-        : addTurn("", "reasoning");
-      node.textContent += event.text;
-      scroll();
+      const box = $("reasoning");
+      if (box.dataset.fresh !== "1") { box.textContent = ""; box.dataset.fresh = "1"; }
+      box.textContent += event.text;
+      box.scrollTop = box.scrollHeight;
       break;
     }
 
     case "tool_start": {
-      currentBody = null;
-      const node = addTurn("", "tool");
-      node.classList.add("tool");
+      currentSay = null;
+      const say = addTurn("", "tool");
       const args = JSON.stringify(event.arguments || {});
-      node.append(Object.assign(document.createElement("b"), { textContent: event.tool }));
-      node.append(" " + (args.length > 200 ? args.slice(0, 200) + "…" : args));
+      say.append(Object.assign(document.createElement("b"), { textContent: event.tool }));
+      say.append(" " + (args.length > 160 ? args.slice(0, 160) + "…" : args));
+      logActivity(`⚙ ${event.tool}`);
       break;
     }
 
     case "tool_end": {
-      const last = log.lastElementChild?.querySelector(".tool");
+      const last = stream.lastElementChild?.querySelector(".say");
       if (last && event.result) {
         const pre = document.createElement("pre");
-        pre.textContent = event.result.slice(0, 1200);
+        pre.textContent = event.result.slice(0, 900);
         last.append(pre);
       }
       break;
@@ -320,7 +785,24 @@ function handle(event) {
 
     case "tool_error":
       addLine(`${event.tool}: ${event.result}`, "error");
+      logActivity(`✗ ${event.tool}`);
       break;
+
+    case "usage": {
+      const { input: tokensIn, output: tokensOut, cost } = event.data || {};
+      $("sCtx").textContent = `${(tokensIn || 0).toLocaleString()} tok`;
+      $("sOut").textContent = `${(tokensOut || 0).toLocaleString()} tok`;
+      // A million-token window is the yardstick for the bar.
+      $("mCtx").style.width = Math.min(100, ((tokensIn || 0) / 10000) * 100) + "%";
+      $("mOut").style.width = Math.min(100, ((tokensOut || 0) / 2000) * 100) + "%";
+      if (typeof cost === "number") {
+        sessionCost += cost;
+        $("sCost").textContent = sessionCost < 0.01 ? `$${sessionCost.toFixed(4)}` : `$${sessionCost.toFixed(2)}`;
+      } else {
+        $("sCost").textContent = "unpriced";
+      }
+      break;
+    }
 
     case "confirm":
       askConfirmation(event);
@@ -328,31 +810,43 @@ function handle(event) {
 
     case "reminder":
       addLine(`⏰ ${event.text}`, "reminder");
+      logActivity(`⏰ ${event.text}`);
       speak(event.text);
       break;
 
     case "error":
-      currentBody = null;
+      currentSay = null;
       addLine(event.text, "error");
       break;
 
-    case "done":
-      document.body.classList.remove("thinking");
+    case "cancelled":
       stopButton.hidden = true;
-      if (currentBody && (voiceTurn || speakReplies)) {
-        speak(currentBody.textContent.slice(spokenUpTo));  // whatever was left
+      addLine("stopped", "meta");
+      currentSay = null;
+      break;
+
+    case "cancel_ack":
+      if (!event.stopped) stopButton.hidden = true;
+      break;
+
+    case "done":
+      stopButton.hidden = true;
+      if (currentSay && (voiceTurn || speakReplies)) {
+        speak(currentSay.textContent.slice(spokenUpTo));
       }
-      currentBody = null;
+      currentSay = null;
       voiceTurn = false;
+      $("reasoning").dataset.fresh = "0";
       break;
 
     case "cleared":
-      log.replaceChildren();
+      stream.replaceChildren();
+      $("activityLog").replaceChildren();
       break;
   }
 }
 
-/* -------------------------------------------------------------- profiles */
+/* ----------------------------------------------------------- profiles */
 
 function fillProfiles(profiles) {
   const chosen = profileSelect.value;
@@ -361,25 +855,25 @@ function fillProfiles(profiles) {
   const auto = document.createElement("option");
   auto.value = "";
   auto.textContent = "auto";
-  auto.title = "Let Thursday route each message";
   profileSelect.append(auto);
 
   for (const profile of profiles) {
     const option = document.createElement("option");
     option.value = profile.name;
     option.textContent = profile.name;
-    option.title = `${profile.provider}/${profile.model}${profile.description ? " - " + profile.description : ""}`;
+    option.title = `${profile.provider}/${profile.model}${profile.description ? " — " + profile.description : ""}`;
     profileSelect.append(option);
   }
-  profileSelect.value = chosen;   // keep the user's choice across reconnects
+  profileSelect.value = chosen;
 }
 
-/* ------------------------------------------------------------ confirmation */
+/* ------------------------------------------------------- confirmation */
 
 function askConfirmation(event) {
   pendingConfirm = event.id;
-  document.getElementById("confirm-title").textContent = event.title;
-  document.getElementById("confirm-detail").textContent = event.detail || "";
+  $("confirmTitle").textContent = event.title;
+  $("confirmDetail").textContent = event.detail || "";
+  showAvatar(false);
   dialog.showModal();
   speak(`${event.title}. Shall I go ahead?`);
 }
@@ -391,15 +885,15 @@ function answerConfirmation(approved) {
   }
   dialog.close();
 }
-document.getElementById("confirm-yes").onclick = () => answerConfirmation(true);
-document.getElementById("confirm-no").onclick = () => answerConfirmation(false);
-dialog.addEventListener("cancel", (e) => { e.preventDefault(); answerConfirmation(false); });
+$("confirmYes").onclick = () => answerConfirmation(true);
+$("confirmNo").onclick = () => answerConfirmation(false);
+dialog.addEventListener("cancel", (event) => { event.preventDefault(); answerConfirmation(false); });
 
-/* ----------------------------------------------------------- attachments */
+/* ------------------------------------------------------- attachments */
 
 const ALLOWED = ["image/png", "image/jpeg", "image/gif", "image/webp"];
 const MAX_ATTACHMENTS = 4;
-let attachments = [];   // { media_type, data, url }
+let attachments = [];
 
 function renderTray() {
   tray.replaceChildren();
@@ -411,7 +905,6 @@ function renderTray() {
     preview.alt = "attachment";
     const remove = document.createElement("button");
     remove.textContent = "×";
-    remove.title = "Remove";
     remove.onclick = () => { attachments.splice(index, 1); renderTray(); };
     chip.append(preview, remove);
     tray.append(chip);
@@ -419,8 +912,8 @@ function renderTray() {
 }
 
 async function addAttachment(file) {
-  if (!ALLOWED.includes(file.type)) {
-    addLine(`${file.name || "That file"} is not an image I can read.`, "error");
+  if (!file || !ALLOWED.includes(file.type)) {
+    if (file) addLine(`${file.name || "That file"} is not an image I can read.`, "error");
     return;
   }
   if (attachments.length >= MAX_ATTACHMENTS) return;
@@ -434,55 +927,48 @@ async function addAttachment(file) {
   renderTray();
 }
 
-document.getElementById("attach").onclick = () => fileInput.click();
+$("attach").onclick = () => fileInput.click();
 fileInput.onchange = async () => {
   for (const file of fileInput.files) await addAttachment(file);
   fileInput.value = "";
 };
-
-// Paste a screenshot straight into the composer.
 window.addEventListener("paste", async (event) => {
   for (const item of event.clipboardData?.items || []) {
     if (item.kind === "file") await addAttachment(item.getAsFile());
   }
 });
-
-// ...or drop one anywhere on the page.
-window.addEventListener("dragover", (event) => {
-  event.preventDefault();
-  document.body.classList.add("dragging");
-});
-window.addEventListener("dragleave", () => document.body.classList.remove("dragging"));
+window.addEventListener("dragover", (event) => event.preventDefault());
 window.addEventListener("drop", async (event) => {
   event.preventDefault();
-  document.body.classList.remove("dragging");
   for (const file of event.dataTransfer?.files || []) await addAttachment(file);
 });
 
-/* --------------------------------------------------------------- sending */
+/* ------------------------------------------------------------ sending */
 
 function send(text, byVoice) {
   if ((!text.trim() && !attachments.length) || socket?.readyState !== WebSocket.OPEN) return;
 
-  const body = addTurn("You", "you");
-  body.textContent = text;
+  lastReply = "";
+  renderAvatarSpeech();
+
+  const say = addTurn("you", "you");
+  say.textContent = text;
   for (const attachment of attachments) {
     const preview = document.createElement("img");
     preview.src = attachment.url;
     preview.className = "shot";
     preview.alt = "attached image";
-    body.append(preview);
+    say.append(preview);
   }
 
   voiceTurn = !!byVoice;
-  currentBody = null;
-  document.body.classList.add("thinking");
+  currentSay = null;
   stopButton.hidden = false;
   socket.send(JSON.stringify({
     type: "message",
     text,
     voice: !!byVoice,
-    profile: profileSelect.value,   // "" means let the router decide
+    profile: profileSelect.value,
     images: attachments.map(({ media_type, data }) => ({ media_type, data })),
   }));
   attachments = [];
@@ -495,15 +981,32 @@ form.onsubmit = (event) => {
   input.value = "";
 };
 
-document.getElementById("clear").onclick = () => socket?.send(JSON.stringify({ type: "clear" }));
+stopButton.onclick = () => socket?.send(JSON.stringify({ type: "cancel" }));
 
-speakButton.onclick = () => {
+$("speak").onclick = () => {
   speakReplies = !speakReplies;
-  speakButton.setAttribute("aria-pressed", String(speakReplies));
+  $("speak").setAttribute("aria-pressed", String(speakReplies));
   if (!speakReplies) synth?.cancel();
 };
 
-/* ------------------------------------------------------------- wake word */
+/* ------------------------------------------------------------ keyboard */
+
+window.addEventListener("keydown", (event) => {
+  if (event.key === "Escape") {
+    // Escape means stop while it is talking, and switch view when it is not.
+    if (!stopButton.hidden) socket?.send(JSON.stringify({ type: "cancel" }));
+    else showAvatar(!document.body.classList.contains("avatar-mode"));
+    return;
+  }
+  // Typing anywhere in avatar mode brings the HUD back. Tab is left alone so
+  // keyboard navigation still works.
+  if (document.body.classList.contains("avatar-mode") &&
+      event.key.length === 1 && !event.ctrlKey && !event.metaKey && !event.altKey) {
+    showAvatar(false);
+  }
+});
+
+/* ------------------------------------------------------------ wake word */
 
 /** Split a heard phrase at the assistant's name. */
 function afterWakeWord(heard) {
@@ -517,17 +1020,13 @@ function afterWakeWord(heard) {
   return { woken: false, command: heard.trim() };
 }
 
-/* --------------------------------------------------------------- speech in */
-
 const Recognition = window.SpeechRecognition || window.webkitSpeechRecognition;
 let recognition = null;
-let listening = false;
 
 if (!Recognition) {
-  micButton.disabled = true;
-  handsFreeButton.disabled = true;
-  micButton.title = "This browser has no speech recognition - try Chrome or Edge";
-  handsFreeButton.title = micButton.title;
+  $("mic").disabled = true;
+  $("handsfree").disabled = true;
+  $("mic").title = "This browser has no speech recognition — try Chrome or Edge";
 } else {
   recognition = new Recognition();
   recognition.continuous = false;
@@ -535,8 +1034,7 @@ if (!Recognition) {
   recognition.lang = navigator.language?.startsWith("th") ? "th-TH" : "en-US";
 
   recognition.onresult = (event) => {
-    let finalText = "";
-    let interim = "";
+    let finalText = "", interim = "";
     for (const result of event.results) {
       if (result.isFinal) finalText += result[0].transcript;
       else interim += result[0].transcript;
@@ -547,70 +1045,54 @@ if (!Recognition) {
     let spoken = finalText;
     if (handsFree) {
       const { woken, command } = afterWakeWord(finalText);
-      if (!woken) {          // not addressed to us - go back to listening
-        input.value = "";
-        return;
-      }
-      if (!command) {        // just the name: acknowledge and wait
-        speak("Yes?");
-        input.value = "";
-        return;
-      }
+      if (!woken) { input.value = ""; return; }      // not addressed to us
+      if (!command) { speak("Yes?"); input.value = ""; return; }
       spoken = command;
     }
     send(spoken, true);
     input.value = "";
   };
-  recognition.onend = () => { if (listening) recognition.start(); };  // keep the mic open
+  recognition.onend = () => { if (listening) recognition.start(); };
   recognition.onerror = (event) => {
-    if (event.error === "not-allowed") { stopListening(); addLine("Microphone access was denied.", "error"); }
+    if (event.error === "not-allowed") {
+      stopListening();
+      addLine("Microphone access was denied.", "error");
+    }
   };
 }
 
 function startListening() {
-  if (!recognition) return;
+  if (!recognition || listening) return;
   listening = true;
   speakReplies = true;
-  speakButton.setAttribute("aria-pressed", "true");
-  micButton.setAttribute("aria-pressed", "true");
-  document.body.classList.add("listening");
-  recognition.start();
+  $("speak").setAttribute("aria-pressed", "true");
+  try { recognition.start(); } catch { /* already going */ }
 }
 
 function stopListening() {
   listening = false;
-  micButton.setAttribute("aria-pressed", "false");
-  document.body.classList.remove("listening");
+  handsFree = false;
+  $("mic").setAttribute("aria-pressed", "false");
+  $("handsfree").setAttribute("aria-pressed", "false");
   try { recognition?.stop(); } catch { /* already stopped */ }
 }
 
-micButton.onclick = () => {
+$("mic").onclick = () => {
+  if (listening && !handsFree) { stopListening(); return; }
   handsFree = false;
-  handsFreeButton.setAttribute("aria-pressed", "false");
-  listening ? stopListening() : startListening();
-};
-
-handsFreeButton.onclick = () => {
-  if (handsFree) {
-    handsFree = false;
-    handsFreeButton.setAttribute("aria-pressed", "false");
-    stopListening();
-    return;
-  }
-  handsFree = true;
-  handsFreeButton.setAttribute("aria-pressed", "true");
+  $("handsfree").setAttribute("aria-pressed", "false");
+  $("mic").setAttribute("aria-pressed", "true");
   startListening();
-  addLine(`Listening for "${assistantName}"…`, "waiting");
 };
 
-stopButton.onclick = () => socket?.send(JSON.stringify({ type: "cancel" }));
-
-// Escape stops the answer, the way Ctrl-C does in the terminal.
-window.addEventListener("keydown", (event) => {
-  if (event.key === "Escape" && !stopButton.hidden) {
-    socket.send(JSON.stringify({ type: "cancel" }));
-  }
-});
+$("handsfree").onclick = () => {
+  if (handsFree) { stopListening(); return; }
+  handsFree = true;
+  $("handsfree").setAttribute("aria-pressed", "true");
+  $("mic").setAttribute("aria-pressed", "false");
+  startListening();
+  addLine(`Listening for "${assistantName}"…`, "meta");
+};
 
 connect();
 </script>
