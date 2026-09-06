@@ -48,6 +48,8 @@ Commands:
   /plan              the long job in progress, and which step
   /watching          what I am keeping an eye on
   /people            who lives here, and what each may do
+  /vault             your Obsidian vault: how big, how connected
+  /connect [apply]   find new links between your notes
   /dryrun            toggle: say what you would do, change nothing
   /changes [n]       what has been changed on disk
   /undo [id]         put a change back
@@ -394,6 +396,47 @@ def handle_command(line: str, agent: Agent, session_id: str, printer: Printer) -
                     print(printer.paint(f"  put back: {put_back.describe()}", GREEN))
                 except UndoError as exc:
                     print(printer.paint(f"  {exc}", RED))
+    elif command in {"vault", "connect"}:
+        from .connect import Connector
+        from .embeddings import Embedder
+        from .vault import Vault, VaultError
+
+        root = agent.settings.vault_path
+        if not root:
+            print(printer.paint("  no vault set. Set THURSDAY_VAULT to your "
+                                "Obsidian folder.", RED))
+        else:
+            vault = Vault(root, journal=agent.context.state.get("journal"))
+            try:
+                if command == "vault":
+                    facts = vault.describe()
+                    print(f"  {printer.paint(facts['root'], BOLD)}")
+                    print(f"  {facts['notes']} notes · {facts['links']} links · "
+                          f"{facts['tags']} tags")
+                    adrift = facts["orphans"]
+                    colour = YELLOW if adrift else GREEN
+                    print(f"  {printer.paint(str(adrift), colour)} adrift "
+                          f"(nothing links to them)")
+                    for title in vault.orphans()[:8]:
+                        print(printer.paint(f"      {title}", DIM))
+                else:
+                    connector = Connector(vault, Embedder.from_env())
+                    found = connector.suggest()
+                    how = "meaning, tags and links" if connector.used_meaning else \
+                          "tags and links"
+                    if not found:
+                        print(printer.paint(f"  nothing new ({how})", DIM))
+                    for link in found[:20]:
+                        print(f"  {printer.paint(link.source, BOLD)} → {link.target}")
+                        print(printer.paint(f"      {link.reason}", DIM))
+                    if found and argument.strip() == "apply":
+                        written = connector.apply(found)
+                        print(printer.paint(f"  wrote links into {len(written)} note(s) "
+                                            f"— /undo puts one back", GREEN))
+                    elif found:
+                        print(printer.paint("  /connect apply to write them in", DIM))
+            except VaultError as exc:
+                print(printer.paint(f"  {exc}", RED))
     elif command == "people":
         people = agent.household.summary()
         if not people:

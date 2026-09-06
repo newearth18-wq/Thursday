@@ -116,6 +116,14 @@ FIELDS: tuple[Field, ...] = (
     Field("THURSDAY_EMBED_API_KEY", "Embedding key", "Documents", kind="password",
           help="Only for a hosted embedding provider."),
 
+    # ---- second brain -----------------------------------------------------
+    Field("THURSDAY_VAULT", "Obsidian vault", "Documents", kind="path",
+          placeholder="~/Documents/MyVault",
+          help="The folder holding your vault - the one with .obsidian in it."),
+    Field("THURSDAY_VAULT_DAILY", "Daily notes folder", "Documents",
+          placeholder="Journal",
+          help="Where your vault keeps daily notes. Empty means the vault root."),
+
     # ---- calendar and mail ------------------------------------------------
     Field("THURSDAY_CALENDARS", "Calendar feeds", "Connected",
           placeholder="https://…/basic.ics, ~/cal.ics",

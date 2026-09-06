@@ -412,6 +412,7 @@ BUILTIN_TOOL_MODULES = (
     "shell",
     "system",
     "timekeeping",
+    "vault",
     "vision",
     "watching",
     "web",

@@ -269,6 +269,17 @@ class Settings:
         return Path(override).expanduser() if override else self.data_dir / "people.json"
 
     @property
+    def vault_path(self) -> Path | None:
+        """The Obsidian vault, if there is one."""
+        raw = os.environ.get("THURSDAY_VAULT", "").strip()
+        return Path(raw).expanduser() if raw else None
+
+    @property
+    def vault_daily_folder(self) -> str:
+        """Where the vault keeps daily notes, if not the root."""
+        return os.environ.get("THURSDAY_VAULT_DAILY", "").strip()
+
+    @property
     def household_path(self) -> Path:
         """Who lives here, and what each of them may do."""
         override = os.environ.get("THURSDAY_HOUSEHOLD")
