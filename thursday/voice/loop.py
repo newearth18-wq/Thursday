@@ -12,6 +12,7 @@ from typing import Any, Callable
 from ..agent import Agent
 from ..events import Event
 from ..identity import Doorman, Enrolment, MissingBackend, build_encoder
+from ..proactive import Proactive
 
 log = logging.getLogger(__name__)
 
@@ -240,18 +241,17 @@ class VoiceLoop:
             self.speaker.say(remainder)
         self.speaker.wait()
 
-    async def _reminder_watcher(self) -> None:
-        """Speak reminders when they come due."""
-        while self._running:
-            try:
-                for reminder in self.agent.memory.due_reminders():
-                    line = f"Reminder: {reminder.text}"
-                    self.on_transcript("thursday", line)
-                    self.speaker.say(line)
-                    self.agent.memory.mark_fired(reminder.id)
-            except Exception:  # pragma: no cover - never kill the loop
-                log.exception("reminder check failed")
-            await asyncio.sleep(15)
+    def _build_proactive(self) -> Proactive:
+        """Reminders and scheduled routines, spoken out loud."""
+
+        async def announce(kind: str, text: str) -> None:
+            spoken = {"reminder": f"Reminder: {text}", "schedule": ""}.get(kind, text)
+            if not spoken:
+                return
+            self.on_transcript("thursday", spoken)
+            self.speaker.say(spoken)
+
+        return Proactive(self.agent, announce=announce)
 
     # ------------------------------------------------------------------- loop
 
@@ -259,7 +259,7 @@ class VoiceLoop:
         """Listen until interrupted."""
         self._running = True
         await self.agent.start()
-        watcher = asyncio.create_task(self._reminder_watcher())
+        watcher = self._build_proactive().start()
         wake_words = self.settings.wake_words
         try:
             while self._running:

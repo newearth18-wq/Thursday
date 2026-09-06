@@ -4,6 +4,11 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <title>Thursday</title>
+<link rel="manifest" href="/manifest.webmanifest">
+<meta name="theme-color" content="#02060c">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<link rel="apple-touch-icon" href="/icon.svg">
 <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns=%27http://www.w3.org/2000/svg%27 viewBox=%270 0 32 32%27%3E%3Ccircle cx=%2716%27 cy=%2716%27 r=%2713%27 fill=%27none%27 stroke=%27%235eeaff%27 stroke-width=%272%27/%3E%3Ccircle cx=%2716%27 cy=%2716%27 r=%275%27 fill=%27%23ffb347%27/%3E%3C/svg%3E">
 <style>
   :root {
@@ -360,6 +365,36 @@
   @media (max-width: 1100px) {
     .hud { grid-template-columns: 1fr; grid-template-areas: "top" "core" "dock"; }
     .left, .right { display: none; }
+  }
+
+  /* ------------------------------------------------------------- phone */
+  @media (max-width: 700px) {
+    /* Respect the notch and the home indicator. */
+    .hud { padding: max(12px, env(safe-area-inset-top)) 12px
+                   max(12px, env(safe-area-inset-bottom)) 12px; gap: 10px; }
+    .corner { display: none; }
+    .top { flex-wrap: wrap; gap: 10px; }
+    .wordmark { font-size: 14px; letter-spacing: .3em; }
+    .top .spacer { display: none; }
+    /* The buttons wrap onto their own scrollable row rather than squeezing. */
+    .top select, .top button { flex: none; font-size: 10px; padding: 7px 9px; }
+    .reactor { width: min(38vh, 260px); }
+    .core-caption { margin-top: 12px; }
+    .core-caption .big { font-size: 13px; }
+    .stream { max-height: 34vh; }
+    .who { display: none; }
+    .composer input { font-size: 16px; }   /* 16px stops iOS zooming on focus */
+    .fields { grid-template-columns: 1fr; }
+    .config { padding: max(16px, env(safe-area-inset-top)) 14px 30px; }
+    .bot { width: min(46vh, 280px); }
+    .lock input { width: min(72vw, 300px); }
+  }
+
+  /* A phone in landscape has almost no height to spare. */
+  @media (max-height: 480px) and (orientation: landscape) {
+    .reactor { width: min(52vh, 200px); }
+    .stream { max-height: 30vh; }
+    .core-caption { display: none; }
   }
 </style>
 </head>
@@ -942,11 +977,14 @@ function handle(event) {
       askConfirmation(event);
       break;
 
-    case "reminder":
-      addLine(`⏰ ${event.text}`, "reminder");
-      logActivity(`⏰ ${event.text}`);
-      speak(event.text);
+    case "proactive": {
+      // Something Thursday did on its own: a reminder or a scheduled routine.
+      const mark = { reminder: "⏰", schedule: "▶", result: "↳" }[event.kind] || "·";
+      addLine(`${mark} ${event.text}`, event.kind === "reminder" ? "reminder" : "meta");
+      logActivity(`${mark} ${event.text}`.slice(0, 90));
+      if (event.kind !== "schedule") speak(event.text);
       break;
+    }
 
     case "error":
       currentSay = null;
@@ -1581,6 +1619,11 @@ $("handsfree").onclick = () => {
   startListening();
   addLine(`Listening for "${assistantName}"…`, "meta");
 };
+
+// Installable on a phone; the worker deliberately caches nothing.
+if ("serviceWorker" in navigator && location.protocol === "https:") {
+  navigator.serviceWorker.register("/sw.js").catch(() => {});
+}
 
 checkAccess().then((open) => { if (open) connect(); });
 </script>

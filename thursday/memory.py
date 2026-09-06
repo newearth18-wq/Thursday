@@ -70,6 +70,18 @@ CREATE TABLE IF NOT EXISTS usage (
 );
 CREATE INDEX IF NOT EXISTS idx_usage_time ON usage(created_at);
 
+CREATE TABLE IF NOT EXISTS schedules (
+    name        TEXT PRIMARY KEY,
+    -- What to carry out: either a saved routine's name or a literal instruction.
+    routine     TEXT NOT NULL,
+    spec        TEXT NOT NULL,
+    next_run    REAL,
+    last_run    REAL,
+    enabled     INTEGER NOT NULL DEFAULT 1,
+    created_at  REAL NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_schedules_next ON schedules(enabled, next_run);
+
 CREATE TABLE IF NOT EXISTS routines (
     name        TEXT PRIMARY KEY,
     instruction TEXT NOT NULL,
@@ -211,6 +223,19 @@ class Memory:
                 _now(),
             ),
         )
+
+    def recent_text(self, since: float, limit: int = 100) -> str:
+        """Readable transcript of what was said lately, for reflection."""
+        rows = self._query(
+            "SELECT role, plain FROM messages WHERE created_at >= ? AND plain <> '' "
+            "AND session_id NOT IN ('reflection') ORDER BY id DESC LIMIT ?",
+            (since, limit),
+        )
+        lines = [
+            f"{'user' if row['role'] == 'user' else 'assistant'}: {row['plain']}"
+            for row in reversed(rows)
+        ]
+        return "\n".join(lines)
 
     def search_messages(
         self, query: str, limit: int = 10, session_id: str | None = None
@@ -444,6 +469,43 @@ class Memory:
         rows = self._query("SELECT SUM(cost) AS total FROM usage WHERE created_at >= ?", (since,))
         return float(rows[0]["total"] or 0.0) if rows else 0.0
 
+    # -------------------------------------------------------------- schedules
+
+    def save_schedule(self, name: str, routine: str, spec: str, next_run: float | None) -> None:
+        self._execute(
+            "INSERT INTO schedules (name, routine, spec, next_run, created_at) VALUES (?,?,?,?,?) "
+            "ON CONFLICT(name) DO UPDATE SET routine=excluded.routine, spec=excluded.spec, "
+            "next_run=excluded.next_run, enabled=1",
+            (name.strip().lower(), routine, spec, next_run, _now()),
+        )
+
+    def list_schedules(self, only_enabled: bool = False) -> list[dict[str, Any]]:
+        sql = "SELECT * FROM schedules"
+        if only_enabled:
+            sql += " WHERE enabled=1"
+        sql += " ORDER BY next_run IS NULL, next_run"
+        return [_schedule_dict(row) for row in self._query(sql)]
+
+    def due_schedules(self, now: float | None = None) -> list[dict[str, Any]]:
+        moment = _now() if now is None else now
+        rows = self._query(
+            "SELECT * FROM schedules WHERE enabled=1 AND next_run IS NOT NULL "
+            "AND next_run <= ? ORDER BY next_run",
+            (moment,),
+        )
+        return [_schedule_dict(row) for row in rows]
+
+    def mark_scheduled_run(self, name: str, next_run: float | None) -> None:
+        self._execute(
+            "UPDATE schedules SET last_run=?, next_run=? WHERE name=?",
+            (_now(), next_run, name.strip().lower()),
+        )
+
+    def cancel_schedule(self, name: str) -> bool:
+        return self._execute(
+            "DELETE FROM schedules WHERE name=?", (name.strip().lower(),)
+        ).rowcount > 0
+
     # --------------------------------------------------------------- routines
 
     def save_routine(self, name: str, instruction: str) -> None:
@@ -525,6 +587,18 @@ def _note_dict(row: sqlite3.Row) -> dict[str, Any]:
         "body": row["body"],
         "tags": row["tags"],
         "updated_at": iso(row["updated_at"]),
+    }
+
+
+def _schedule_dict(row: sqlite3.Row) -> dict[str, Any]:
+    return {
+        "name": row["name"],
+        "routine": row["routine"],
+        "spec": row["spec"],
+        "next_run": row["next_run"],
+        "next_run_at": iso(row["next_run"]) if row["next_run"] else None,
+        "last_run_at": iso(row["last_run"]) if row["last_run"] else None,
+        "enabled": bool(row["enabled"]),
     }
 
 

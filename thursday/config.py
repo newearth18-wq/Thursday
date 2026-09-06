@@ -183,6 +183,10 @@ class Settings:
     # Show what each turn cost as it finishes.
     show_cost: bool = False
 
+    # Hours between looking back over recent conversation to notice what is
+    # worth remembering. Zero switches it off.
+    reflect_hours: float = 0.0
+
     max_tool_iterations: int = 12
     history_turns: int = 40
 
@@ -239,6 +243,7 @@ class Settings:
             require_confirmation=_env_bool("THURSDAY_REQUIRE_CONFIRMATION", True),
             allow_shell=_env_bool("THURSDAY_ALLOW_SHELL", True),
             enable_web_search=_env_bool("THURSDAY_ENABLE_WEB_SEARCH", True),
+            reflect_hours=_env_float("THURSDAY_REFLECT_HOURS", 0.0),
             daily_budget=_env_float("THURSDAY_DAILY_BUDGET", 0.0),
             show_cost=_env_bool("THURSDAY_SHOW_COST", False),
             max_tool_iterations=_env_int("THURSDAY_MAX_TOOL_ITERATIONS", 12),

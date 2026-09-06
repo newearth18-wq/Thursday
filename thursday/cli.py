@@ -13,7 +13,7 @@ import time
 from .agent import Agent
 from .config import Settings
 from .events import Event
-from .notify import notify_desktop
+from .proactive import Proactive
 
 RESET = "\033[0m"
 DIM = "\033[2m"
@@ -203,20 +203,15 @@ async def run_turn(
             pass
 
 
-async def watch_reminders(agent: Agent, printer: Printer) -> None:
-    """Announce reminders as they come due, on screen and on the desktop."""
-    while True:
-        try:
-            for reminder in agent.memory.due_reminders():
-                print(printer.paint(f"\n⏰ {reminder.text}", YELLOW))
-                # The terminal may be buried; the OS notification is not.
-                await asyncio.to_thread(
-                    notify_desktop, f"{agent.settings.assistant_name} reminder", reminder.text
-                )
-                agent.memory.mark_fired(reminder.id)
-        except Exception:
-            pass
-        await asyncio.sleep(15)
+def build_proactive(agent: Agent, printer: Printer) -> Proactive:
+    """Reminders and scheduled routines, printed as they happen."""
+
+    async def announce(kind: str, text: str) -> None:
+        colour = {"reminder": YELLOW, "schedule": CYAN}.get(kind, GREEN)
+        mark = {"reminder": "⏰", "schedule": "▶", "result": "↳"}.get(kind, "·")
+        print(printer.paint(f"\n{mark} {text}", colour))
+
+    return Proactive(agent, announce=announce)
 
 
 def handle_command(line: str, agent: Agent, session_id: str, printer: Printer) -> bool:
@@ -353,7 +348,7 @@ async def chat(settings: Settings | None = None, session_id: str = "cli") -> Non
         f"{len(agent.registry)} tools · session {session_id}{RESET}\n"
     )
 
-    watcher = asyncio.create_task(watch_reminders(agent, printer))
+    watcher = build_proactive(agent, printer).start()
     try:
         while True:
             try:

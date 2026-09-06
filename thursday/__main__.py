@@ -21,13 +21,14 @@ def build_parser() -> argparse.ArgumentParser:
         default="chat",
         choices=[
             "chat", "voice", "serve", "tools", "ask",
-            "providers", "profiles", "models", "usage", "config",
+            "providers", "profiles", "models", "usage", "config", "service",
         ],
         help="chat: terminal · voice: wake word + speech · serve: web UI · "
         "tools: list capabilities · ask: one-shot question · "
         "providers: which backends are reachable · profiles: task profiles · "
         "models: models a provider offers · usage: tokens and cost · "
-        "config: current settings and where each came from",
+        "config: current settings and where each came from · "
+        "service: run in the background from login",
     )
     parser.add_argument("question", nargs="*", help="the question, for `ask`")
     parser.add_argument("--model", help="override the model id")
@@ -51,6 +52,8 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--effort", choices=["low", "medium", "high", "xhigh", "max"])
     parser.add_argument("--session", default=None, help="conversation to continue")
     parser.add_argument("--days", type=int, default=7, help="window for `usage`")
+    parser.add_argument("--apply", action="store_true", help="`service`: actually enable it")
+    parser.add_argument("--remove", action="store_true", help="`service`: uninstall it")
     parser.add_argument("--host", help="web UI bind address")
     parser.add_argument("--port", type=int, help="web UI port")
     parser.add_argument("--no-confirm", action="store_true", help="do not ask before risky tools")
@@ -128,6 +131,25 @@ def list_models(settings: Settings) -> None:
     print(f"{len(models)} models on {settings.provider}:")
     for model in models:
         print(f"  {model}")
+
+
+def manage_service(settings: Settings, apply: bool, remove: bool) -> int:
+    """Install or remove the background service."""
+    from .service import install, supported, uninstall
+
+    if remove:
+        print(uninstall())
+        return 0
+
+    ok, why = supported()
+    if not ok:
+        print(why, file=sys.stderr)
+        return 1
+
+    print(install(settings.assistant_name, apply=apply))
+    if apply:
+        print(f"\n{settings.assistant_name} will be at http://{settings.host}:{settings.port}")
+    return 0
 
 
 def show_config(settings: Settings) -> None:
@@ -264,6 +286,8 @@ def main(argv: list[str] | None = None) -> int:
     if args.mode == "config":
         show_config(settings)
         return 0
+    if args.mode == "service":
+        return manage_service(settings, args.apply, args.remove)
     if args.mode == "serve":
         from .server import serve
 

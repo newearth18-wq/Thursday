@@ -399,6 +399,7 @@ BUILTIN_TOOL_MODULES = (
     "files",
     "knowledge",
     "routines",
+    "scheduling",
     "shell",
     "system",
     "timekeeping",

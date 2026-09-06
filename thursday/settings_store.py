@@ -101,6 +101,9 @@ FIELDS: tuple[Field, ...] = (
     Field("THURSDAY_CLASSIFIER_PROVIDER", "Router provider", "Agents", kind="choice", choices=PROVIDERS, attr="classifier_provider"),
     Field("THURSDAY_CLASSIFIER_MODEL", "Router model", "Agents", placeholder="claude-haiku-4-5", attr="classifier_model"),
     Field("THURSDAY_HISTORY_TURNS", "History window", "Agents", kind="number", placeholder="40", attr="history_turns"),
+    Field("THURSDAY_REFLECT_HOURS", "Learn about me every", "Agents", kind="number",
+          placeholder="0", attr="reflect_hours",
+          help="Hours between reviewing recent conversation for things worth remembering. 0 is off."),
     Field("THURSDAY_MAX_TOOL_ITERATIONS", "Tool steps per turn", "Agents", kind="number", placeholder="12", attr="max_tool_iterations"),
 
     # ---- who may use it --------------------------------------------------

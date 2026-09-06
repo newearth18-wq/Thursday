@@ -43,6 +43,7 @@ thursday providers    # เช็คว่าต่อ backend ไหนได�
 thursday models       # ถามว่า provider ปัจจุบันมีโมเดลอะไร
 thursday usage        # ดู token กับค่าใช้จ่ายย้อนหลัง
 thursday config       # ดูค่าตั้งทั้งหมด และแต่ละค่ามาจากไหน
+thursday service      # ติดตั้งให้รันตลอดเวลา (--apply / --remove)
 thursday ask "ตอนนี้กี่โมง"    # ถามครั้งเดียวแล้วจบ
 
 thursday --local                     # ทุกอย่างรันบน Ollama ในเครื่อง
@@ -287,6 +288,52 @@ tool ที่ได้มาจะชื่อ `<server>_<tool>` เช่น `
 ไม่ได้ และดูออกทันทีว่ามาจากไหน server ที่สตาร์ตไม่ขึ้นจะถูกข้ามพร้อมบอกเหตุผล
 ไม่ทำให้ทั้งระบบล่ม
 
+## ทำงานเองโดยไม่ต้องสั่ง
+
+```
+"ทุกวันธรรมดา 8 โมงเช้า ให้รัน routine ตอนเช้า"
+"ทุก 2 ชั่วโมง เตือนให้ดื่มน้ำ"
+```
+
+รับเวลาแบบที่คนพูดจริง — `08:00`, `weekdays 09:15`, `every 30m`, `mon,thu 20:00`
+ไม่ต้องเขียน cron พอถึงเวลามันจะทำเองแล้วเด้ง notification มา
+
+- ตัวรันเดียวใช้ร่วมกันทุกหน้าตา (`proactive.py`) — เตือนความจำ, routine ตามเวลา,
+  และการทบทวนความจำ อยู่ในลูปเดียว
+- **เลื่อนเวลาถัดไปก่อนรัน** ถ้าล้มเหลวหรือเครื่องดับกลางคัน จะไม่วนรัวไม่หยุด
+- routine ที่ชี้ไปหาของที่ถูกลบไปแล้วจะถูกข้าม ไม่พัง
+
+### รันตลอดเวลา
+
+```bash
+thursday service            # ดู unit file ก่อน
+thursday service --apply    # ติดตั้งแล้วสตาร์ตพร้อมล็อกอิน
+thursday service --remove
+```
+
+ใช้ systemd (Linux) หรือ launchd (macOS) ของระบบเอง ไม่ได้เขียน supervisor ใหม่
+บน Linux เปิด `loginctl enable-linger` ให้ด้วย ไม่งั้นบริการจะตายตอน logout
+
+### จำเกี่ยวกับคุณเอง
+
+ตั้ง `THURSDAY_REFLECT_HOURS=6` แล้วมันจะอ่านย้อนบทสนทนาที่ผ่านมาเป็นระยะ
+แล้วเก็บสิ่งที่ควรจำไว้เอง (ค่าเริ่มต้นปิดอยู่)
+
+- ข้ามช่วงที่คุยกันน้อยเกินจะคุ้มค่าเรียกโมเดล
+- ไม่อ่านบันทึกของตัวเอง
+- ล้มเหลวแล้วไม่ลองใหม่ทุกรอบ
+
+## คุยผ่านมือถือ
+
+หน้าเว็บติดตั้งลงหน้าจอมือถือได้ (PWA) — เปิดผ่าน Tailscale/reverse proxy แล้ว
+"Add to Home Screen" เลย์เอาต์ปรับให้จอเล็ก เลี่ยงรอยบาก (`safe-area-inset`)
+และช่องพิมพ์ 16px เพื่อไม่ให้ iOS ซูมเอง
+
+> service worker **ไม่แคชอะไรเลยโดยตั้งใจ** — ผู้ช่วยที่ตอบสดผ่าน socket
+> ไม่ได้ประโยชน์จากแคช และ shell ที่ค้างเก่าแย่กว่าโหลดช้า
+
+⚠️ ก่อนเปิดออกนอกเครื่อง **ตั้ง `THURSDAY_AUTH=always` และตั้ง token** ก่อนเสมอ
+
 ## ค่าใช้จ่ายกับ token
 
 ทุกเทิร์นถูกบันทึกว่าใช้ token เท่าไหร่ บน provider/profile ไหน
@@ -330,6 +377,7 @@ THURSDAY_DAILY_BUDGET=5    # เกิน 5 ดอลลาร์ต่อวั
 | **เดสก์ท็อป** | `read_clipboard` `write_clipboard` `set_volume` `media_control` `show_notification` `lock_screen` |
 | เวลา | `current_time` `set_timer` `set_reminder` `list_reminders` `cancel_reminder` |
 | **Routines** | `save_routine` `run_routine` `list_routines` `delete_routine` |
+| **ตามเวลา** | `schedule_routine` `list_schedules` `cancel_schedule` |
 | ความจำ | `remember_fact` `recall_facts` `forget_fact` `add_note` `search_notes` `delete_note` `search_history` |
 | เว็บ | `get_weather` `fetch_url` + `web_search` / `web_fetch` (ฝั่ง Anthropic) |
 
@@ -412,6 +460,9 @@ thursday/
   mcp.py          MCP client (เสียบ server ภายนอก)
   mood.py         แปลง event เป็นสถานะ + อารมณ์ ให้ทุกหน้าตาใช้ร่วมกัน
   settings_store.py  schema ของค่าตั้งทั้งหมด + ไฟล์ overlay ที่หน้าเว็บเขียน
+  proactive.py    ลูปเดียวที่ทำงานเอง: เตือน, schedule, ทบทวนความจำ
+  schedule.py     แปลง "weekdays 08:00" เป็นเวลาถัดไป
+  service.py      systemd/launchd unit
   auth.py         access token, session, การล็อกเมื่อเดาผิด (กำแพงจริง)
   identity.py     จดจำหน้า/เสียง + นโยบาย (ระบุตัวตน ไม่ใช่ความปลอดภัย)
   pricing.py      ตารางราคาและการคิดค่าใช้จ่าย
@@ -441,7 +492,7 @@ tests/            pytest, ไม่แตะ network
 
 ```bash
 pip install -e ".[dev]"
-pytest            # 298 tests, ไม่ต้องใช้ API key และไม่ต่อเน็ต
+pytest            # 333 tests, ไม่ต้องใช้ API key และไม่ต่อเน็ต
 ```
 
 เทสต์ของ provider ยิงผ่าน socket จริงไปยังเซิร์ฟเวอร์ OpenAI-compatible ปลอม

@@ -20,7 +20,7 @@ from .events import Event
 from .auth import COOKIE, Gate, ensure_token
 from .identity import Doorman, Enrolment, MissingBackend, build_encoder, decode_data_url
 from .mood import MoodTracker
-from .notify import notify_desktop
+from .proactive import Proactive
 from .persona import system_prompt
 from .settings_store import describe as describe_settings
 from .settings_store import update as update_settings
@@ -39,6 +39,24 @@ except ImportError:  # pragma: no cover - depends on the install
     FASTAPI_AVAILABLE = False
 
 LOOPBACK = {"127.0.0.1", "::1", "localhost", "testclient"}
+
+ICON_SVG = """<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512">
+  <rect width="512" height="512" fill="#02060c"/>
+  <circle cx="256" cy="256" r="180" fill="none" stroke="#5eeaff" stroke-width="10"
+          stroke-dasharray="330 90"/>
+  <circle cx="256" cy="256" r="130" fill="none" stroke="#5eeaff" stroke-width="6" opacity=".6"/>
+  <circle cx="256" cy="256" r="86" fill="#ffb347" opacity=".35"/>
+  <circle cx="256" cy="256" r="46" fill="#fff6e6"/>
+</svg>"""
+
+# An assistant whose answers come live over a socket gains nothing from
+# caching them, and a stale shell is worse than a slow one. This exists so the
+# page is installable, and gets out of the way otherwise.
+SERVICE_WORKER = """\
+self.addEventListener('install', () => self.skipWaiting());
+self.addEventListener('activate', (event) => event.waitUntil(self.clients.claim()));
+self.addEventListener('fetch', () => {});
+"""
 
 
 def is_local(client_host: str | None) -> bool:
@@ -122,6 +140,42 @@ def create_app(settings: Settings | None = None) -> Any:
     @app.get("/", response_class=HTMLResponse)
     async def index() -> Any:
         return HTMLResponse((WEB_DIR / "index.html").read_text(encoding="utf-8"))
+
+    @app.get("/manifest.webmanifest")
+    async def manifest() -> Any:
+        """Lets a phone install Thursday to its home screen."""
+        name = current().assistant_name
+        return JSONResponse(
+            {
+                "name": name,
+                "short_name": name,
+                "description": f"{name}, your assistant",
+                "start_url": "/",
+                "display": "standalone",
+                "orientation": "any",
+                "background_color": "#02060c",
+                "theme_color": "#02060c",
+                "icons": [
+                    {
+                        "src": "/icon.svg",
+                        "sizes": "any",
+                        "type": "image/svg+xml",
+                        "purpose": "any maskable",
+                    }
+                ],
+            },
+            media_type="application/manifest+json",
+        )
+
+    @app.get("/icon.svg")
+    async def icon() -> Any:
+        """The home-screen icon: the reactor, drawn small."""
+        return HTMLResponse(ICON_SVG, media_type="image/svg+xml")
+
+    @app.get("/sw.js")
+    async def service_worker() -> Any:
+        """A deliberately minimal worker - enough to install, no stale caching."""
+        return HTMLResponse(SERVICE_WORKER, media_type="application/javascript")
 
     # ------------------------------------------------------------- settings
 
@@ -388,22 +442,13 @@ def create_app(settings: Settings | None = None) -> Any:
                         except Exception:
                             return
 
-        async def push_reminders() -> None:
-            while True:
-                try:
-                    for reminder in agent.memory.due_reminders():
-                        await websocket.send_text(
-                            json.dumps({"type": "reminder", "text": reminder.text})
-                        )
-                        await asyncio.to_thread(
-                            notify_desktop,
-                            f"{settings.assistant_name} reminder",
-                            reminder.text,
-                        )
-                        agent.memory.mark_fired(reminder.id)
-                except Exception:
-                    return
-                await asyncio.sleep(15)
+        async def announce(kind: str, text: str) -> None:
+            """Reminders and scheduled routines, pushed to the page."""
+            await websocket.send_text(
+                json.dumps({"type": "proactive", "kind": kind, "text": text}, ensure_ascii=False)
+            )
+
+        proactive = Proactive(agent, announce=announce, on_event=on_event)
 
         # Turns run in a worker so the receive loop stays free - a confirmation
         # reply arrives *while* the turn that asked for it is still waiting.
@@ -434,7 +479,7 @@ def create_app(settings: Settings | None = None) -> Any:
                 finally:
                     turns.task_done()
 
-        reminder_task = asyncio.create_task(push_reminders())
+        reminder_task = proactive.start()
         worker_task = asyncio.create_task(worker())
         settle_task = asyncio.create_task(settle())
         default_profile = agent.profiles[agent.router.default_name]
