@@ -140,6 +140,29 @@ BUILTIN_PROFILES: tuple[Profile, ...] = (
         ),
     ),
     Profile(
+        name="guest",
+        description="Someone the assistant does not work for.",
+        max_tokens=4000,
+        # A guest gets warmth and general knowledge, and none of the owner's
+        # notes, files, mail or documents.
+        deny_tools=(
+            "run_shell", "write_file", "read_file", "list_files", "search_files",
+            "open_app", "lock_screen", "take_screenshot",
+            "browse", "browser_act", "browser_screenshot",
+            "send_draft", "draft_email", "draft_event",
+            "remember_fact", "forget_fact", "add_note", "delete_note",
+            "search_notes", "search_history", "search_documents", "list_documents",
+            "index_documents", "forget_document", "check_mail", "read_mail",
+            "watch_for", "stop_watching", "start_job", "cancel_job",
+        ),
+        style=(
+            "You are speaking to a guest of the house, not your owner. Be warm "
+            "and useful about general questions, but you have no access to the "
+            "owner's files, mail, documents or notes, and you do not discuss "
+            "what is in them or what the owner has been doing."
+        ),
+    ),
+    Profile(
         name="private",
         description=(
             "Anything the user does not want leaving this machine. Runs on a local "

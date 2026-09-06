@@ -99,6 +99,10 @@ class Policy:
     denied_commands: tuple[str, ...] = ()
     #: Tools that are switched off entirely.
     denied_tools: tuple[str, ...] = ()
+    #: What the configuration itself denies, before anyone's role is applied.
+    #: Kept apart so switching from a guest back to the owner restores exactly
+    #: the configured list rather than whatever the last person left behind.
+    base_denied_tools: tuple[str, ...] = ()
     #: Turn off every confirmation. Off by default for a reason.
     trust_everything: bool = False
     #: Where a relative path in a command or argument resolves to.
@@ -134,6 +138,7 @@ class Policy:
             policy.trust_everything = True
         if not getattr(settings, "allow_shell", True):
             policy.denied_tools = tuple({*policy.denied_tools, "run_shell"})
+        policy.base_denied_tools = policy.denied_tools
         return policy
 
     @classmethod
@@ -161,6 +166,7 @@ class Policy:
             policy.write_paths = tuple(raw.get("write_paths") or ())
             policy.denied_commands = tuple(raw.get("denied_commands") or ())
             policy.denied_tools = tuple(raw.get("denied_tools") or ())
+            policy.base_denied_tools = policy.denied_tools
             rules = raw.get("tools")
             if isinstance(rules, dict):
                 merged = dict(DEFAULT_TOOL_RULES)

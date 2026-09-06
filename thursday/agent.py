@@ -19,6 +19,7 @@ from .config import Settings
 from .events import Event, EventHandler
 from .mcp import MCPManager
 from .memory import Memory
+from .people import Household
 from .permissions import Policy
 from .persona import situational_context, system_prompt
 from .pricing import estimate_cost, format_cost, load_prices, normalise_usage
@@ -89,6 +90,7 @@ class Agent:
         voice: bool = False,
         profiles: dict[str, Profile] | None = None,
         router: Router | None = None,
+        household: Household | None = None,
     ) -> None:
         self.settings = settings or Settings.from_env()
         self.settings.ensure_dirs()
@@ -101,6 +103,13 @@ class Agent:
         # but this is the choke point every call goes through.
         self.policy = Policy.from_settings(self.settings)
         self.context.state["policy"] = self.policy
+
+        # Who lives here, and what each of them may do. With nobody listed,
+        # everything behaves exactly as it did before there were people.
+        self.household = household if household is not None else Household.load(
+            self.settings.household_path
+        )
+        self.speaking_to(None)
 
         # An injected client (tests, a pre-configured SDK client) belongs to the
         # Anthropic provider.
@@ -192,10 +201,20 @@ class Agent:
         return local
 
     def system_for(self, profile: Profile) -> str:
-        """The system prompt for a profile - stable, so the cache keeps hitting."""
-        if not profile.style:
-            return self.base_system
-        return f"{self.base_system}\n{profile.style}\n"
+        """The system prompt for a profile.
+
+        Stable per (profile, person), so the cache keeps hitting: who is in the
+        room changes rarely, and when it does the prefix should change, because
+        speaking to a guest as though they were the owner is the failure this
+        whole thing exists to prevent.
+        """
+        parts = [self.base_system]
+        if profile.style:
+            parts.append(profile.style)
+        if who := getattr(self, "person", None):
+            if style := who.style(self.household.owner_name()):
+                parts.append(style)
+        return "\n".join(parts) + ("\n" if len(parts) > 1 else "")
 
     def _with_context(
         self, messages: list[dict[str, Any]], profile: Profile, provider: Provider
@@ -473,6 +492,26 @@ class Agent:
         "make_plan", "start_step", "finish_step", "skip_step", "fail_step",
         "add_plan_step", "show_plan", "abandon_plan",
     })
+
+    def speaking_to(self, name: str | None) -> Any:
+        """Say who Thursday is talking to, and apply what that means.
+
+        Called by whichever front end knows: the web UI after a face or voice
+        check, the voice loop after speaker verification. Everything downstream
+        - which notes are readable, which tools may run, how it speaks - reads
+        the person out of the tool context, so this is the only place that has
+        to be got right.
+        """
+        person = self.household.get(name or "")
+        self.person = person
+        self.context.state["person"] = person
+        # Their role's restrictions ride on the same policy that already
+        # refuses to read an SSH key, rather than becoming a second gate that
+        # could disagree with the first.
+        self.policy.denied_tools = tuple(
+            dict.fromkeys((*self.policy.base_denied_tools, *person.denied()))
+        )
+        return person
 
     async def _emit_plan(self, tool_name: str, emit: Any) -> None:
         """Send the plan out after anything that touched it."""

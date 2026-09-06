@@ -230,6 +230,13 @@ def parse_when(text: str, now: datetime | None = None) -> datetime | None:
     return None
 
 
+def _whose(ctx: ToolContext | None) -> str:
+    """Whose reminder this is, so it is theirs and not the household's."""
+    if ctx is None:
+        return ""
+    return getattr(ctx.state.get("person"), "key", "") or ""
+
+
 @tool
 def current_time(timezone_name: str = "") -> dict[str, Any]:
     """Get the current date and time.
@@ -292,7 +299,7 @@ def set_reminder(
         raise ToolError(f"unknown repeat {repeat!r}; use one of {', '.join(REPEAT_SECONDS)}")
 
     every = REPEAT_SECONDS[repeat]
-    reminder = ctx.memory.add_reminder(text, due.timestamp(), every)
+    reminder = ctx.memory.add_reminder(text, due.timestamp(), every, person=_whose(ctx))
     result = {
         "id": reminder.id,
         "text": text,
@@ -309,7 +316,7 @@ def list_reminders(ctx: ToolContext = None) -> list[dict[str, Any]]:
     """List reminders that have not fired yet."""
     if ctx is None or ctx.memory is None:
         return []
-    return [r.as_dict() for r in ctx.memory.pending_reminders()]
+    return [r.as_dict() for r in ctx.memory.pending_reminders(_whose(ctx))]
 
 
 @tool
@@ -321,7 +328,8 @@ def cancel_reminder(reminder_id: int, ctx: ToolContext = None) -> str:
     """
     if ctx is None or ctx.memory is None:
         raise ToolError("no memory available")
-    return "cancelled" if ctx.memory.cancel_reminder(reminder_id) else "no such pending reminder"
+    return ("cancelled" if ctx.memory.cancel_reminder(reminder_id, _whose(ctx))
+            else "no such pending reminder")
 
 
 @tool
@@ -338,7 +346,7 @@ def set_timer(duration: str, label: str = "timer", ctx: ToolContext = None) -> d
     due = datetime.now(timezone.utc) + timedelta(seconds=seconds)
     if ctx is None or ctx.memory is None:
         raise ToolError("timers need persistent memory, which is unavailable")
-    reminder = ctx.memory.add_reminder(label, due.timestamp())
+    reminder = ctx.memory.add_reminder(label, due.timestamp(), person=_whose(ctx))
     return {
         "id": reminder.id,
         "label": label,

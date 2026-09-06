@@ -46,6 +46,7 @@ Commands:
   /reminders         list pending reminders
   /plan              the long job in progress, and which step
   /watching          what I am keeping an eye on
+  /people            who lives here, and what each may do
   /drafts            mail and diary entries waiting for you
   /approve <id>      approve a draft, then /send it
   /send <id>         send a draft you have approved
@@ -342,6 +343,21 @@ def handle_command(line: str, agent: Agent, session_id: str, printer: Printer) -
             print(f"  also writable: {', '.join(rules['extra_writable'])}")
         if rules["denied_tools"]:
             print(f"  switched off: {', '.join(rules['denied_tools'])}")
+    elif command == "people":
+        people = agent.household.summary()
+        if not people:
+            print("  nobody listed - one memory, one set of permissions, as before")
+            print(printer.paint("  set roles under Config on the Thursday page", DIM))
+        for entry in people:
+            colour = {"owner": GREEN, "member": CYAN, "guest": YELLOW}.get(entry["role"], DIM)
+            role = printer.paint(f"{entry['role']:<7}", colour)
+            print(f"  {role} {printer.paint(entry['name'], BOLD)}")
+            if entry["denied"]:
+                shown = ", ".join(entry["denied"][:8])
+                more = " …" if len(entry["denied"]) > 8 else ""
+                print(printer.paint(f"      cannot: {shown}{more}", DIM))
+        if getattr(agent, "person", None) and agent.person.name:
+            print(printer.paint(f"  (talking to {agent.person.name})", DIM))
     elif command == "watching":
         from .watchers import Watch
 

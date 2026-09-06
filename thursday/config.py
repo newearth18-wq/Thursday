@@ -269,6 +269,12 @@ class Settings:
         return Path(override).expanduser() if override else self.data_dir / "people.json"
 
     @property
+    def household_path(self) -> Path:
+        """Who lives here, and what each of them may do."""
+        override = os.environ.get("THURSDAY_HOUSEHOLD")
+        return Path(override).expanduser() if override else self.data_dir / "household.json"
+
+    @property
     def settings_path(self) -> Path:
         """The file the web UI writes editable settings to."""
         return overlay_path()

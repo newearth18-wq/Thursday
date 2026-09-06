@@ -13,6 +13,18 @@ def _memory(ctx: ToolContext | None):
     return ctx.memory
 
 
+def _whose(ctx: ToolContext | None) -> str:
+    """Who is being talked to, so their notes and facts are their own.
+
+    Empty means nobody in particular, which is how a household of one - and
+    everything written before there were people - behaves.
+    """
+    if ctx is None:
+        return ""
+    person = ctx.state.get("person")
+    return getattr(person, "key", "") or ""
+
+
 @tool
 def add_note(title: str, body: str = "", tags: str = "", ctx: ToolContext = None) -> dict[str, Any]:
     """Save a note for the user.
@@ -22,7 +34,7 @@ def add_note(title: str, body: str = "", tags: str = "", ctx: ToolContext = None
         body: The note body.
         tags: Optional comma-separated tags.
     """
-    note_id = _memory(ctx).add_note(title, body, tags)
+    note_id = _memory(ctx).add_note(title, body, tags, person=_whose(ctx))
     return {"id": note_id, "title": title}
 
 
@@ -35,7 +47,9 @@ def search_notes(query: str = "", limit: int = 10, ctx: ToolContext = None) -> l
         limit: Maximum number of notes to return.
     """
     memory = _memory(ctx)
-    return memory.search_notes(query, limit) if query else memory.list_notes(limit)
+    whose = _whose(ctx)
+    return (memory.search_notes(query, limit, whose) if query
+            else memory.list_notes(limit, whose))
 
 
 @tool
@@ -45,7 +59,7 @@ def delete_note(note_id: int, ctx: ToolContext = None) -> str:
     Args:
         note_id: The note's id.
     """
-    return "deleted" if _memory(ctx).delete_note(note_id) else "no such note"
+    return "deleted" if _memory(ctx).delete_note(note_id, _whose(ctx)) else "no such note"
 
 
 @tool
@@ -75,7 +89,7 @@ def remember_fact(key: str, value: str, ctx: ToolContext = None) -> str:
         key: A short identifier, e.g. "home_city" or "coffee_order".
         value: The value to remember.
     """
-    _memory(ctx).remember(key, value)
+    _memory(ctx).remember(key, value, person=_whose(ctx))
     return f"remembered {key} = {value}"
 
 
@@ -88,9 +102,9 @@ def recall_facts(key: str = "", ctx: ToolContext = None) -> dict[str, Any]:
     """
     memory = _memory(ctx)
     if key:
-        value = memory.recall(key)
+        value = memory.recall(key, _whose(ctx))
         return {key: value} if value is not None else {}
-    return memory.all_facts()
+    return memory.all_facts(_whose(ctx))
 
 
 @tool
@@ -100,4 +114,4 @@ def forget_fact(key: str, ctx: ToolContext = None) -> str:
     Args:
         key: The key to forget.
     """
-    return "forgotten" if _memory(ctx).forget(key) else "no such fact"
+    return "forgotten" if _memory(ctx).forget(key, _whose(ctx)) else "no such fact"

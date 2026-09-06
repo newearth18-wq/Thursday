@@ -35,20 +35,28 @@ CREATE TABLE IF NOT EXISTS notes (
     title       TEXT NOT NULL,
     body        TEXT NOT NULL DEFAULT '',
     tags        TEXT NOT NULL DEFAULT '',
+    -- Whose note this is. Empty means shared, which is what everything
+    -- written before there were people becomes.
+    person      TEXT NOT NULL DEFAULT '',
     created_at  REAL NOT NULL,
     updated_at  REAL NOT NULL
 );
 
+-- Keyed on (person, key) rather than key alone, so two people can each
+-- have a "home_city" without overwriting one another.
 CREATE TABLE IF NOT EXISTS facts (
-    key         TEXT PRIMARY KEY,
+    key         TEXT NOT NULL,
     value       TEXT NOT NULL,
-    updated_at  REAL NOT NULL
+    person      TEXT NOT NULL DEFAULT '',
+    updated_at  REAL NOT NULL,
+    PRIMARY KEY (person, key)
 );
 
 CREATE TABLE IF NOT EXISTS reminders (
     id          INTEGER PRIMARY KEY AUTOINCREMENT,
     text        TEXT NOT NULL,
     due_at      REAL NOT NULL,
+    person      TEXT NOT NULL DEFAULT '',
     created_at  REAL NOT NULL,
     fired_at    REAL,
     repeat_seconds REAL
@@ -186,6 +194,12 @@ CREATE TABLE IF NOT EXISTS plan_steps (
 """
 
 
+#: "Mine, or the household's." Used everywhere a person's own things are
+#: read: they see what they wrote plus what is shared, and never what someone
+#: else wrote. Bound to one parameter, which every caller passes.
+_MINE = "(person = ? OR person = '')"
+
+
 def _now() -> float:
     return time.time()
 
@@ -236,6 +250,52 @@ class Memory:
         columns = {row["name"] for row in self._conn.execute("PRAGMA table_info(reminders)")}
         if "repeat_seconds" not in columns:
             self._conn.execute("ALTER TABLE reminders ADD COLUMN repeat_seconds REAL")
+
+        # More than one person can use this assistant, and their notes,
+        # facts and reminders are their own. An empty person is shared -
+        # which is what everything written before this existed becomes.
+        for table in ("notes", "reminders"):
+            columns = {row["name"] for row in self._conn.execute(f"PRAGMA table_info({table})")}
+            if "person" not in columns:
+                self._conn.execute(
+                    f"ALTER TABLE {table} ADD COLUMN person TEXT NOT NULL DEFAULT ''"
+                )
+
+        # facts needs its primary key widened from (key) to (person, key), so
+        # two people can each have a "home_city". SQLite cannot alter a
+        # primary key, so the table is rebuilt - which is also why this checks
+        # the key rather than the column: an older database that only had the
+        # column added would still refuse the second person's fact.
+        fact_columns = {row["name"] for row in self._conn.execute("PRAGMA table_info(facts)")}
+        # PRAGMA reports pk as a 1-based position, and lists columns in
+        # declaration order - so this is compared as a set, or the table would
+        # be rebuilt on every single startup.
+        keys = {
+            row["name"]
+            for row in self._conn.execute("PRAGMA table_info(facts)")
+            if row["pk"]
+        }
+        if fact_columns and keys != {"person", "key"}:
+            log.info("rebuilding facts so each person has their own")
+            self._conn.executescript(
+                """
+                CREATE TABLE IF NOT EXISTS facts_new (
+                    key         TEXT NOT NULL,
+                    value       TEXT NOT NULL,
+                    person      TEXT NOT NULL DEFAULT '',
+                    updated_at  REAL NOT NULL,
+                    PRIMARY KEY (person, key)
+                );
+                """
+            )
+            self._conn.execute(
+                "INSERT OR REPLACE INTO facts_new (key, value, person, updated_at) "
+                "SELECT key, value, {person}, updated_at FROM facts".format(
+                    person="person" if "person" in fact_columns else "''"
+                )
+            )
+            self._conn.execute("DROP TABLE facts")
+            self._conn.execute("ALTER TABLE facts_new RENAME TO facts")
 
         message_columns = {row["name"] for row in self._conn.execute("PRAGMA table_info(messages)")}
         if "plain" not in message_columns:
@@ -405,70 +465,102 @@ class Memory:
 
     # ------------------------------------------------------------------ notes
 
-    def add_note(self, title: str, body: str = "", tags: str = "") -> int:
+    def add_note(self, title: str, body: str = "", tags: str = "", person: str = "") -> int:
         now = _now()
         cur = self._execute(
-            "INSERT INTO notes (title, body, tags, created_at, updated_at) VALUES (?,?,?,?,?)",
-            (title, body, tags, now, now),
+            "INSERT INTO notes (title, body, tags, person, created_at, updated_at) "
+            "VALUES (?,?,?,?,?,?)",
+            (title, body, tags, person, now, now),
         )
         return int(cur.lastrowid or 0)
 
-    def list_notes(self, limit: int = 20) -> list[dict[str, Any]]:
+    def list_notes(self, limit: int = 20, person: str = "") -> list[dict[str, Any]]:
         rows = self._query(
-            "SELECT * FROM notes ORDER BY updated_at DESC LIMIT ?", (limit,)
+            f"SELECT * FROM notes WHERE {_MINE} ORDER BY updated_at DESC LIMIT ?",
+            (person, limit),
         )
         return [_note_dict(r) for r in rows]
 
-    def search_notes(self, query: str, limit: int = 20) -> list[dict[str, Any]]:
+    def search_notes(
+        self, query: str, limit: int = 20, person: str = ""
+    ) -> list[dict[str, Any]]:
         like = f"%{query}%"
         rows = self._query(
-            "SELECT * FROM notes WHERE title LIKE ? OR body LIKE ? OR tags LIKE ? "
+            f"SELECT * FROM notes WHERE {_MINE} AND "
+            "(title LIKE ? OR body LIKE ? OR tags LIKE ?) "
             "ORDER BY updated_at DESC LIMIT ?",
-            (like, like, like, limit),
+            (person, like, like, like, limit),
         )
         return [_note_dict(r) for r in rows]
 
-    def delete_note(self, note_id: int) -> bool:
-        return self._execute("DELETE FROM notes WHERE id=?", (note_id,)).rowcount > 0
+    def delete_note(self, note_id: int, person: str = "") -> bool:
+        """Delete a note. Somebody else's is simply not found."""
+        return self._execute(
+            f"DELETE FROM notes WHERE id=? AND {_MINE}", (note_id, person)
+        ).rowcount > 0
 
     # ------------------------------------------------------------------ facts
 
-    def remember(self, key: str, value: str) -> None:
+    def remember(self, key: str, value: str, person: str = "") -> None:
         self._execute(
-            "INSERT INTO facts (key, value, updated_at) VALUES (?,?,?) "
-            "ON CONFLICT(key) DO UPDATE SET value=excluded.value, updated_at=excluded.updated_at",
-            (key.strip().lower(), value, _now()),
+            "INSERT INTO facts (key, value, person, updated_at) VALUES (?,?,?,?) "
+            "ON CONFLICT(person, key) DO UPDATE SET "
+            "value=excluded.value, updated_at=excluded.updated_at",
+            (key.strip().lower(), value, person, _now()),
         )
 
-    def recall(self, key: str) -> str | None:
-        rows = self._query("SELECT value FROM facts WHERE key=?", (key.strip().lower(),))
+    def recall(self, key: str, person: str = "") -> str | None:
+        """A person's own answer, falling back to the shared one.
+
+        Their own wins: if the house has a "home_city" and so do they, the
+        one that answers a question they asked is theirs.
+        """
+        rows = self._query(
+            f"SELECT value FROM facts WHERE key=? AND {_MINE} "
+            "ORDER BY person DESC LIMIT 1",
+            (key.strip().lower(), person),
+        )
         return rows[0]["value"] if rows else None
 
-    def all_facts(self) -> dict[str, str]:
-        return {r["key"]: r["value"] for r in self._query("SELECT key, value FROM facts ORDER BY key")}
+    def all_facts(self, person: str = "") -> dict[str, str]:
+        # Shared first so a personal answer for the same key overwrites it,
+        # matching what recall() would return for each one.
+        rows = self._query(
+            f"SELECT key, value FROM facts WHERE {_MINE} ORDER BY person, key", (person,)
+        )
+        return {r["key"]: r["value"] for r in rows}
 
-    def forget(self, key: str) -> bool:
-        return self._execute("DELETE FROM facts WHERE key=?", (key.strip().lower(),)).rowcount > 0
+    def forget(self, key: str, person: str = "") -> bool:
+        return self._execute(
+            f"DELETE FROM facts WHERE key=? AND {_MINE}",
+            (key.strip().lower(), person),
+        ).rowcount > 0
 
     # -------------------------------------------------------------- reminders
 
     def add_reminder(
-        self, text: str, due_at: float, repeat_seconds: float | None = None
+        self, text: str, due_at: float, repeat_seconds: float | None = None,
+        person: str = "",
     ) -> Reminder:
         now = _now()
         cur = self._execute(
-            "INSERT INTO reminders (text, due_at, created_at, repeat_seconds) VALUES (?,?,?,?)",
-            (text, due_at, now, repeat_seconds),
+            "INSERT INTO reminders (text, due_at, person, created_at, repeat_seconds) "
+            "VALUES (?,?,?,?,?)",
+            (text, due_at, person, now, repeat_seconds),
         )
         return Reminder(int(cur.lastrowid or 0), text, due_at, now, None, repeat_seconds)
 
-    def pending_reminders(self) -> list[Reminder]:
+    def pending_reminders(self, person: str = "") -> list[Reminder]:
         rows = self._query(
-            "SELECT * FROM reminders WHERE fired_at IS NULL ORDER BY due_at ASC"
+            f"SELECT * FROM reminders WHERE fired_at IS NULL AND {_MINE} ORDER BY due_at ASC",
+            (person,),
         )
         return [_reminder(r) for r in rows]
 
     def due_reminders(self, now: float | None = None) -> list[Reminder]:
+        """Everyone's, deliberately: the proactive loop fires them all, and
+        says whose each one is. Scoping this would silently drop the reminders
+        of whoever was not standing in front of the camera."""
         moment = _now() if now is None else now
         rows = self._query(
             "SELECT * FROM reminders WHERE fired_at IS NULL AND due_at <= ? ORDER BY due_at",
@@ -498,9 +590,11 @@ class Memory:
         self._execute("UPDATE reminders SET due_at=? WHERE id=?", (next_due, reminder_id))
         return next_due
 
-    def cancel_reminder(self, reminder_id: int) -> bool:
+    def cancel_reminder(self, reminder_id: int, person: str = "") -> bool:
+        """Cancel one. Somebody else's is simply not found."""
         return self._execute(
-            "DELETE FROM reminders WHERE id=? AND fired_at IS NULL", (reminder_id,)
+            f"DELETE FROM reminders WHERE id=? AND fired_at IS NULL AND {_MINE}",
+            (reminder_id, person),
         ).rowcount > 0
 
     # ------------------------------------------------------------------ usage

@@ -25,6 +25,7 @@ from .drafts import DraftError, Outbox
 from .memory import Memory
 from .mood import MoodTracker
 from .proactive import Proactive
+from .people import Household, ROLES
 from .permissions import Policy
 from .planner import Planner
 from .persona import system_prompt
@@ -123,7 +124,7 @@ def create_app(settings: Settings | None = None) -> Any:
         raise RuntimeError("fastapi is not installed; run: pip install 'thursday[web]'")
 
     # Held in a cell so a settings change can swap it without restarting.
-    state: dict[str, Settings] = {"settings": settings or Settings.from_env()}
+    state: dict[str, Any] = {"settings": settings or Settings.from_env(), "person": ""}
 
     def current() -> Settings:
         return state["settings"]
@@ -135,6 +136,7 @@ def create_app(settings: Settings | None = None) -> Any:
         if made:
             print(f"\n  access token: {gate.token}\n  (needed from other machines; change it under Config)\n")
     enrolment = Enrolment.load(boot.enrolment_path)
+    household = Household.load(boot.household_path)
 
     def client_host(request: Any) -> str | None:
         return request.client.host if request.client else None
@@ -346,7 +348,15 @@ def create_app(settings: Settings | None = None) -> Any:
             return JSONResponse({"error": str(exc)}, status_code=400)
 
         match = enrolment.identify(embedding, "face")
-        return JSONResponse(match.as_dict())
+        payload = match.as_dict()
+        if match.recognised:
+            # Remembered for this browser session, so the next turn is answered
+            # as them: their notes, their reminders, their permissions.
+            person = household.get(match.name)
+            state["person"] = match.name
+            payload["role"] = person.role
+            payload["may_not"] = list(person.denied())
+        return JSONResponse(payload)
 
     @app.post("/api/identity/forget")
     async def forget(request: Request) -> Any:
@@ -485,6 +495,58 @@ def create_app(settings: Settings | None = None) -> Any:
             }
         return JSONResponse({"channels": channels, "profile": "chat"})
 
+    # ------------------------------------------------------------ household
+
+    @app.get("/api/people")
+    async def read_people(request: Request) -> Any:
+        """Who lives here, and what each of them may do."""
+        if not guard(request):
+            return JSONResponse({"error": "unauthorised"}, status_code=401)
+        return JSONResponse(
+            {
+                "people": household.summary(),
+                "roles": list(ROLES),
+                "enrolled": enrolment.names(),
+                "speaking_to": state.get("person", ""),
+                "in_force": household.anyone,
+                "note": (
+                    "This is not a wall between people who share a login - anyone "
+                    "with one can read the database. It stops the assistant "
+                    "disclosing things by accident, and stops a guest running "
+                    "commands."
+                ),
+            }
+        )
+
+    @app.post("/api/people")
+    async def write_people(request: Request) -> Any:
+        """Give someone a role, or take them off the list.
+
+        Local only, like settings: deciding who may run a shell command on
+        this machine is not something to allow over the network.
+        """
+        if not guard(request) or not is_local(client_host(request)):
+            return JSONResponse({"error": "only allowed from this machine"}, status_code=403)
+        try:
+            body = await request.json()
+        except Exception:
+            body = {}
+        name = str((body or {}).get("name") or "").strip()
+        if not name:
+            return JSONResponse({"error": "a name is needed"}, status_code=400)
+
+        if (body or {}).get("remove"):
+            household.remove(name)
+        else:
+            role = str((body or {}).get("role") or "guest").lower()
+            if role not in ROLES:
+                return JSONResponse(
+                    {"error": f"a role is one of {', '.join(ROLES)}"}, status_code=400
+                )
+            household.set(name, role, tuple((body or {}).get("denied_tools") or ()))
+        household.save()
+        return JSONResponse({"people": household.summary(), "saved": True})
+
     @app.get("/api/status")
     async def status() -> Any:
         agent = Agent(settings=current())
@@ -525,7 +587,11 @@ def create_app(settings: Settings | None = None) -> Any:
 
         session_id = websocket.query_params.get("session") or f"web-{uuid.uuid4().hex[:8]}"
         settings = current()   # this connection's snapshot
-        agent = Agent(settings=settings)
+        agent = Agent(settings=settings, household=household)
+        # Whoever the camera last recognised. Nobody recognised is the owner:
+        # an assistant that locks its owner out when the camera is covered is
+        # worse than useless, and the access token is the real gate anyway.
+        agent.speaking_to(state.get("person") or None)
         await agent.start()
 
         # Pending confirmations, keyed by request id, resolved by the browser.
