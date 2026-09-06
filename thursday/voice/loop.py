@@ -11,6 +11,7 @@ from typing import Any, Callable
 
 from ..agent import Agent
 from ..events import Event
+from ..identity import Doorman, Enrolment, MissingBackend, build_encoder
 
 log = logging.getLogger(__name__)
 
@@ -152,8 +153,21 @@ class VoiceLoop:
         self.settings = agent.settings.voice
         self.microphone = Microphone(self.settings.sample_rate)
         self.on_transcript = on_transcript or (lambda who, text: None)
+        self._last_audio: Any = None
         self._running = False
         agent.set_confirm_handler(self._confirm_by_voice)
+
+        # Speaker recognition, when asked for. It identifies rather than
+        # authenticates - a recording of your voice would pass - so it gates
+        # who Thursday acts for, not what protects your keys.
+        self.enrolment = Enrolment.load(agent.settings.enrolment_path)
+        self.doorman = Doorman(policy=agent.settings.identity, enrolment=self.enrolment)
+        self._voice_encoder: Any = None
+        if self.doorman.policy in {"voice", "either", "both"}:
+            try:
+                self._voice_encoder = build_encoder("voice")
+            except MissingBackend as exc:
+                log.warning("speaker recognition unavailable: %s", exc)
 
     # ----------------------------------------------------------------- pieces
 
@@ -166,11 +180,31 @@ class VoiceLoop:
             start_timeout,
         )
         if audio is None:
+            self._last_audio = None
             return ""
+        self._last_audio = audio      # kept for the speaker check
         text = await asyncio.to_thread(
             self.transcriber.transcribe, audio, self.settings.sample_rate
         )
         return text.strip()
+
+    async def _speaker_allowed(self) -> tuple[bool, str]:
+        """Whether the person who just spoke is someone Thursday knows."""
+        if not self.doorman.enforced() or self._voice_encoder is None:
+            return True, ""
+        if self._last_audio is None:
+            return True, ""
+
+        try:
+            embedding = await asyncio.to_thread(
+                self._voice_encoder.encode, self._last_audio, self.settings.sample_rate
+            )
+        except Exception:  # a failed check must not lock the owner out silently
+            log.exception("speaker check failed")
+            return True, ""
+
+        match = self.enrolment.identify(embedding, "voice")
+        return self.doorman.admits([match])
 
     async def _confirm_by_voice(self, title: str, detail: str) -> bool:
         """Tool confirmation, asked out loud."""
@@ -247,6 +281,13 @@ class VoiceLoop:
                         command = await self._listen(start_timeout=6.0)
                         if not command:
                             continue
+
+                allowed, who = await self._speaker_allowed()
+                if not allowed:
+                    log.info("ignored a command from an unrecognised voice")
+                    self.speaker.say("I do not recognise your voice.")
+                    self.speaker.wait()
+                    continue
 
                 self.on_transcript("you", command)
                 self.speaker.stop()  # barge-in: drop whatever we were saying

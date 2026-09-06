@@ -184,6 +184,32 @@
   .composer input:focus { border-color: var(--mood); box-shadow: 0 0 18px var(--mood-soft); }
   .composer input::placeholder { color: var(--muted); }
 
+  /* ------------------------------------------------------------- lock */
+  .lock {
+    position: fixed; inset: 0; z-index: 9; display: none;
+    align-items: center; justify-content: center; flex-direction: column; gap: 18px;
+    background: rgba(2, 6, 12, .97);
+  }
+  body.locked .lock { display: flex; }
+  .lock h1 { font-size: 15px; letter-spacing: .32em; text-transform: uppercase;
+             color: var(--mood); margin: 0; }
+  .lock p { color: var(--muted); font-size: 12px; margin: 0; max-width: 380px; text-align: center; }
+  .lock form { display: flex; gap: 8px; }
+  .lock input { background: rgba(94,234,255,.04); border: 1px solid var(--line);
+                color: var(--text); padding: 11px 13px; font: inherit; font-size: 14px;
+                outline: none; width: 300px; }
+  .lock input:focus { border-color: var(--mood); }
+  .lock .said { font-size: 11.5px; color: var(--err); min-height: 1.2em; }
+
+  /* -------------------------------------------------------------- people */
+  .people { display: flex; flex-direction: column; gap: 10px; grid-column: 1 / -1; }
+  .person { display: flex; align-items: center; gap: 12px; font-size: 12.5px; }
+  .person .who { min-width: 160px; color: var(--text); }
+  .person .counts { color: var(--muted); font-size: 11px; flex: 1; }
+  #camera { width: 240px; border: 1px solid var(--line); background: #000; }
+  .enrol { display: flex; gap: 10px; align-items: flex-start; flex-wrap: wrap; margin-top: 6px; }
+  .enrol .col { display: flex; flex-direction: column; gap: 6px; }
+
   /* --------------------------------------------------------- settings */
   .config {
     position: fixed; inset: 0; z-index: 8; display: none;
@@ -590,6 +616,18 @@
   <div class="hint">press Esc for the HUD · type anywhere to talk</div>
 </div>
 
+<!-- ============================================================= LOCK -->
+<div class="lock" id="lock">
+  <h1 id="lockTitle">Thursday</h1>
+  <p>This assistant is not on your machine, so it needs its access token.
+     Run <code>thursday config</code> on the host to see it.</p>
+  <form id="lockForm">
+    <input id="lockToken" type="password" placeholder="access token" autocomplete="off">
+    <button type="submit">Unlock</button>
+  </form>
+  <div class="said" id="lockSaid"></div>
+</div>
+
 <!-- ========================================================= SETTINGS -->
 <div class="config" id="config">
   <header>
@@ -602,6 +640,29 @@
   <p class="warn" id="configWarn" hidden></p>
   <div class="groups" id="configGroups"></div>
   <div class="fields" id="configFields"></div>
+  <div class="people" id="peoplePanel" hidden>
+    <h2 style="font-size:10px;letter-spacing:.26em;text-transform:uppercase;color:var(--muted);margin:18px 0 0">
+      Registered people
+    </h2>
+    <p style="font-size:11.5px;color:var(--muted);margin:0">
+      Face and voice tell Thursday <em>who</em> you are. They are not what keeps
+      others out — a photo or a recording can pass them. The access token above
+      is the real lock.
+    </p>
+    <div id="peopleList"></div>
+    <div class="enrol">
+      <div class="col">
+        <video id="camera" autoplay playsinline muted></video>
+        <button id="startCamera">Start camera</button>
+      </div>
+      <div class="col">
+        <input id="enrolName" type="text" placeholder="your name" style="background:rgba(94,234,255,.04);border:1px solid var(--line);color:var(--text);padding:9px 11px;font:inherit;font-size:13px;outline:none">
+        <button id="enrolFace">Register this face</button>
+        <button id="verifyFace">Test recognition</button>
+        <div class="said" id="peopleSaid" style="color:var(--muted)"></div>
+      </div>
+    </div>
+  </div>
   <div class="bar">
     <button id="saveConfig">Save</button>
     <button id="reloadConfig">Revert</button>
@@ -771,9 +832,14 @@ function connect() {
   socket = new WebSocket(`${protocol}://${location.host}/ws`);
 
   socket.onopen = () => { $("sLink").textContent = "online"; };
-  socket.onclose = () => {
-    $("sLink").textContent = "reconnecting";
+  socket.onclose = (event) => {
     stopButton.hidden = true;
+    if (event.code === 4401) {          // refused, not dropped
+      $("sLink").textContent = "locked";
+      document.body.classList.add("locked");
+      return;
+    }
+    $("sLink").textContent = "reconnecting";
     setTimeout(connect, 2000);
   };
   socket.onmessage = (message) => handle(JSON.parse(message.data));
@@ -781,6 +847,11 @@ function connect() {
 
 function handle(event) {
   switch (event.type) {
+    case "unauthorised":
+      document.body.classList.add("locked");
+      $("lockToken").focus();
+      break;
+
     case "ready":
       assistantName = event.name || assistantName;
       wakeWords = (event.wake_words || []).map((word) => word.toLowerCase());
@@ -930,6 +1001,149 @@ function fillProfiles(profiles) {
   profileSelect.value = chosen;
 }
 
+/* -------------------------------------------------------------- lock */
+
+/* The token is the real gate. The page only asks for it when the server
+   says this client needs one - a browser on the host machine does not. */
+
+async function checkAccess() {
+  try {
+    const state = await (await fetch("/api/auth")).json();
+    const locked = state.required && !state.authenticated;
+    document.body.classList.toggle("locked", locked);
+    if (locked) $("lockToken").focus();
+    return !locked;
+  } catch {
+    return true;   // if we cannot ask, let the socket decide
+  }
+}
+
+$("lockForm").onsubmit = async (event) => {
+  event.preventDefault();
+  $("lockSaid").textContent = "";
+  const response = await fetch("/api/login", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ token: $("lockToken").value }),
+  });
+  if (!response.ok) {
+    const payload = await response.json().catch(() => ({}));
+    $("lockSaid").textContent = payload.error || "could not unlock";
+    return;
+  }
+  $("lockToken").value = "";
+  document.body.classList.remove("locked");
+  connect();
+};
+
+/* ------------------------------------------------------------ people */
+
+let cameraStream = null;
+
+function drawPeople(people) {
+  const holder = $("peopleList");
+  holder.replaceChildren();
+  if (!people.length) {
+    const empty = document.createElement("div");
+    empty.className = "person";
+    empty.textContent = "nobody registered yet";
+    empty.style.color = "var(--muted)";
+    holder.append(empty);
+    return;
+  }
+  for (const person of people) {
+    const row = document.createElement("div");
+    row.className = "person";
+    const who = document.createElement("div");
+    who.className = "who";
+    who.textContent = person.name;
+    const counts = document.createElement("div");
+    counts.className = "counts";
+    counts.textContent = `${person.face} face · ${person.voice} voice`;
+    const drop = document.createElement("button");
+    drop.textContent = "Forget";
+    drop.onclick = async () => {
+      await fetch("/api/identity/forget", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ name: person.name }),
+      });
+      loadPeople();
+    };
+    row.append(who, counts, drop);
+    holder.append(row);
+  }
+}
+
+async function loadPeople() {
+  try {
+    const state = await (await fetch("/api/identity")).json();
+    drawPeople(state.people || []);
+    const face = state.backends?.face;
+    if (face && !face.available) {
+      $("peopleSaid").textContent = face.detail;
+    }
+  } catch (error) {
+    $("peopleSaid").textContent = String(error);
+  }
+}
+
+$("startCamera").onclick = async () => {
+  try {
+    cameraStream = await navigator.mediaDevices.getUserMedia({ video: true });
+    $("camera").srcObject = cameraStream;
+    $("peopleSaid").textContent = "camera on — look at it, then register";
+  } catch (error) {
+    $("peopleSaid").textContent = "no camera: " + error.message;
+  }
+};
+
+/** Grab one frame as a JPEG data URL. */
+function snapshot() {
+  const video = $("camera");
+  if (!video.videoWidth) return null;
+  const canvas = document.createElement("canvas");
+  canvas.width = video.videoWidth;
+  canvas.height = video.videoHeight;
+  canvas.getContext("2d").drawImage(video, 0, 0);
+  return canvas.toDataURL("image/jpeg", 0.9);
+}
+
+async function postFace(url, extra) {
+  const image = snapshot();
+  if (!image) { $("peopleSaid").textContent = "start the camera first"; return null; }
+  const response = await fetch(url, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ image, ...extra }),
+  });
+  return { ok: response.ok, payload: await response.json().catch(() => ({})) };
+}
+
+$("enrolFace").onclick = async () => {
+  const name = $("enrolName").value.trim();
+  if (!name) { $("peopleSaid").textContent = "a name first"; return; }
+  $("peopleSaid").textContent = "looking…";
+  const result = await postFace("/api/identity/enrol", { name });
+  if (!result) return;
+  $("peopleSaid").textContent = result.ok
+    ? `registered ${result.payload.name} (${result.payload.samples} sample(s)) — add a few more from different angles`
+    : result.payload.error || "could not register";
+  if (result.ok) drawPeople(result.payload.people || []);
+};
+
+$("verifyFace").onclick = async () => {
+  $("peopleSaid").textContent = "looking…";
+  const result = await postFace("/api/identity/verify", {});
+  if (!result) return;
+  const match = result.payload;
+  $("peopleSaid").textContent = !result.ok
+    ? match.error || "could not check"
+    : match.recognised
+      ? `that is ${match.name} (${Math.round(match.confidence * 100)}% sure)`
+      : "I do not recognise that face";
+};
+
 /* ---------------------------------------------------------- settings */
 
 /* The form is built from the schema the server serves, so adding a setting
@@ -981,6 +1195,11 @@ function boolish(value) {
 function drawFields() {
   const holder = $("configFields");
   holder.replaceChildren();
+
+  // The people editor belongs with the access settings.
+  const onAccess = configGroup === "Access";
+  $("peoplePanel").hidden = !onAccess;
+  if (onAccess) loadPeople();
 
   for (const field of configFields.filter((f) => f.group === configGroup)) {
     const key = field.key;
@@ -1363,7 +1582,7 @@ $("handsfree").onclick = () => {
   addLine(`Listening for "${assistantName}"…`, "meta");
 };
 
-connect();
+checkAccess().then((open) => { if (open) connect(); });
 </script>
 </body>
 </html>

@@ -103,6 +103,16 @@ FIELDS: tuple[Field, ...] = (
     Field("THURSDAY_HISTORY_TURNS", "History window", "Agents", kind="number", placeholder="40", attr="history_turns"),
     Field("THURSDAY_MAX_TOOL_ITERATIONS", "Tool steps per turn", "Agents", kind="number", placeholder="12", attr="max_tool_iterations"),
 
+    # ---- who may use it --------------------------------------------------
+    Field("THURSDAY_AUTH", "Require token", "Access", kind="choice",
+          choices=("off", "remote", "always"), attr="auth",
+          help="remote: a browser on this machine is trusted, anything else needs the token."),
+    Field("THURSDAY_ACCESS_TOKEN", "Access token", "Access", kind="password",
+          help="Generated on first use if empty. This is what actually keeps others out."),
+    Field("THURSDAY_IDENTITY", "Recognise me by", "Access", kind="choice",
+          choices=("off", "face", "voice", "either", "both"), attr="identity",
+          help="Identification, not security: a photo or a recording can pass it."),
+
     # ---- what it may do --------------------------------------------------
     Field("THURSDAY_WORKSPACE", "Workspace", "Safety", kind="path",
           help="File tools cannot leave this directory.", attr="workspace"),

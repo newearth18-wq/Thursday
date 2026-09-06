@@ -188,6 +188,11 @@ class Settings:
 
     host: str = "127.0.0.1"
     port: int = 8765
+    # off | remote (default) | always - see auth.py. The token itself lives in
+    # THURSDAY_ACCESS_TOKEN and is generated on first use when needed.
+    auth: str = "remote"
+    # off | face | voice | either | both - who Thursday will act for.
+    identity: str = "off"
 
     voice: VoiceSettings = field(default_factory=VoiceSettings)
 
@@ -240,12 +245,20 @@ class Settings:
             history_turns=_env_int("THURSDAY_HISTORY_TURNS", 40),
             host=os.environ.get("THURSDAY_HOST", "127.0.0.1"),
             port=_env_int("THURSDAY_PORT", 8765),
+            auth=os.environ.get("THURSDAY_AUTH", "remote"),
+            identity=os.environ.get("THURSDAY_IDENTITY", "off"),
             voice=VoiceSettings.from_env(assistant_name),
         )
 
     @property
     def db_path(self) -> Path:
         return self.data_dir / "thursday.db"
+
+    @property
+    def enrolment_path(self) -> Path:
+        """Where face and voice embeddings are kept - never the raw media."""
+        override = os.environ.get("THURSDAY_ENROLMENT")
+        return Path(override).expanduser() if override else self.data_dir / "people.json"
 
     @property
     def settings_path(self) -> Path:

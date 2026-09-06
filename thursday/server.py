@@ -17,6 +17,8 @@ from typing import Any
 from .agent import Agent
 from .config import Settings
 from .events import Event
+from .auth import COOKIE, Gate, ensure_token
+from .identity import Doorman, Enrolment, MissingBackend, build_encoder, decode_data_url
 from .mood import MoodTracker
 from .notify import notify_desktop
 from .persona import system_prompt
@@ -55,6 +57,17 @@ MAX_IMAGES = 4
 MAX_IMAGE_BYTES = 5_000_000
 
 
+def _backend_state(modality: str) -> dict[str, Any]:
+    """Whether the model for a modality is installed, and why not if it isn't."""
+    try:
+        build_encoder(modality)
+    except MissingBackend as exc:
+        return {"available": False, "detail": str(exc)}
+    except Exception as exc:  # pragma: no cover - a model that fails to load
+        return {"available": False, "detail": str(exc)}
+    return {"available": True, "detail": ""}
+
+
 def parse_attachments(raw: Any) -> list[tuple[str, str]]:
     """Validate the browser's image attachments into (media_type, base64) pairs.
 
@@ -88,6 +101,21 @@ def create_app(settings: Settings | None = None) -> Any:
 
     def current() -> Settings:
         return state["settings"]
+
+    boot = state["settings"]
+    gate = Gate(token=os.environ.get("THURSDAY_ACCESS_TOKEN", "").strip(), mode=boot.auth)
+    if gate.mode != "off" and not gate.token:
+        gate.token, made = ensure_token()
+        if made:
+            print(f"\n  access token: {gate.token}\n  (needed from other machines; change it under Config)\n")
+    enrolment = Enrolment.load(boot.enrolment_path)
+
+    def client_host(request: Any) -> str | None:
+        return request.client.host if request.client else None
+
+    def guard(request: Any) -> bool:
+        """Whether this request may proceed."""
+        return gate.allows(client_host(request), request.cookies.get(COOKIE))
 
     app = FastAPI(title="Thursday", version="0.1.0")
 
@@ -155,6 +183,121 @@ def create_app(settings: Settings | None = None) -> Any:
             await provider.close()
         return JSONResponse({"provider": name, "ok": ok, "detail": detail, "models": models[:50]})
 
+    @app.get("/api/auth")
+    async def auth_state(request: Request) -> Any:
+        """What the page needs to know before it tries to connect."""
+        return JSONResponse(
+            {
+                "required": gate.needs_token(client_host(request)),
+                "authenticated": guard(request),
+                "identity": Doorman(policy=current().identity, enrolment=enrolment).policy,
+                "enrolled": enrolment.summary(),
+            }
+        )
+
+    @app.post("/api/login")
+    async def login(request: Request) -> Any:
+        try:
+            body = await request.json()
+        except Exception:
+            body = {}
+        host = client_host(request)
+        if gate.locked_out(host):
+            return JSONResponse({"error": "too many attempts; wait a few minutes"}, status_code=429)
+
+        session = gate.login(str((body or {}).get("token") or ""), host)
+        if session is None:
+            return JSONResponse({"error": "that token is not right"}, status_code=401)
+
+        response = JSONResponse({"ok": True})
+        response.set_cookie(COOKIE, session, httponly=True, samesite="lax", max_age=30 * 86400)
+        return response
+
+    @app.post("/api/logout")
+    async def logout(request: Request) -> Any:
+        gate.logout(request.cookies.get(COOKIE))
+        response = JSONResponse({"ok": True})
+        response.delete_cookie(COOKIE)
+        return response
+
+    # ------------------------------------------------------------- identity
+
+    @app.get("/api/identity")
+    async def identity_state(request: Request) -> Any:
+        if not guard(request):
+            return JSONResponse({"error": "not authorised"}, status_code=401)
+        doorman = Doorman(policy=current().identity, enrolment=enrolment)
+        return JSONResponse(
+            {
+                "policy": doorman.policy,
+                "enforced": doorman.enforced(),
+                "people": enrolment.summary(),
+                "backends": {
+                    modality: _backend_state(modality) for modality in ("face", "voice")
+                },
+            }
+        )
+
+    @app.post("/api/identity/enrol")
+    async def enrol(request: Request) -> Any:
+        """Register a face for someone. Only from this machine."""
+        if not guard(request) or not is_local(client_host(request)):
+            return JSONResponse({"error": "enrolment is only allowed from this machine"}, status_code=403)
+        try:
+            body = await request.json()
+        except Exception:
+            body = {}
+        name = str((body or {}).get("name") or "").strip()
+        image = str((body or {}).get("image") or "")
+        if not name or not image:
+            return JSONResponse({"error": "a name and an image are needed"}, status_code=400)
+
+        try:
+            encoder = build_encoder("face")
+            embedding = encoder.encode(decode_data_url(image))
+        except MissingBackend as exc:
+            return JSONResponse({"error": str(exc)}, status_code=501)
+        except Exception as exc:
+            return JSONResponse({"error": str(exc)}, status_code=400)
+
+        samples = enrolment.add(name, "face", embedding)
+        return JSONResponse({"ok": True, "name": name, "samples": samples, "people": enrolment.summary()})
+
+    @app.post("/api/identity/verify")
+    async def verify(request: Request) -> Any:
+        if not guard(request):
+            return JSONResponse({"error": "not authorised"}, status_code=401)
+        try:
+            body = await request.json()
+        except Exception:
+            body = {}
+        image = str((body or {}).get("image") or "")
+        if not image:
+            return JSONResponse({"error": "an image is needed"}, status_code=400)
+
+        try:
+            encoder = build_encoder("face")
+            embedding = encoder.encode(decode_data_url(image))
+        except MissingBackend as exc:
+            return JSONResponse({"error": str(exc)}, status_code=501)
+        except Exception as exc:
+            return JSONResponse({"error": str(exc)}, status_code=400)
+
+        match = enrolment.identify(embedding, "face")
+        return JSONResponse(match.as_dict())
+
+    @app.post("/api/identity/forget")
+    async def forget(request: Request) -> Any:
+        if not guard(request) or not is_local(client_host(request)):
+            return JSONResponse({"error": "only allowed from this machine"}, status_code=403)
+        try:
+            body = await request.json()
+        except Exception:
+            body = {}
+        name = str((body or {}).get("name") or "").strip()
+        removed = enrolment.forget(name, str((body or {}).get("modality") or ""))
+        return JSONResponse({"ok": removed, "people": enrolment.summary()})
+
     @app.get("/api/status")
     async def status() -> Any:
         agent = Agent(settings=current())
@@ -187,6 +330,12 @@ def create_app(settings: Settings | None = None) -> Any:
     @app.websocket("/ws")
     async def websocket_endpoint(websocket: WebSocket) -> None:
         await websocket.accept()
+        host = websocket.client.host if websocket.client else None
+        if not gate.allows(host, websocket.cookies.get(COOKIE)):
+            await websocket.send_text(json.dumps({"type": "unauthorised"}))
+            await websocket.close(code=4401)
+            return
+
         session_id = websocket.query_params.get("session") or f"web-{uuid.uuid4().hex[:8]}"
         settings = current()   # this connection's snapshot
         agent = Agent(settings=settings)
