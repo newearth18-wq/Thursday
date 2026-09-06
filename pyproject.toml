@@ -1,0 +1,39 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "thursday"
+version = "0.1.0"
+description = "Thursday - a Jarvis-like assistant with voice, terminal and web interfaces"
+readme = "README.md"
+requires-python = ">=3.10"
+license = { text = "MIT" }
+dependencies = [
+    "anthropic>=0.70",
+    "httpx",
+    "psutil",
+]
+
+[project.optional-dependencies]
+web = ["fastapi>=0.110", "uvicorn[standard]>=0.27"]
+voice = [
+    "sounddevice>=0.4.6",
+    "numpy>=1.24",
+    "faster-whisper>=1.0",
+    "piper-tts>=1.2; sys_platform == 'linux'",
+]
+dev = ["pytest>=8", "pytest-asyncio>=0.23"]
+all = ["thursday[web,voice,dev]"]
+
+[project.scripts]
+thursday = "thursday.__main__:main"
+
+[tool.setuptools.packages.find]
+include = ["thursday*"]
+
+[tool.setuptools.package-data]
+thursday = ["web/*.html"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]

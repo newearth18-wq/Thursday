@@ -1,0 +1,381 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Thursday</title>
+<style>
+  :root {
+    --bg: #05080f;
+    --panel: rgba(14, 24, 40, 0.72);
+    --line: rgba(94, 234, 255, 0.18);
+    --accent: #5eeaff;
+    --accent-dim: rgba(94, 234, 255, 0.55);
+    --text: #dbe7f3;
+    --muted: #6d8299;
+    --warn: #ffcc66;
+    --err: #ff7a7a;
+    --user: #9ef0c0;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; min-height: 100vh; background: var(--bg); color: var(--text);
+    font: 15px/1.6 "SF Mono", ui-monospace, "JetBrains Mono", Menlo, Consolas, monospace;
+    display: flex; flex-direction: column;
+    background-image:
+      radial-gradient(1200px 600px at 50% -10%, rgba(94,234,255,.10), transparent 60%),
+      radial-gradient(800px 400px at 100% 100%, rgba(94,234,255,.05), transparent 60%);
+  }
+  header {
+    display: flex; align-items: center; gap: 14px; padding: 14px 20px;
+    border-bottom: 1px solid var(--line); background: var(--panel);
+    backdrop-filter: blur(12px); position: sticky; top: 0; z-index: 5;
+  }
+  .mark {
+    width: 34px; height: 34px; border-radius: 50%; flex: none;
+    border: 1px solid var(--accent-dim); position: relative;
+    box-shadow: 0 0 18px rgba(94,234,255,.25) inset, 0 0 12px rgba(94,234,255,.15);
+  }
+  .mark::after {
+    content: ""; position: absolute; inset: 9px; border-radius: 50%;
+    background: var(--accent); opacity: .85;
+    animation: pulse 3.4s ease-in-out infinite;
+  }
+  body.listening .mark::after { animation-duration: .9s; background: var(--user); }
+  body.thinking .mark::after { animation-duration: 1.4s; background: var(--warn); }
+  @keyframes pulse { 0%,100% { transform: scale(.72); opacity:.55 } 50% { transform: scale(1); opacity:1 } }
+  h1 { font-size: 15px; margin: 0; letter-spacing: .22em; text-transform: uppercase; color: var(--accent); }
+  .sub { font-size: 12px; color: var(--muted); }
+  .spacer { flex: 1; }
+  header button, .composer button {
+    background: transparent; color: var(--accent); border: 1px solid var(--line);
+    border-radius: 8px; padding: 8px 14px; font: inherit; font-size: 13px; cursor: pointer;
+    transition: background .15s, border-color .15s;
+  }
+  header button:hover, .composer button:hover { background: rgba(94,234,255,.08); border-color: var(--accent-dim); }
+  header button[aria-pressed="true"] { background: rgba(94,234,255,.16); border-color: var(--accent); }
+  main { flex: 1; overflow-y: auto; padding: 24px 20px 8px; }
+  .log { max-width: 860px; margin: 0 auto; display: flex; flex-direction: column; gap: 14px; }
+  .turn { display: flex; gap: 12px; }
+  .who { flex: none; width: 76px; text-align: right; color: var(--muted); font-size: 12px; padding-top: 3px; text-transform: uppercase; letter-spacing: .1em; }
+  .body { flex: 1; min-width: 0; white-space: pre-wrap; word-wrap: break-word; }
+  .turn.you .body { color: var(--user); }
+  .turn.thursday .body { color: var(--text); }
+  .tool {
+    font-size: 13px; color: var(--muted); border-left: 2px solid var(--line);
+    padding: 4px 0 4px 12px; margin: 2px 0;
+  }
+  .tool b { color: var(--accent-dim); font-weight: 500; }
+  .tool pre { margin: 4px 0 0; white-space: pre-wrap; opacity: .8; max-height: 8em; overflow: auto; }
+  .reasoning { color: var(--muted); font-style: italic; font-size: 13px; }
+  .error { color: var(--err); }
+  .reminder { color: var(--warn); }
+  .composer {
+    border-top: 1px solid var(--line); background: var(--panel); backdrop-filter: blur(12px);
+    padding: 14px 20px; position: sticky; bottom: 0;
+  }
+  .composer form { max-width: 860px; margin: 0 auto; display: flex; gap: 10px; align-items: center; }
+  .composer input {
+    flex: 1; background: rgba(255,255,255,.03); border: 1px solid var(--line);
+    border-radius: 10px; padding: 12px 14px; color: var(--text); font: inherit; outline: none;
+  }
+  .composer input:focus { border-color: var(--accent-dim); }
+  #mic[aria-pressed="true"] { color: var(--user); border-color: var(--user); }
+  dialog {
+    background: #0b1420; color: var(--text); border: 1px solid var(--accent-dim);
+    border-radius: 12px; padding: 20px; max-width: 560px; font: inherit;
+  }
+  dialog::backdrop { background: rgba(0,0,0,.6); }
+  dialog h2 { margin: 0 0 8px; font-size: 15px; color: var(--warn); }
+  dialog pre { background: rgba(0,0,0,.35); padding: 10px; border-radius: 8px; overflow: auto; max-height: 40vh; font-size: 13px; }
+  dialog .row { display: flex; gap: 10px; justify-content: flex-end; margin-top: 14px; }
+  dialog button { font: inherit; padding: 8px 16px; border-radius: 8px; cursor: pointer; border: 1px solid var(--line); background: transparent; color: var(--text); }
+  dialog button.ok { border-color: var(--user); color: var(--user); }
+  @media (max-width: 620px) { .who { width: 0; display: none; } header .sub { display: none; } }
+</style>
+</head>
+<body>
+<header>
+  <div class="mark"></div>
+  <div>
+    <h1>Thursday</h1>
+    <div class="sub" id="status">connecting…</div>
+  </div>
+  <div class="spacer"></div>
+  <button id="speak" aria-pressed="false" title="Read replies out loud">🔊 Voice</button>
+  <button id="clear" title="Clear this conversation">Clear</button>
+</header>
+
+<main><div class="log" id="log"></div></main>
+
+<div class="composer">
+  <form id="form">
+    <button type="button" id="mic" aria-pressed="false" title="Hold a conversation by voice">🎙</button>
+    <input id="input" autocomplete="off" placeholder="Ask Thursday anything…" autofocus>
+    <button type="submit">Send</button>
+  </form>
+</div>
+
+<dialog id="confirm">
+  <h2 id="confirm-title"></h2>
+  <pre id="confirm-detail"></pre>
+  <div class="row">
+    <button id="confirm-no">Decline</button>
+    <button id="confirm-yes" class="ok">Approve</button>
+  </div>
+</dialog>
+
+<script>
+const log = document.getElementById("log");
+const statusEl = document.getElementById("status");
+const form = document.getElementById("form");
+const input = document.getElementById("input");
+const micButton = document.getElementById("mic");
+const speakButton = document.getElementById("speak");
+const dialog = document.getElementById("confirm");
+
+let socket = null;
+let currentBody = null;      // the <div> the streaming reply is written into
+let pendingConfirm = null;
+let speakReplies = false;
+let voiceTurn = false;       // the current question arrived by voice
+let spokenUpTo = 0;          // how much of the reply has been sent to the synthesiser
+
+function scroll() { window.requestAnimationFrame(() => log.lastElementChild?.scrollIntoView({ block: "end" })); }
+
+function addTurn(who, cssClass) {
+  const turn = document.createElement("div");
+  turn.className = "turn " + (cssClass || who.toLowerCase());
+  const label = document.createElement("div");
+  label.className = "who";
+  label.textContent = who;
+  const body = document.createElement("div");
+  body.className = "body";
+  turn.append(label, body);
+  log.append(turn);
+  scroll();
+  return body;
+}
+
+function addLine(text, cssClass) {
+  const body = addTurn("", cssClass);
+  body.textContent = text;
+  return body;
+}
+
+/* ---------------------------------------------------------------- speech out */
+
+const synth = window.speechSynthesis;
+function speak(text) {
+  if (!speakReplies || !synth || !text.trim()) return;
+  const utterance = new SpeechSynthesisUtterance(text.replace(/https?:\/\/\S+/g, "a link"));
+  utterance.lang = /[฀-๿]/.test(text) ? "th-TH" : "en-US";
+  utterance.rate = 1.05;
+  synth.speak(utterance);
+}
+
+// Speak complete sentences as they stream in, so replies start out loud early.
+function speakStreamed(full) {
+  const pending = full.slice(spokenUpTo);
+  const match = /^[\s\S]*[.!?ฯ\n]/.exec(pending);
+  if (!match) return;
+  speak(match[0]);
+  spokenUpTo += match[0].length;
+}
+
+/* ------------------------------------------------------------------ socket */
+
+function connect() {
+  const protocol = location.protocol === "https:" ? "wss" : "ws";
+  socket = new WebSocket(`${protocol}://${location.host}/ws`);
+
+  socket.onopen = () => { statusEl.textContent = "online"; };
+  socket.onclose = () => {
+    statusEl.textContent = "reconnecting…";
+    document.body.classList.remove("thinking");
+    setTimeout(connect, 2000);
+  };
+  socket.onmessage = (message) => handle(JSON.parse(message.data));
+}
+
+function handle(event) {
+  switch (event.type) {
+    case "ready":
+      statusEl.textContent = `online · ${event.model}`;
+      break;
+
+    case "text":
+      if (!currentBody) { currentBody = addTurn("Thursday", "thursday"); spokenUpTo = 0; }
+      currentBody.textContent += event.text;
+      if (voiceTurn || speakReplies) speakStreamed(currentBody.textContent);
+      scroll();
+      break;
+
+    case "thinking": {
+      // Keep appending to the reasoning block already at the end of the log,
+      // rather than starting a fresh one for every delta.
+      const last = log.lastElementChild;
+      const node = last?.classList.contains("reasoning")
+        ? last.querySelector(".body")
+        : addTurn("", "reasoning");
+      node.textContent += event.text;
+      scroll();
+      break;
+    }
+
+    case "tool_start": {
+      currentBody = null;
+      const node = addTurn("", "tool");
+      node.classList.add("tool");
+      const args = JSON.stringify(event.arguments || {});
+      node.append(Object.assign(document.createElement("b"), { textContent: event.tool }));
+      node.append(" " + (args.length > 200 ? args.slice(0, 200) + "…" : args));
+      break;
+    }
+
+    case "tool_end": {
+      const last = log.lastElementChild?.querySelector(".tool");
+      if (last && event.result) {
+        const pre = document.createElement("pre");
+        pre.textContent = event.result.slice(0, 1200);
+        last.append(pre);
+      }
+      break;
+    }
+
+    case "tool_error":
+      addLine(`${event.tool}: ${event.result}`, "error");
+      break;
+
+    case "confirm":
+      askConfirmation(event);
+      break;
+
+    case "reminder":
+      addLine(`⏰ ${event.text}`, "reminder");
+      speak(event.text);
+      break;
+
+    case "error":
+      currentBody = null;
+      addLine(event.text, "error");
+      break;
+
+    case "done":
+      document.body.classList.remove("thinking");
+      if (currentBody && (voiceTurn || speakReplies)) {
+        speak(currentBody.textContent.slice(spokenUpTo));  // whatever was left
+      }
+      currentBody = null;
+      voiceTurn = false;
+      break;
+
+    case "cleared":
+      log.replaceChildren();
+      break;
+  }
+}
+
+/* ------------------------------------------------------------ confirmation */
+
+function askConfirmation(event) {
+  pendingConfirm = event.id;
+  document.getElementById("confirm-title").textContent = event.title;
+  document.getElementById("confirm-detail").textContent = event.detail || "";
+  dialog.showModal();
+  speak(`${event.title}. Shall I go ahead?`);
+}
+
+function answerConfirmation(approved) {
+  if (pendingConfirm) {
+    socket.send(JSON.stringify({ type: "confirm_response", id: pendingConfirm, approved }));
+    pendingConfirm = null;
+  }
+  dialog.close();
+}
+document.getElementById("confirm-yes").onclick = () => answerConfirmation(true);
+document.getElementById("confirm-no").onclick = () => answerConfirmation(false);
+dialog.addEventListener("cancel", (e) => { e.preventDefault(); answerConfirmation(false); });
+
+/* --------------------------------------------------------------- sending */
+
+function send(text, byVoice) {
+  if (!text.trim() || socket?.readyState !== WebSocket.OPEN) return;
+  addTurn("You", "you").textContent = text;
+  voiceTurn = !!byVoice;
+  currentBody = null;
+  document.body.classList.add("thinking");
+  socket.send(JSON.stringify({ type: "message", text, voice: !!byVoice }));
+}
+
+form.onsubmit = (event) => {
+  event.preventDefault();
+  send(input.value, false);
+  input.value = "";
+};
+
+document.getElementById("clear").onclick = () => socket?.send(JSON.stringify({ type: "clear" }));
+
+speakButton.onclick = () => {
+  speakReplies = !speakReplies;
+  speakButton.setAttribute("aria-pressed", String(speakReplies));
+  if (!speakReplies) synth?.cancel();
+};
+
+/* --------------------------------------------------------------- speech in */
+
+const Recognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+let recognition = null;
+let listening = false;
+
+if (!Recognition) {
+  micButton.disabled = true;
+  micButton.title = "This browser has no speech recognition - try Chrome or Edge";
+} else {
+  recognition = new Recognition();
+  recognition.continuous = false;
+  recognition.interimResults = true;
+  recognition.lang = navigator.language?.startsWith("th") ? "th-TH" : "en-US";
+
+  recognition.onresult = (event) => {
+    let finalText = "";
+    let interim = "";
+    for (const result of event.results) {
+      if (result.isFinal) finalText += result[0].transcript;
+      else interim += result[0].transcript;
+    }
+    input.value = finalText || interim;
+    if (finalText.trim()) {
+      send(finalText, true);
+      input.value = "";
+    }
+  };
+  recognition.onend = () => { if (listening) recognition.start(); };  // keep the mic open
+  recognition.onerror = (event) => {
+    if (event.error === "not-allowed") { stopListening(); addLine("Microphone access was denied.", "error"); }
+  };
+}
+
+function startListening() {
+  if (!recognition) return;
+  listening = true;
+  speakReplies = true;
+  speakButton.setAttribute("aria-pressed", "true");
+  micButton.setAttribute("aria-pressed", "true");
+  document.body.classList.add("listening");
+  recognition.start();
+}
+
+function stopListening() {
+  listening = false;
+  micButton.setAttribute("aria-pressed", "false");
+  document.body.classList.remove("listening");
+  try { recognition?.stop(); } catch { /* already stopped */ }
+}
+
+micButton.onclick = () => (listening ? stopListening() : startListening());
+
+connect();
+</script>
+</body>
+</html>
