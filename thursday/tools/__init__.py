@@ -411,6 +411,7 @@ BUILTIN_TOOL_MODULES = (
     "system",
     "timekeeping",
     "vision",
+    "watching",
     "web",
 )
 

@@ -45,6 +45,7 @@ Commands:
   /forget <key>      make me forget one thing
   /reminders         list pending reminders
   /plan              the long job in progress, and which step
+  /watching          what I am keeping an eye on
   /drafts            mail and diary entries waiting for you
   /approve <id>      approve a draft, then /send it
   /send <id>         send a draft you have approved
@@ -341,6 +342,19 @@ def handle_command(line: str, agent: Agent, session_id: str, printer: Printer) -
             print(f"  also writable: {', '.join(rules['extra_writable'])}")
         if rules["denied_tools"]:
             print(f"  switched off: {', '.join(rules['denied_tools'])}")
+    elif command == "watching":
+        from .watchers import Watch
+
+        entries = Watch(agent.memory).all()
+        if not entries:
+            print("  nothing — try \"tell me when a pdf lands in Downloads\"")
+        for entry in entries:
+            mark = printer.paint("on ", GREEN) if entry["enabled"] else printer.paint("off", RED)
+            what = "runs" if entry["action"] == "run" else "tells"
+            print(f"  {mark} {printer.paint(entry['name'], BOLD)}  {entry['kind']} "
+                  f"{entry['target'][:50]}  ({what}, every {int(entry['every_seconds'])}s)")
+            if entry["last_error"]:
+                print(printer.paint(f"      last error: {entry['last_error'][:120]}", RED))
     elif command == "plan":
         from .planner import Planner
 

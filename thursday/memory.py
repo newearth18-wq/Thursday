@@ -152,6 +152,27 @@ CREATE TABLE IF NOT EXISTS plans (
 );
 CREATE INDEX IF NOT EXISTS idx_plans_state ON plans(state, id);
 
+-- Things to keep an eye on. `state` is whatever the watcher needs to tell
+-- new from already-seen, and is written before anything is announced.
+CREATE TABLE IF NOT EXISTS watchers (
+    name          TEXT PRIMARY KEY,
+    -- folder | mail | calendar | page
+    kind          TEXT NOT NULL,
+    target        TEXT NOT NULL DEFAULT '',
+    -- tell | run
+    action        TEXT NOT NULL DEFAULT 'tell',
+    instruction   TEXT NOT NULL DEFAULT '',
+    options       TEXT NOT NULL DEFAULT '{}',
+    state         TEXT NOT NULL DEFAULT '{}',
+    every_seconds REAL NOT NULL DEFAULT 300,
+    enabled       INTEGER NOT NULL DEFAULT 1,
+    last_checked  REAL,
+    failures      INTEGER NOT NULL DEFAULT 0,
+    last_error    TEXT NOT NULL DEFAULT '',
+    created_at    REAL NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_watchers_due ON watchers(enabled, last_checked);
+
 CREATE TABLE IF NOT EXISTS plan_steps (
     plan_id     INTEGER NOT NULL,
     number      INTEGER NOT NULL,
@@ -633,6 +654,63 @@ class Memory:
             "UPDATE drafts SET status=?, updated_at=? WHERE id=?",
             (status, _now(), draft_id),
         )
+
+    # --------------------------------------------------------------- watchers
+
+    def save_watcher(
+        self, name: str, kind: str, target: str, action: str,
+        instruction: str, options: str, every_seconds: float,
+    ) -> None:
+        """Add or replace a watcher, keeping what it has already seen.
+
+        Keeping the state matters: editing the interval on a folder watcher
+        should not make it re-announce every file in the folder.
+        """
+        self._execute(
+            "INSERT INTO watchers (name, kind, target, action, instruction, options, "
+            "every_seconds, created_at) VALUES (?,?,?,?,?,?,?,?) "
+            "ON CONFLICT(name) DO UPDATE SET kind=excluded.kind, target=excluded.target, "
+            "action=excluded.action, instruction=excluded.instruction, "
+            "options=excluded.options, every_seconds=excluded.every_seconds, "
+            "enabled=1, failures=0, last_error=''",
+            (name, kind, target, action, instruction, options, every_seconds, _now()),
+        )
+
+    def watcher(self, name: str) -> Any:
+        rows = self._query("SELECT * FROM watchers WHERE name=?", (name,))
+        return rows[0] if rows else None
+
+    def watchers(self, enabled_only: bool = False) -> list[Any]:
+        sql = "SELECT * FROM watchers"
+        if enabled_only:
+            sql += " WHERE enabled=1"
+        return self._query(sql + " ORDER BY name", ())
+
+    def record_watch(
+        self, name: str, checked_at: float, state: str | None,
+        failures: int = 0, error: str = "",
+    ) -> None:
+        """Note that a watcher ran. `state=None` leaves what it had seen alone,
+        so a failed look does not wipe its memory."""
+        if state is None:
+            self._execute(
+                "UPDATE watchers SET last_checked=?, failures=?, last_error=? WHERE name=?",
+                (checked_at, failures, error[:500], name),
+            )
+        else:
+            self._execute(
+                "UPDATE watchers SET last_checked=?, state=?, failures=?, last_error=? "
+                "WHERE name=?",
+                (checked_at, state, failures, error[:500], name),
+            )
+
+    def enable_watcher(self, name: str, enabled: bool = True) -> None:
+        self._execute(
+            "UPDATE watchers SET enabled=? WHERE name=?", (1 if enabled else 0, name)
+        )
+
+    def delete_watcher(self, name: str) -> None:
+        self._execute("DELETE FROM watchers WHERE name=?", (name,))
 
     # ------------------------------------------------------------------ plans
 
