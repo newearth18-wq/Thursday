@@ -55,11 +55,139 @@ def parse_duration(text: str) -> float | None:
     return total or None
 
 
+#: Days named relative to today, in both languages people ask in here.
+_DAY_WORDS: dict[str, int] = {
+    "today": 0, "tonight": 0, "\u0e27\u0e31\u0e19\u0e19\u0e35\u0e49": 0, "\u0e04\u0e37\u0e19\u0e19\u0e35\u0e49": 0,
+    "tomorrow": 1, "\u0e1e\u0e23\u0e38\u0e48\u0e07\u0e19\u0e35\u0e49": 1, "\u0e04\u0e37\u0e19\u0e1e\u0e23\u0e38\u0e48\u0e07\u0e19\u0e35\u0e49": 1,
+    "overmorrow": 2, "\u0e21\u0e30\u0e23\u0e37\u0e19": 2, "\u0e21\u0e30\u0e23\u0e37\u0e19\u0e19\u0e35\u0e49": 2,
+}
+
+#: Weekday names, Monday = 0 to match datetime.weekday().
+_WEEKDAYS: dict[str, int] = {
+    "monday": 0, "mon": 0, "\u0e08\u0e31\u0e19\u0e17\u0e23\u0e4c": 0,
+    "tuesday": 1, "tue": 1, "tues": 1, "\u0e2d\u0e31\u0e07\u0e04\u0e32\u0e23": 1,
+    "wednesday": 2, "wed": 2, "\u0e1e\u0e38\u0e18": 2,
+    "thursday": 3, "thu": 3, "thur": 3, "thurs": 3, "\u0e1e\u0e24\u0e2b\u0e31\u0e2a": 3,
+    "friday": 4, "fri": 4, "\u0e28\u0e38\u0e01\u0e23\u0e4c": 4,
+    "saturday": 5, "sat": 5, "\u0e40\u0e2a\u0e32\u0e23\u0e4c": 5,
+    "sunday": 6, "sun": 6, "\u0e2d\u0e32\u0e17\u0e34\u0e15\u0e22\u0e4c": 6,
+}
+
+#: Whole times of day that name themselves.
+_THAI_PERIODS = (
+    ("\u0e40\u0e17\u0e35\u0e48\u0e22\u0e07\u0e04\u0e37\u0e19", 0),   # thiang khuen - midnight
+    ("\u0e40\u0e17\u0e35\u0e48\u0e22\u0e07\u0e27\u0e31\u0e19", 12),  # thiang wan - noon
+    ("\u0e40\u0e17\u0e35\u0e48\u0e22\u0e07", 12),       # thiang - noon
+    ("\u0e15\u0e35\u0e2b\u0e19\u0e36\u0e48\u0e07", 1), ("\u0e15\u0e35\u0e2a\u0e2d\u0e07", 2), ("\u0e15\u0e35\u0e2a\u0e32\u0e21", 3),
+    ("\u0e15\u0e35\u0e2a\u0e35\u0e48", 4), ("\u0e15\u0e35\u0e2b\u0e49\u0e32", 5),
+)
+
+#: Thai number words that turn up in times, one to twelve.
+_THAI_NUMBERS = {
+    "\u0e2b\u0e19\u0e36\u0e48\u0e07": 1, "\u0e2a\u0e2d\u0e07": 2, "\u0e2a\u0e32\u0e21": 3, "\u0e2a\u0e35\u0e48": 4, "\u0e2b\u0e49\u0e32": 5, "\u0e2b\u0e01": 6,
+    "\u0e40\u0e08\u0e47\u0e14": 7, "\u0e41\u0e1b\u0e14": 8, "\u0e40\u0e01\u0e49\u0e32": 9, "\u0e2a\u0e34\u0e1a": 10, "\u0e2a\u0e34\u0e1a\u0e40\u0e2d\u0e47\u0e14": 11, "\u0e2a\u0e34\u0e1a\u0e2a\u0e2d\u0e07": 12,
+}
+_THAI_NUMBER_RE = "|".join(sorted(_THAI_NUMBERS, key=len, reverse=True))
+
+
+def _thai_number(word: str) -> int:
+    word = (word or "").strip()
+    if word.isdigit():
+        return int(word)
+    return _THAI_NUMBERS.get(word, 0)
+
+
+def _thai_clock(text: str) -> tuple[int, int] | None:
+    """The Thai way of telling the time, where the hour is not an offset.
+
+    Thai counts the day in stretches rather than in halves, and the number can
+    sit on either side of the word: "\u0e1a\u0e48\u0e32\u0e22\u0e2a\u0e2d\u0e07" and "\u0e2a\u0e2d\u0e07\u0e17\u0e38\u0e48\u0e21" both put it
+    first for an English reader and second for a Thai one.
+    """
+    number = _THAI_NUMBER_RE
+
+    # N \u0e17\u0e38\u0e48\u0e21 - evening, 19:00 to 23:00. "\u0e2a\u0e2d\u0e07\u0e17\u0e38\u0e48\u0e21" is 20:00.
+    evening = re.search(rf"(\d{{1,2}}|{number})?\s*\u0e17\u0e38\u0e48\u0e21", text)
+    if evening:
+        hour = _thai_number(evening.group(1)) or 1
+        if 1 <= hour <= 6:
+            return (hour + 18, 0)
+
+    # \u0e1a\u0e48\u0e32\u0e22 N (\u0e42\u0e21\u0e07) - afternoon. "\u0e1a\u0e48\u0e32\u0e22\u0e42\u0e21\u0e07" alone is 13:00.
+    afternoon = re.search(rf"\u0e1a\u0e48\u0e32\u0e22\s*(\d{{1,2}}|{number})?", text)
+    if afternoon:
+        hour = _thai_number(afternoon.group(1)) or 1
+        if 1 <= hour <= 5:
+            return (hour + 12, 0)
+        if 13 <= hour <= 18:            # "\u0e1a\u0e48\u0e32\u0e22 14:00" said the 24-hour way
+            return (hour, 0)
+
+    # N \u0e42\u0e21\u0e07\u0e40\u0e22\u0e47\u0e19 - late afternoon, 16:00 to 18:00.
+    late = re.search(rf"(\d{{1,2}}|{number})\s*\u0e42\u0e21\u0e07\u0e40\u0e22\u0e47\u0e19", text)
+    if late:
+        hour = _thai_number(late.group(1))
+        if 1 <= hour <= 6:
+            return (hour + 12, 0)
+
+    # N \u0e42\u0e21\u0e07(\u0e40\u0e0a\u0e49\u0e32) - morning, taken as given.
+    morning = re.search(rf"(\d{{1,2}}|{number})\s*\u0e42\u0e21\u0e07", text)
+    if morning:
+        hour = _thai_number(morning.group(1))
+        if 6 <= hour <= 11:
+            return (hour, 0)
+        if 1 <= hour <= 5:              # "\u0e15\u0e35\u0e2a\u0e2d\u0e07\u0e42\u0e21\u0e07" and the like
+            return (hour, 0)
+
+    for word, hour in _THAI_PERIODS:
+        if word in text:
+            return (hour, 0)
+    return None
+
+
+def _clock_in(text: str) -> tuple[int, int] | None:
+    """The time of day named in a string, if any.
+
+    Handles 18:30, 6.30pm, "9am", "2 pm", and the Thai forms above.
+    """
+    lowered = text.lower()
+
+    thai = _thai_clock(lowered)
+    if thai:
+        return thai
+
+    # 18:30, 6.30pm, then a bare 9am / 2 pm.
+    match = re.search(r"\b(?P<h>\d{1,2})[:.](?P<m>\d{2})\s*(?P<ampm>am|pm)?", lowered)
+    if match:
+        hour, minute = int(match.group("h")), int(match.group("m"))
+    else:
+        match = re.search(r"\b(?P<h>\d{1,2})\s*(?P<ampm>am|pm)\b", lowered)
+        if not match:
+            return None
+        hour, minute = int(match.group("h")), 0
+    period = match.group("ampm")
+    if period == "pm" and hour < 12:
+        hour += 12
+    elif period == "am" and hour == 12:
+        hour = 0
+    if 0 <= hour < 24 and 0 <= minute < 60:
+        return (hour, minute)
+    return None
+
+
 def parse_when(text: str, now: datetime | None = None) -> datetime | None:
-    """Parse a due time: a duration ("in 10 minutes"), a clock time ("18:30")
-    or an ISO timestamp."""
+    """Parse a due time however a person said it.
+
+    Understands a duration ("in 10 minutes", "10 \u0e19\u0e32\u0e17\u0e35"), an ISO timestamp, a
+    clock time ("18:30", "9am", "\u0e1a\u0e48\u0e32\u0e22\u0e2a\u0e2d\u0e07"), a named day ("tomorrow 14:00",
+    "\u0e1e\u0e23\u0e38\u0e48\u0e07\u0e19\u0e35\u0e49\u0e40\u0e0a\u0e49\u0e32 9 \u0e42\u0e21\u0e07") and a weekday ("friday 9am", "\u0e28\u0e38\u0e01\u0e23\u0e4c 10:00").
+
+    A named day is taken at its word: "tomorrow 14:00" is tomorrow even when
+    14:00 has not happened yet today. Only a bare time rolls forward.
+    """
     moment = now or datetime.now().astimezone()
     cleaned = text.strip()
+    if not cleaned:
+        return None
 
     duration = parse_duration(cleaned)
     if duration:
@@ -71,14 +199,34 @@ def parse_when(text: str, now: datetime | None = None) -> datetime | None:
     except ValueError:
         pass
 
-    clock = re.search(r"\b(?P<h>\d{1,2})[:.](?P<m>\d{2})\b", cleaned)
+    lowered = cleaned.lower()
+    clock = _clock_in(lowered)
+
+    # A named day fixes the date, so the time is taken as given.
+    for word, offset in _DAY_WORDS.items():
+        if word in lowered:
+            hour, minute = clock or (9, 0)
+            return (moment + timedelta(days=offset)).replace(
+                hour=hour, minute=minute, second=0, microsecond=0
+            )
+
+    for word, weekday in _WEEKDAYS.items():
+        # Word boundaries keep "sat" out of "saturate"; Thai has no boundaries
+        # the regex engine can see, so those are matched as plain substrings.
+        pattern = rf"\b{word}\b" if word.isascii() else re.escape(word)
+        if re.search(pattern, lowered):
+            ahead = (weekday - moment.weekday()) % 7 or 7   # "friday" on a Friday means next one
+            hour, minute = clock or (9, 0)
+            return (moment + timedelta(days=ahead)).replace(
+                hour=hour, minute=minute, second=0, microsecond=0
+            )
+
     if clock:
-        hour, minute = int(clock.group("h")), int(clock.group("m"))
-        if 0 <= hour < 24 and 0 <= minute < 60:
-            target = moment.replace(hour=hour, minute=minute, second=0, microsecond=0)
-            if target <= moment:
-                target += timedelta(days=1)
-            return target
+        hour, minute = clock
+        target = moment.replace(hour=hour, minute=minute, second=0, microsecond=0)
+        if target <= moment:      # a bare time that has passed means tomorrow
+            target += timedelta(days=1)
+        return target
     return None
 
 

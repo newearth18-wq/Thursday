@@ -125,6 +125,15 @@ FIELDS: tuple[Field, ...] = (
     Field("THURSDAY_IMAP_PASSWORD", "Mail password", "Connected", kind="password",
           help="Gmail and Outlook need an app password, not your account password."),
     Field("THURSDAY_IMAP_FOLDER", "Mail folder", "Connected", placeholder="INBOX"),
+    Field("THURSDAY_SMTP_HOST", "Outgoing mail", "Connected", placeholder="smtp.gmail.com",
+          help="Needed only to send approved drafts. Leave empty and Thursday still writes them."),
+    Field("THURSDAY_SMTP_PORT", "Outgoing port", "Connected", kind="number", placeholder="587"),
+    Field("THURSDAY_SMTP_USER", "Outgoing user", "Connected",
+          placeholder="same as the mail user"),
+    Field("THURSDAY_SMTP_PASSWORD", "Outgoing password", "Connected", kind="password",
+          help="Leave empty to reuse the mail password."),
+    Field("THURSDAY_SMTP_FROM", "Send as", "Connected", placeholder="you@example.com"),
+    Field("THURSDAY_SMTP_FROM_NAME", "Your name", "Connected", placeholder="Supakit"),
 
     # ---- who may use it --------------------------------------------------
     Field("THURSDAY_AUTH", "Require token", "Access", kind="choice",

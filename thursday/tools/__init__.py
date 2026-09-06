@@ -398,6 +398,7 @@ BUILTIN_TOOL_MODULES = (
     "browser",
     "calendar",
     "desktop",
+    "drafting",
     "files",
     "jobs",
     "knowledge",

@@ -128,6 +128,16 @@
   .row span:first-child { color: var(--muted); letter-spacing: .08em; text-transform: uppercase; font-size: 10px; }
   .row span:last-child { color: var(--text); text-align: right; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 
+  .draft { border: 1px solid var(--line); padding: 7px 8px; margin-bottom: 7px;
+           background: rgba(94,234,255,.04); }
+  .draft b { display: block; font-size: 11.5px; color: var(--text); font-weight: 500;
+             overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .draft .who { font-size: 10px; color: var(--muted); letter-spacing: .06em;
+                overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .draft .acts { display: flex; gap: 6px; margin-top: 6px; }
+  .draft button { flex: 1; font-size: 10px; padding: 4px 0; letter-spacing: .1em; }
+  .draft button.go { color: var(--user); border-color: rgba(158,240,192,.4); }
+
   .meter { height: 3px; background: rgba(94,234,255,.1); margin: 5px 0 9px; overflow: hidden; }
   .meter i { display: block; height: 100%; background: var(--mood); box-shadow: 0 0 10px var(--mood);
              transition: width .5s ease, background .6s; }
@@ -447,6 +457,11 @@
         <div class="meter"><i id="mOut" style="width:0%"></i></div>
         <div class="row"><span>session cost</span><span id="sCost">—</span></div>
       </div>
+    </section>
+
+    <section class="panel" id="draftsPanel" style="flex:none" hidden>
+      <h2>Waiting on you</h2>
+      <div class="body" id="draftsBox"></div>
     </section>
 
     <section class="panel">
@@ -885,6 +900,73 @@ async function loadAccess() {
   }
 }
 
+/* --------------------------------------------------------------- drafts */
+
+// Thursday writes; you send. The panel appears only when something is
+// actually waiting, so an empty rail means there is nothing to decide.
+async function loadDrafts() {
+  let data;
+  try {
+    const response = await fetch("/api/drafts");
+    if (!response.ok) return;
+    data = await response.json();
+  } catch { return; }
+
+  const waiting = (data.drafts || []).filter((d) => d.status === "draft" || d.status === "approved");
+  const panel = $("draftsPanel");
+  const box = $("draftsBox");
+  panel.hidden = waiting.length === 0;
+  box.replaceChildren();
+
+  for (const draft of waiting) {
+    const card = document.createElement("div");
+    card.className = "draft";
+
+    const title = document.createElement("b");
+    title.textContent = draft.subject;
+    const who = document.createElement("div");
+    who.className = "who";
+    who.textContent = draft.kind === "event"
+      ? `${draft.starts_at || ""} · ${draft.minutes || 0} min`
+      : `to ${(draft.to || []).join(", ")}`;
+    card.append(title, who);
+
+    if (draft.body) {
+      const body = document.createElement("pre");
+      body.style.cssText =
+        "margin:6px 0 0;font-size:10.5px;color:var(--muted);white-space:pre-wrap;" +
+        "max-height:7em;overflow:auto";
+      body.textContent = draft.body;
+      card.append(body);
+    }
+
+    const acts = document.createElement("div");
+    acts.className = "acts";
+    const primary = document.createElement("button");
+    primary.textContent = draft.status === "approved" ? "Send" : "Approve";
+    primary.className = "go";
+    primary.onclick = () => decideDraft(draft.id, draft.status === "approved" ? "send" : "approve");
+    const bin = document.createElement("button");
+    bin.textContent = "Discard";
+    bin.onclick = () => decideDraft(draft.id, "discard");
+    acts.append(primary, bin);
+    card.append(acts);
+    box.append(card);
+  }
+}
+
+async function decideDraft(id, decision) {
+  try {
+    const response = await fetch(`/api/drafts/${id}/${decision}`, { method: "POST" });
+    const data = await response.json();
+    if (data.error) addLine(data.error, "error");
+    else if (decision === "send") addLine(`Sent: ${JSON.stringify(data.sent)}`, "tool");
+  } catch (err) {
+    addLine(String(err), "error");
+  }
+  loadDrafts();
+}
+
 /* -------------------------------------------------------- speech out */
 
 const synth = window.speechSynthesis;
@@ -946,6 +1028,7 @@ function handle(event) {
       fillProfiles(event.profiles || []);
       applyState({ mood: "calm", activity: "standing by", detail: "" });
       loadAccess();
+      loadDrafts();
       break;
 
     case "state":
@@ -990,6 +1073,7 @@ function handle(event) {
     }
 
     case "tool_end": {
+      if (event.tool && event.tool.includes("draft")) loadDrafts();
       const last = stream.lastElementChild?.querySelector(".say");
       if (last && event.result) {
         const pre = document.createElement("pre");

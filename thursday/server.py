@@ -19,6 +19,7 @@ from .config import Settings
 from .events import Event
 from .auth import COOKIE, Gate, ensure_token
 from .identity import Doorman, Enrolment, MissingBackend, build_encoder, decode_data_url
+from .drafts import DraftError, Outbox
 from .memory import Memory
 from .mood import MoodTracker
 from .proactive import Proactive
@@ -376,6 +377,56 @@ def create_app(settings: Settings | None = None) -> Any:
                 "summary": summary,
             }
         )
+
+    def _outbox(settings: Settings) -> Any:
+        return Outbox(Memory(settings.db_path), out_dir=settings.data_dir / "invites")
+
+    @app.get("/api/drafts")
+    async def read_drafts(request: Request) -> Any:
+        """What Thursday has written and is waiting on you for."""
+        if not guard(request):
+            return JSONResponse({"error": "unauthorised"}, status_code=401)
+        outbox = _outbox(current())
+        try:
+            drafts = outbox.list()
+        finally:
+            outbox.memory.close()
+        return JSONResponse(
+            {
+                "count": len(drafts),
+                "waiting": sum(1 for draft in drafts if draft.status == "draft"),
+                "drafts": [draft.as_dict() for draft in drafts],
+            }
+        )
+
+    @app.post("/api/drafts/{draft_id}/{decision}")
+    async def decide_draft(request: Request, draft_id: str, decision: str) -> Any:
+        """Approve, send or discard one draft.
+
+        Approval lives here rather than in a tool because a person has to be
+        the one who does it - and, like settings, it is refused from anywhere
+        but this machine, so a stolen session cannot post your mail.
+        """
+        if not guard(request):
+            return JSONResponse({"error": "unauthorised"}, status_code=401)
+        if not is_local(client_host(request)):
+            return JSONResponse(
+                {"error": "drafts can only be approved from this machine"}, status_code=403
+            )
+        if decision not in {"approve", "send", "discard"}:
+            return JSONResponse({"error": f"unknown decision {decision}"}, status_code=400)
+
+        outbox = _outbox(current())
+        try:
+            if decision == "approve":
+                return JSONResponse({"draft": outbox.approve(draft_id).as_dict()})
+            if decision == "discard":
+                return JSONResponse({"draft": outbox.discard(draft_id).as_dict()})
+            return JSONResponse({"sent": outbox.send(draft_id)})
+        except DraftError as exc:
+            return JSONResponse({"error": str(exc)}, status_code=400)
+        finally:
+            outbox.memory.close()
 
     @app.get("/api/status")
     async def status() -> Any:

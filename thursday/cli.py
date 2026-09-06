@@ -44,6 +44,10 @@ Commands:
   /memory            show what I remember about you
   /forget <key>      make me forget one thing
   /reminders         list pending reminders
+  /drafts            mail and diary entries waiting for you
+  /approve <id>      approve a draft, then /send it
+  /send <id>         send a draft you have approved
+  /discard <id>      throw a draft away
   /usage [days]      tokens and cost, by model
   /audit [n]         what reached for this machine, and what happened
   /permissions       what Thursday may do to this machine
@@ -336,6 +340,47 @@ def handle_command(line: str, agent: Agent, session_id: str, printer: Printer) -
             print(f"  also writable: {', '.join(rules['extra_writable'])}")
         if rules["denied_tools"]:
             print(f"  switched off: {', '.join(rules['denied_tools'])}")
+    elif command in {"drafts", "approve", "send", "discard"}:
+        from .drafts import DraftError, Outbox
+
+        outbox = agent.context.state.get("outbox") or Outbox(
+            agent.memory, out_dir=agent.settings.data_dir / "invites"
+        )
+        agent.context.state["outbox"] = outbox
+        target = argument.strip()
+        try:
+            if command == "drafts" and not target:
+                drafts = outbox.list()
+                if not drafts:
+                    print("  nothing waiting")
+                for draft in drafts:
+                    colour = {"draft": YELLOW, "approved": GREEN, "sent": DIM,
+                              "failed": RED}.get(draft.status, DIM)
+                    where = ", ".join(draft.to) or draft.location or "-"
+                    print(f"  {printer.paint(draft.id, BOLD)} {printer.paint(draft.status, colour)}"
+                          f"  {draft.kind:5} {draft.subject[:44]}  -> {where}")
+                if drafts:
+                    print(printer.paint("  /approve <id> then /send <id>", DIM))
+            elif command == "drafts":
+                draft = outbox.get(target)
+                print(f"  {printer.paint(draft.subject, BOLD)}")
+                for key, value in draft.as_dict(full=False).items():
+                    if key not in {"subject", "id"}:
+                        print(f"    {key:10} {value}")
+                print()
+                for line in draft.body.splitlines():
+                    print(f"    {line}")
+            elif command == "approve":
+                draft = outbox.approve(target)
+                print(printer.paint(f"  approved. /send {draft.id} to send it.", GREEN))
+            elif command == "discard":
+                outbox.discard(target)
+                print(printer.paint("  thrown away", DIM))
+            else:
+                result = outbox.send(target)
+                print(printer.paint(f"  {result}", GREEN))
+        except DraftError as exc:
+            print(printer.paint(f"  {exc}", RED))
     elif command == "routines":
         routines = agent.memory.list_routines()
         for routine in routines:

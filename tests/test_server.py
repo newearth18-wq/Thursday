@@ -270,3 +270,25 @@ def test_the_permissions_view_needs_the_token_from_elsewhere(tmp_path, monkeypat
     client = fastapi_testclient.TestClient(server_module.create_app(settings))
 
     assert client.get("/api/permissions").status_code == 401
+
+
+def test_drafts_reach_the_page_and_can_be_approved_there(plain_client, tmp_path):
+    """Approval is a person's job, so it lives on the page, not in a tool."""
+    from thursday.drafts import Draft, Outbox
+    from thursday.memory import Memory
+
+    outbox = Outbox(Memory(tmp_path / "data" / "thursday.db"), out_dir=tmp_path / "invites")
+    draft = outbox.prepare(Draft(subject="Hello", body="hi", to=["them@example.com"]))
+    outbox.memory.close()
+
+    listed = plain_client.get("/api/drafts").json()
+    assert listed["waiting"] == 1
+    assert listed["drafts"][0]["subject"] == "Hello"
+    assert listed["drafts"][0]["status"] == "draft"
+
+    approved = plain_client.post(f"/api/drafts/{draft.id}/approve").json()
+    assert approved["draft"]["status"] == "approved"
+
+
+def test_an_unknown_draft_decision_is_refused(plain_client):
+    assert plain_client.post("/api/drafts/abc/delete").status_code == 400

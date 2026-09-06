@@ -115,6 +115,29 @@ CREATE TABLE IF NOT EXISTS routines (
     used_at     REAL,
     uses        INTEGER NOT NULL DEFAULT 0
 );
+
+-- Mail and calendar entries Thursday has written but not carried out. The
+-- status column is the whole safety story: nothing leaves on anything but
+-- 'approved', and only a person sets that.
+CREATE TABLE IF NOT EXISTS drafts (
+    id          TEXT PRIMARY KEY,
+    kind        TEXT NOT NULL DEFAULT 'email',
+    subject     TEXT NOT NULL DEFAULT '',
+    body        TEXT NOT NULL DEFAULT '',
+    recipients  TEXT NOT NULL DEFAULT '',
+    cc          TEXT NOT NULL DEFAULT '',
+    bcc         TEXT NOT NULL DEFAULT '',
+    reply_to    TEXT NOT NULL DEFAULT '',
+    starts_at   REAL,
+    minutes     INTEGER NOT NULL DEFAULT 60,
+    location    TEXT NOT NULL DEFAULT '',
+    -- draft | approved | sent | failed | discarded
+    status      TEXT NOT NULL DEFAULT 'draft',
+    note        TEXT NOT NULL DEFAULT '',
+    created_at  REAL NOT NULL,
+    updated_at  REAL NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_drafts_status ON drafts(status, created_at);
 """
 
 
@@ -546,6 +569,46 @@ class Memory:
             {"tool": row["tool"], "outcome": row["outcome"], "count": row["n"]}
             for row in self._query(sql, params)
         ]
+
+    # ----------------------------------------------------------------- drafts
+
+    def save_draft(self, draft_id: str, row: dict[str, Any]) -> None:
+        """Write a draft, replacing it if it already exists."""
+        now = _now()
+        columns = ("kind", "subject", "body", "recipients", "cc", "bcc", "reply_to",
+                   "starts_at", "minutes", "location", "status", "note")
+        values = [row.get(name) for name in columns]
+        self._execute(
+            f"INSERT INTO drafts (id, {', '.join(columns)}, created_at, updated_at) "
+            f"VALUES ({', '.join(['?'] * (len(columns) + 3))}) "
+            "ON CONFLICT(id) DO UPDATE SET "
+            + ", ".join(f"{name}=excluded.{name}" for name in columns)
+            + ", updated_at=excluded.updated_at",
+            (draft_id, *values, now, now),
+        )
+
+    def draft(self, draft_id: str) -> Any:
+        rows = self._query("SELECT * FROM drafts WHERE id=?", (draft_id,))
+        return rows[0] if rows else None
+
+    def drafts(self, status: str = "", limit: int = 50) -> list[Any]:
+        sql = "SELECT * FROM drafts"
+        params: list[Any] = []
+        if status:
+            sql += " WHERE status=?"
+            params.append(status)
+        else:
+            # A discarded draft is finished business; it clutters the list.
+            sql += " WHERE status != 'discarded'"
+        sql += " ORDER BY created_at DESC LIMIT ?"
+        params.append(limit)
+        return self._query(sql, params)
+
+    def set_draft_status(self, draft_id: str, status: str) -> None:
+        self._execute(
+            "UPDATE drafts SET status=?, updated_at=? WHERE id=?",
+            (status, _now(), draft_id),
+        )
 
     # ------------------------------------------------------------------- jobs
 
