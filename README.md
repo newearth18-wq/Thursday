@@ -41,6 +41,7 @@ thursday profiles     # ดู profile และโมเดลที่อย�
 thursday providers    # เช็คว่าต่อ backend ไหนได้บ้างตอนนี้
 thursday models       # ถามว่า provider ปัจจุบันมีโมเดลอะไร
 thursday usage        # ดู token กับค่าใช้จ่ายย้อนหลัง
+thursday config       # ดูค่าตั้งทั้งหมด และแต่ละค่ามาจากไหน
 thursday ask "ตอนนี้กี่โมง"    # ถามครั้งเดียวแล้วจบ
 
 thursday --local                     # ทุกอย่างรันบน Ollama ในเครื่อง
@@ -184,6 +185,27 @@ thursday --profile deep          # ปักไว้ตั้งแต่เร
 
 เพิ่ม profile ของตัวเองได้ที่ `profiles.json` (ดูตัวอย่างใน `profiles.example.json`)
 ชื่อซ้ำกับของเดิม = แก้ทับเฉพาะฟิลด์ที่ใส่
+
+## ตั้งค่าจากหน้าเว็บ
+
+กดปุ่ม **Config** มุมขวาบน แล้วตั้งได้ทุกอย่างโดยไม่ต้องแก้ไฟล์ — API key ของแต่ละค่าย,
+provider/โมเดล, profile และการ routing, ขอบเขตความปลอดภัย, งบต่อวัน, และค่าเสียง
+แบ่งเป็นหมวด Identity / Model / API keys / Agents / Safety / Spending / Voice
+พร้อมปุ่ม **Test backend** ที่ลองต่อจริงแล้วบอกว่าติดอะไร
+
+```bash
+thursday config       # ดูค่าเดียวกันจากเทอร์มินัล พร้อมบอกว่ามาจากไหน
+```
+
+- **แหล่งความจริงเดียว** — รายการฟิลด์อยู่ที่ `thursday/settings_store.py` ที่เดียว
+  API ส่ง schema ไปให้หน้าเว็บสร้างฟอร์มเอง เพิ่มค่าตั้งใหม่แก้ไฟล์เดียวจบ
+- **ค่าที่ตั้งจากหน้าเว็บชนะ `.env`** — ไม่งั้นจะกดเปลี่ยนแล้วเหมือนไม่มีอะไรเกิดขึ้น
+  เก็บที่ `data/settings.json` สิทธิ์ `0600` เพราะมี API key อยู่ในนั้น
+- **เซฟเฉพาะที่แก้จริง** — ฟิลด์ที่ไม่ได้แตะจะไม่ถูกเขียนทับ `.env` จึงยังทำงานต่อ
+- **key ไม่เคยถูกส่งกลับมาที่หน้าเว็บ** — เห็นเป็น `••••••••` บอกแค่ว่าตั้งแล้วหรือยัง
+  พิมพ์ทับได้ ปล่อยว่างไว้ = ลบทิ้ง
+- **แก้ได้จากเครื่องนี้เท่านั้น** — client ที่ไม่ใช่ loopback จะถูกปฏิเสธ 403
+  (เปิดได้ด้วย `THURSDAY_ALLOW_REMOTE_CONFIG=1` ถ้ารู้ว่ากำลังทำอะไรอยู่)
 
 ## เรียกชื่อสั่งงาน
 
@@ -348,6 +370,7 @@ thursday/
   notify.py       desktop notification ข้ามแพลตฟอร์ม
   mcp.py          MCP client (เสียบ server ภายนอก)
   mood.py         แปลง event เป็นสถานะ + อารมณ์ ให้ทุกหน้าตาใช้ร่วมกัน
+  settings_store.py  schema ของค่าตั้งทั้งหมด + ไฟล์ overlay ที่หน้าเว็บเขียน
   pricing.py      ตารางราคาและการคิดค่าใช้จ่าย
   tools/          registry + เครื่องมือมาตรฐาน (มี vision, desktop, routines)
   voice/          stt.py, tts.py, loop.py (คำปลุก + VAD)
@@ -375,7 +398,7 @@ tests/            pytest, ไม่แตะ network
 
 ```bash
 pip install -e ".[dev]"
-pytest            # 234 tests, ไม่ต้องใช้ API key และไม่ต่อเน็ต
+pytest            # 260 tests, ไม่ต้องใช้ API key และไม่ต่อเน็ต
 ```
 
 เทสต์ของ provider ยิงผ่าน socket จริงไปยังเซิร์ฟเวอร์ OpenAI-compatible ปลอม

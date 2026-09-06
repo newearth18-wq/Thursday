@@ -3,6 +3,10 @@
 Everything is read from environment variables (optionally seeded from a `.env`
 file next to the project root) so the same settings drive the CLI, the voice
 loop and the web server.
+
+Settings changed in the web UI are written to `data/settings.json` and applied
+on top, so a change made in the browser reaches every front end through the
+same path as an exported variable.
 """
 
 from __future__ import annotations
@@ -10,6 +14,8 @@ from __future__ import annotations
 import os
 from dataclasses import dataclass, field
 from pathlib import Path
+
+from .settings_store import apply_overlay, overlay_path
 
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
 
@@ -194,6 +200,9 @@ class Settings:
     @classmethod
     def from_env(cls) -> "Settings":
         load_dotenv()
+        # Applied after .env so what the user set in the UI wins; otherwise a
+        # setting changed in the browser would visibly do nothing.
+        apply_overlay()
         assistant_name = os.environ.get("THURSDAY_NAME", "Thursday")
         plugin_raw = os.environ.get("THURSDAY_PLUGIN_DIRS", "")
         plugin_dirs = tuple(
@@ -237,6 +246,11 @@ class Settings:
     @property
     def db_path(self) -> Path:
         return self.data_dir / "thursday.db"
+
+    @property
+    def settings_path(self) -> Path:
+        """The file the web UI writes editable settings to."""
+        return overlay_path()
 
     @property
     def mcp_paths(self) -> tuple[Path, ...]:

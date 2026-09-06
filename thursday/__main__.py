@@ -21,12 +21,13 @@ def build_parser() -> argparse.ArgumentParser:
         default="chat",
         choices=[
             "chat", "voice", "serve", "tools", "ask",
-            "providers", "profiles", "models", "usage",
+            "providers", "profiles", "models", "usage", "config",
         ],
         help="chat: terminal · voice: wake word + speech · serve: web UI · "
         "tools: list capabilities · ask: one-shot question · "
         "providers: which backends are reachable · profiles: task profiles · "
-        "models: models a provider offers · usage: tokens and cost",
+        "models: models a provider offers · usage: tokens and cost · "
+        "config: current settings and where each came from",
     )
     parser.add_argument("question", nargs="*", help="the question, for `ask`")
     parser.add_argument("--model", help="override the model id")
@@ -127,6 +128,24 @@ def list_models(settings: Settings) -> None:
     print(f"{len(models)} models on {settings.provider}:")
     for model in models:
         print(f"  {model}")
+
+
+def show_config(settings: Settings) -> None:
+    """Print every editable setting, its value, and where it came from."""
+    from .settings_store import describe
+
+    payload = describe()
+    print(f"editable in the web UI, saved to {settings.settings_path}\n")
+    for group in payload["groups"]:
+        print(group)
+        for entry in payload["fields"]:
+            if entry["group"] != group:
+                continue
+            value = entry["value"] or "—"
+            mark = {"settings": "*", "env": "e", "default": " "}.get(entry["source"], " ")
+            print(f"  {mark} {entry['label']:24} {value:<28} {entry['key']}")
+        print()
+    print("* set in the web UI   e from the environment or .env   (blank) default")
 
 
 def show_usage(settings: Settings, days: int = 7) -> None:
@@ -241,6 +260,9 @@ def main(argv: list[str] | None = None) -> int:
         return 0
     if args.mode == "usage":
         show_usage(settings, args.days)
+        return 0
+    if args.mode == "config":
+        show_config(settings)
         return 0
     if args.mode == "serve":
         from .server import serve

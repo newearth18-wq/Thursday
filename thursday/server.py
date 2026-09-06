@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import os
 import uuid
 from pathlib import Path
 from typing import Any
@@ -19,18 +20,34 @@ from .events import Event
 from .mood import MoodTracker
 from .notify import notify_desktop
 from .persona import system_prompt
+from .settings_store import describe as describe_settings
+from .settings_store import update as update_settings
+from .settings_store import validate as validate_settings
 
 WEB_DIR = Path(__file__).parent / "web"
 
 # Imported at module scope because FastAPI resolves route annotations (such as
 # `websocket: WebSocket`) against this module's globals.
 try:
-    from fastapi import FastAPI, WebSocket, WebSocketDisconnect
+    from fastapi import FastAPI, Request, WebSocket, WebSocketDisconnect
     from fastapi.responses import HTMLResponse, JSONResponse
 
     FASTAPI_AVAILABLE = True
 except ImportError:  # pragma: no cover - depends on the install
     FASTAPI_AVAILABLE = False
+
+LOOPBACK = {"127.0.0.1", "::1", "localhost", "testclient"}
+
+
+def is_local(client_host: str | None) -> bool:
+    """Whether a request came from this machine.
+
+    Settings carry API keys, so only a local browser may change them unless
+    the operator has explicitly opened that up.
+    """
+    if os.environ.get("THURSDAY_ALLOW_REMOTE_CONFIG", "").strip().lower() in {"1", "true", "yes", "on"}:
+        return True
+    return (client_host or "") in LOOPBACK
 
 
 ALLOWED_MEDIA = {"image/png", "image/jpeg", "image/gif", "image/webp"}
@@ -66,20 +83,85 @@ def create_app(settings: Settings | None = None) -> Any:
     if not FASTAPI_AVAILABLE:
         raise RuntimeError("fastapi is not installed; run: pip install 'thursday[web]'")
 
-    settings = settings or Settings.from_env()
+    # Held in a cell so a settings change can swap it without restarting.
+    state: dict[str, Settings] = {"settings": settings or Settings.from_env()}
+
+    def current() -> Settings:
+        return state["settings"]
+
     app = FastAPI(title="Thursday", version="0.1.0")
 
     @app.get("/", response_class=HTMLResponse)
     async def index() -> Any:
         return HTMLResponse((WEB_DIR / "index.html").read_text(encoding="utf-8"))
 
+    # ------------------------------------------------------------- settings
+
+    @app.get("/api/settings")
+    async def read_settings(request: Request) -> Any:
+        local = is_local(request.client.host if request.client else None)
+        return JSONResponse(
+            {
+                **describe_settings(),
+                "editable": local,
+                "path": str(current().settings_path),
+                "note": "" if local else "settings can only be changed from this machine",
+            }
+        )
+
+    @app.post("/api/settings")
+    async def write_settings(request: Request) -> Any:
+        if not is_local(request.client.host if request.client else None):
+            return JSONResponse(
+                {"error": "settings can only be changed from this machine"}, status_code=403
+            )
+        try:
+            changes = await request.json()
+        except Exception:
+            return JSONResponse({"error": "expected a JSON object"}, status_code=400)
+        if not isinstance(changes, dict):
+            return JSONResponse({"error": "expected a JSON object"}, status_code=400)
+
+        problems = validate_settings(changes)
+        if problems:
+            return JSONResponse({"error": "; ".join(problems), "problems": problems}, status_code=400)
+
+        update_settings(changes)
+        # Rebuild so the next connection - and the status endpoint - see it.
+        state["settings"] = Settings.from_env()
+        return JSONResponse({**describe_settings(), "saved": True, "editable": True})
+
+    @app.post("/api/settings/test")
+    async def test_provider(request: Request) -> Any:
+        """Check whether a backend is reachable with what is configured now."""
+        try:
+            body = await request.json()
+        except Exception:
+            body = {}
+        name = str((body or {}).get("provider") or current().provider)
+
+        from .providers import ProviderError, build_provider
+
+        try:
+            provider = build_provider(name, base_url=current().base_url or None)
+        except ProviderError as exc:
+            return JSONResponse({"provider": name, "ok": False, "detail": str(exc)})
+        try:
+            ok, detail = await provider.available()
+            models = await provider.list_models() if ok else []
+        except Exception as exc:
+            ok, detail, models = False, str(exc), []
+        finally:
+            await provider.close()
+        return JSONResponse({"provider": name, "ok": ok, "detail": detail, "models": models[:50]})
+
     @app.get("/api/status")
     async def status() -> Any:
-        agent = Agent(settings=settings)
+        agent = Agent(settings=current())
         default = agent.profiles[agent.router.default_name]
         return JSONResponse(
             {
-                "name": settings.assistant_name,
+                "name": current().assistant_name,
                 "provider": agent.provider_name_for(default),
                 "model": agent.model_for(default),
                 "profile": default.name,
@@ -98,7 +180,7 @@ def create_app(settings: Settings | None = None) -> Any:
                      "source": t.source}
                     for t in sorted(agent.registry, key=lambda t: t.name)
                 ],
-                "web_search": settings.enable_web_search,
+                "web_search": current().enable_web_search,
             }
         )
 
@@ -106,6 +188,7 @@ def create_app(settings: Settings | None = None) -> Any:
     async def websocket_endpoint(websocket: WebSocket) -> None:
         await websocket.accept()
         session_id = websocket.query_params.get("session") or f"web-{uuid.uuid4().hex[:8]}"
+        settings = current()   # this connection's snapshot
         agent = Agent(settings=settings)
         await agent.start()
 

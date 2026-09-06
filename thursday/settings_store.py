@@ -1,0 +1,295 @@
+"""Settings you can change from the Thursday page, without editing files.
+
+The field list below is the single source of truth: the API serves it, the web
+UI builds its form from it, and validation happens against it. Adding a
+setting means adding one entry here.
+
+Values are written to `data/settings.json` and applied as environment
+variables, which is how the rest of Thursday already reads its configuration -
+so a change made in the browser reaches providers, profiles and tools by the
+same path as a variable exported in a shell. The overlay is applied last, so
+what you set in the UI wins over `.env` and over the environment.
+"""
+
+from __future__ import annotations
+
+import json
+import logging
+import os
+from dataclasses import asdict, dataclass
+from pathlib import Path
+from typing import Any, Iterable
+
+log = logging.getLogger(__name__)
+
+PROJECT_ROOT = Path(__file__).resolve().parent.parent
+
+#: Anything whose value must never be sent back to the browser.
+SECRET_SUFFIXES = ("_API_KEY", "_AUTH_TOKEN", "_TOKEN")
+
+
+@dataclass(frozen=True)
+class Field:
+    """One editable setting."""
+
+    key: str                      # the environment variable it sets
+    label: str
+    group: str
+    kind: str = "text"            # text | password | number | bool | choice | path
+    choices: tuple[str, ...] = ()
+    placeholder: str = ""
+    help: str = ""
+    #: Dotted path to the matching attribute on Settings, so the form can show
+    #: the real default instead of guessing. Without it a bool would render as
+    #: off and a choice as its first option - and saving would then quietly
+    #: write that wrong value back.
+    attr: str = ""
+
+    @property
+    def secret(self) -> bool:
+        return self.kind == "password" or self.key.endswith(SECRET_SUFFIXES)
+
+    def as_dict(self) -> dict[str, Any]:
+        payload = asdict(self)
+        payload["choices"] = list(self.choices)
+        payload["secret"] = self.secret
+        return payload
+
+
+PROVIDERS = (
+    "anthropic", "openai", "gemini", "groq", "openrouter", "deepseek",
+    "mistral", "xai", "together", "ollama", "lmstudio", "llamacpp", "vllm", "custom",
+)
+EFFORTS = ("low", "medium", "high", "xhigh", "max")
+
+FIELDS: tuple[Field, ...] = (
+    # ---- who it is -------------------------------------------------------
+    Field("THURSDAY_NAME", "Name", "Identity", placeholder="Thursday",
+          help="Also becomes the wake word.", attr="assistant_name"),
+    Field("THURSDAY_USER_NAME", "Call me", "Identity", placeholder="sir", attr="user_name"),
+    Field("THURSDAY_LANGUAGE_HINT", "Language", "Identity",
+          placeholder="Match the language the user speaks (Thai or English).", attr="language_hint"),
+
+    # ---- the brain -------------------------------------------------------
+    Field("THURSDAY_PROVIDER", "Provider", "Model", kind="choice", choices=PROVIDERS,
+          help="Local runners (ollama, lmstudio, llamacpp, vllm) need no key.", attr="provider"),
+    Field("THURSDAY_MODEL", "Model", "Model", placeholder="provider default",
+          help="Empty means the provider's own default.", attr="model"),
+    Field("THURSDAY_BASE_URL", "Base URL", "Model", placeholder="http://localhost:11434/v1",
+          help="For `custom`, or to point a provider at another host.", attr="base_url"),
+    Field("THURSDAY_EFFORT", "Effort", "Model", kind="choice", choices=EFFORTS, attr="effort"),
+    Field("THURSDAY_MAX_TOKENS", "Max tokens", "Model", kind="number", placeholder="16000", attr="max_tokens"),
+    Field("THURSDAY_THINKING", "Thinking", "Model", kind="bool", attr="thinking"),
+    Field("THURSDAY_SHOW_THINKING", "Show reasoning", "Model", kind="bool", attr="show_thinking"),
+
+    # ---- keys ------------------------------------------------------------
+    Field("ANTHROPIC_API_KEY", "Anthropic", "API keys", kind="password", placeholder="sk-ant-…"),
+    Field("OPENAI_API_KEY", "OpenAI", "API keys", kind="password"),
+    Field("GEMINI_API_KEY", "Gemini", "API keys", kind="password"),
+    Field("GROQ_API_KEY", "Groq", "API keys", kind="password"),
+    Field("OPENROUTER_API_KEY", "OpenRouter", "API keys", kind="password"),
+    Field("DEEPSEEK_API_KEY", "DeepSeek", "API keys", kind="password"),
+    Field("MISTRAL_API_KEY", "Mistral", "API keys", kind="password"),
+    Field("XAI_API_KEY", "xAI", "API keys", kind="password"),
+    Field("TOGETHER_API_KEY", "Together", "API keys", kind="password"),
+
+    # ---- which agent for which job --------------------------------------
+    Field("THURSDAY_PROFILE", "Default profile", "Agents", placeholder="default", attr="profile"),
+    Field("THURSDAY_ROUTING", "Routing", "Agents", kind="choice",
+          choices=("off", "keyword", "llm"), attr="routing",
+          help="How a profile is chosen per turn."),
+    Field("THURSDAY_CLASSIFIER_PROVIDER", "Router provider", "Agents", kind="choice", choices=PROVIDERS, attr="classifier_provider"),
+    Field("THURSDAY_CLASSIFIER_MODEL", "Router model", "Agents", placeholder="claude-haiku-4-5", attr="classifier_model"),
+    Field("THURSDAY_HISTORY_TURNS", "History window", "Agents", kind="number", placeholder="40", attr="history_turns"),
+    Field("THURSDAY_MAX_TOOL_ITERATIONS", "Tool steps per turn", "Agents", kind="number", placeholder="12", attr="max_tool_iterations"),
+
+    # ---- what it may do --------------------------------------------------
+    Field("THURSDAY_WORKSPACE", "Workspace", "Safety", kind="path",
+          help="File tools cannot leave this directory.", attr="workspace"),
+    Field("THURSDAY_REQUIRE_CONFIRMATION", "Ask before risky tools", "Safety", kind="bool", attr="require_confirmation"),
+    Field("THURSDAY_ALLOW_SHELL", "Allow shell", "Safety", kind="bool", attr="allow_shell"),
+    Field("THURSDAY_ENABLE_WEB_SEARCH", "Web search", "Safety", kind="bool", attr="enable_web_search"),
+
+    # ---- money -----------------------------------------------------------
+    Field("THURSDAY_DAILY_BUDGET", "Daily budget (USD)", "Spending", kind="number",
+          placeholder="0", help="0 means no limit.", attr="daily_budget"),
+    Field("THURSDAY_SHOW_COST", "Show cost per turn", "Spending", kind="bool", attr="show_cost"),
+
+    # ---- voice -----------------------------------------------------------
+    Field("THURSDAY_WAKE_WORDS", "Extra wake words", "Voice",
+          placeholder="เธิร์สเดย์,เทิร์สเดย์", help="Added to the name, comma separated."),
+    Field("THURSDAY_ALWAYS_LISTENING", "No wake word needed", "Voice", kind="bool", attr="voice.always_listening"),
+    Field("THURSDAY_STT_BACKEND", "Speech in", "Voice", kind="choice",
+          choices=("faster-whisper", "vosk", "whisper.cpp", "none"), attr="voice.stt_backend"),
+    Field("THURSDAY_STT_MODEL", "Speech model", "Voice", placeholder="base", attr="voice.stt_model"),
+    Field("THURSDAY_STT_LANGUAGE", "Speech language", "Voice", placeholder="auto-detect", attr="voice.stt_language"),
+    Field("THURSDAY_TTS_BACKEND", "Speech out", "Voice", kind="choice",
+          choices=("auto", "piper", "say", "espeak", "pyttsx3", "none"), attr="voice.tts_backend"),
+    Field("THURSDAY_TTS_VOICE", "Voice", "Voice", attr="voice.tts_voice"),
+    Field("THURSDAY_TTS_RATE", "Speech rate", "Voice", kind="number", placeholder="175", attr="voice.tts_rate"),
+)
+
+FIELDS_BY_KEY = {entry.key: entry for entry in FIELDS}
+GROUPS = tuple(dict.fromkeys(entry.group for entry in FIELDS))
+
+#: Written back masked, never in the clear.
+MASK = "••••••••"
+
+
+def _default_settings() -> Any:
+    """A Settings built from its own defaults, with no environment involved."""
+    from .config import Settings
+
+    saved = {key: os.environ.pop(key) for key in list(FIELDS_BY_KEY) if key in os.environ}
+    try:
+        return Settings()
+    finally:
+        os.environ.update(saved)
+
+
+def default_for(entry: Field, defaults: Any = None) -> str:
+    """The value a setting has when nothing is configured, as text."""
+    if not entry.attr:
+        return ""
+    target = defaults if defaults is not None else _default_settings()
+    for part in entry.attr.split("."):
+        target = getattr(target, part, None)
+        if target is None:
+            return ""
+    if isinstance(target, bool):
+        return "1" if target else "0"
+    if isinstance(target, (tuple, list)):
+        return ",".join(str(item) for item in target)
+    return str(target)
+
+
+def overlay_path() -> Path:
+    """Where the editable settings live.
+
+    Resolved from the environment alone, because it has to be known before
+    the settings themselves are built.
+    """
+    override = os.environ.get("THURSDAY_SETTINGS")
+    if override:
+        return Path(override).expanduser()
+    data_dir = os.environ.get("THURSDAY_DATA_DIR")
+    root = Path(data_dir).expanduser() if data_dir else PROJECT_ROOT / "data"
+    return root / "settings.json"
+
+
+def load_overlay(path: Path | None = None) -> dict[str, str]:
+    """Read the saved settings. A broken file is ignored, not fatal."""
+    target = path or overlay_path()
+    try:
+        raw = json.loads(target.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return {}
+    if not isinstance(raw, dict):
+        return {}
+    return {
+        str(key): str(value)
+        for key, value in raw.items()
+        if key in FIELDS_BY_KEY and value is not None
+    }
+
+
+def save_overlay(values: dict[str, str], path: Path | None = None) -> Path:
+    """Persist settings, readable only by this user - it holds API keys."""
+    target = path or overlay_path()
+    target.parent.mkdir(parents=True, exist_ok=True)
+    cleaned = {
+        key: str(value)
+        for key, value in values.items()
+        if key in FIELDS_BY_KEY and value is not None and str(value) != ""
+    }
+    target.write_text(json.dumps(cleaned, indent=2, ensure_ascii=False), encoding="utf-8")
+    try:
+        target.chmod(0o600)
+    except OSError:  # a filesystem without permissions; not worth failing over
+        log.debug("could not restrict permissions on %s", target)
+    return target
+
+
+def apply_overlay(path: Path | None = None) -> dict[str, str]:
+    """Push saved settings into the environment, where everything reads them.
+
+    Applied after `.env`, so a change made in the UI wins - the alternative is
+    a setting that visibly does nothing because a stale variable outranks it.
+    """
+    values = load_overlay(path)
+    for key, value in values.items():
+        os.environ[key] = value
+    return values
+
+
+def update(changes: dict[str, Any], path: Path | None = None) -> dict[str, str]:
+    """Merge changes into the saved settings and apply them.
+
+    An empty string clears a setting, so a key can be removed from the UI.
+    """
+    values = load_overlay(path)
+    for key, value in changes.items():
+        if key not in FIELDS_BY_KEY:
+            continue
+        text = "" if value is None else str(value)
+        if text == MASK:
+            continue  # the page echoed back a masked secret; leave it alone
+        if text == "":
+            values.pop(key, None)
+            os.environ.pop(key, None)
+        else:
+            values[key] = text
+    save_overlay(values, path)
+    apply_overlay(path)
+    return values
+
+
+def validate(changes: dict[str, Any]) -> list[str]:
+    """Reasons the given changes cannot be saved."""
+    problems: list[str] = []
+    for key, value in changes.items():
+        entry = FIELDS_BY_KEY.get(key)
+        if entry is None:
+            problems.append(f"unknown setting: {key}")
+            continue
+        text = "" if value is None else str(value).strip()
+        if not text:
+            continue
+        if entry.kind == "number":
+            try:
+                float(text)
+            except ValueError:
+                problems.append(f"{entry.label} must be a number")
+        elif entry.kind == "choice" and text not in entry.choices:
+            problems.append(f"{entry.label} must be one of: {', '.join(entry.choices)}")
+        elif entry.kind == "bool" and text.lower() not in {"0", "1", "true", "false", "yes", "no", "on", "off"}:
+            problems.append(f"{entry.label} must be true or false")
+    return problems
+
+
+def describe(fields: Iterable[Field] | None = None) -> dict[str, Any]:
+    """The form the UI draws, with current values and secrets masked."""
+    saved = load_overlay()
+    entries = list(fields or FIELDS)
+    defaults = _default_settings()
+    payload = []
+    for entry in entries:
+        configured = os.environ.get(entry.key, "")
+        fallback = default_for(entry, defaults)
+        # Show what is actually in force. Without the fallback the form would
+        # render a bool as off and a choice as its first option, and saving
+        # would write that back as if the user had chosen it.
+        effective = configured or fallback
+        payload.append(
+            {
+                **entry.as_dict(),
+                # A secret is reported as set or not, never echoed back.
+                "value": (MASK if configured else "") if entry.secret else effective,
+                "default": "" if entry.secret else fallback,
+                "set": bool(configured),
+                # Whether this value came from the UI or from the environment,
+                # so the page can say where a setting is coming from.
+                "source": "settings" if entry.key in saved else ("env" if configured else "default"),
+            }
+        )
+    return {"groups": list(dict.fromkeys(entry.group for entry in entries)), "fields": payload}
