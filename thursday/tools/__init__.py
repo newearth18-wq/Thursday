@@ -65,6 +65,39 @@ class ToolError(Exception):
 
 
 @dataclasses.dataclass
+class ImageResult:
+    """A tool result that carries images for Claude to look at.
+
+    The agent turns this into a `tool_result` whose content is a list of text
+    and image blocks. Images are dropped before the turn is written to the
+    history database - replaying base64 screenshots forever would bloat it.
+    """
+
+    text: str = ""
+    # (media_type, base64 data), e.g. ("image/png", "iVBORw0...")
+    images: list[tuple[str, str]] = dataclasses.field(default_factory=list)
+
+    def to_blocks(self) -> list[dict[str, Any]]:
+        blocks: list[dict[str, Any]] = []
+        if self.text:
+            blocks.append({"type": "text", "text": self.text})
+        for media_type, data in self.images:
+            blocks.append(
+                {
+                    "type": "image",
+                    "source": {"type": "base64", "media_type": media_type, "data": data},
+                }
+            )
+        return blocks or [{"type": "text", "text": "(no content)"}]
+
+    def summary(self) -> str:
+        """What gets shown in a front end and stored in history."""
+        count = len(self.images)
+        noun = "image" if count == 1 else "images"
+        return f"{self.text} [{count} {noun} sent to Claude]".strip()
+
+
+@dataclasses.dataclass
 class Tool:
     name: str
     description: str
@@ -81,7 +114,7 @@ class Tool:
             "input_schema": self.schema,
         }
 
-    async def invoke(self, arguments: dict[str, Any], ctx: ToolContext) -> str:
+    async def invoke(self, arguments: dict[str, Any], ctx: ToolContext) -> "str | ImageResult":
         kwargs = dict(arguments)
         if self.wants_context:
             kwargs["ctx"] = ctx
@@ -89,7 +122,9 @@ class Tool:
             result = await self.func(**kwargs)
         else:
             result = await asyncio.to_thread(lambda: self.func(**kwargs))
-        return stringify(result)
+        # An ImageResult passes through untouched so the agent can build the
+        # image blocks; everything else becomes text.
+        return result if isinstance(result, ImageResult) else stringify(result)
 
 
 def stringify(result: Any) -> str:
@@ -258,7 +293,9 @@ class ToolRegistry:
         for t in tools:
             self.add(t)
 
-    async def call(self, name: str, arguments: dict[str, Any], ctx: ToolContext) -> str:
+    async def call(
+        self, name: str, arguments: dict[str, Any], ctx: ToolContext
+    ) -> "str | ImageResult":
         tool_obj = self.get(name)
         if tool_obj is None:
             raise ToolError(f"unknown tool: {name}")
@@ -357,7 +394,7 @@ def load_plugins(dirs: Iterable[Path], registry: ToolRegistry | None = None) -> 
 
 def build_registry(settings: Any = None) -> ToolRegistry:
     """Import the built-in tool modules, load plugins, and return the registry."""
-    from . import files, knowledge, system, timekeeping, web  # noqa: F401
+    from . import desktop, files, knowledge, routines, system, timekeeping, vision, web  # noqa: F401
     from . import shell  # noqa: F401
 
     registry = ToolRegistry()
@@ -373,6 +410,7 @@ def build_registry(settings: Any = None) -> ToolRegistry:
 __all__ = [
     "REGISTRY",
     "ConfirmFn",
+    "ImageResult",
     "Tool",
     "ToolContext",
     "ToolError",

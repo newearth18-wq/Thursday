@@ -17,7 +17,7 @@ from .config import Settings
 from .events import Event, EventHandler
 from .memory import Memory
 from .persona import situational_context, system_prompt
-from .tools import ToolContext, ToolError, ToolRegistry, build_registry
+from .tools import ImageResult, ToolContext, ToolError, ToolRegistry, build_registry
 
 log = logging.getLogger(__name__)
 
@@ -39,6 +39,27 @@ def server_tools(settings: Settings) -> list[dict[str, Any]]:
         {"type": "web_search_20260209", "name": "web_search", "max_uses": 6},
         {"type": "web_fetch_20260209", "name": "web_fetch", "max_uses": 6},
     ]
+
+
+def strip_images(tool_results: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """Replace image blocks with a placeholder before writing to history.
+
+    Claude sees the real image during the turn that produced it; storing the
+    base64 would grow the database without bound and replay stale pixels.
+    """
+    stripped: list[dict[str, Any]] = []
+    for result in tool_results:
+        content = result.get("content")
+        if isinstance(content, list):
+            content = [
+                {"type": "text", "text": "[image omitted from history]"}
+                if block.get("type") == "image"
+                else block
+                for block in content
+            ]
+            result = {**result, "content": content}
+        stripped.append(result)
+    return stripped
 
 
 class Agent:
@@ -125,16 +146,37 @@ class Agent:
         user_input: str,
         session_id: str = "default",
         on_event: EventHandler | None = None,
+        images: list[tuple[str, str]] | None = None,
     ) -> str:
-        """Handle one user turn. Returns the final reply text."""
+        """Handle one user turn. Returns the final reply text.
+
+        `images` are (media_type, base64) pairs to show Claude alongside the
+        text - a pasted screenshot, a photo from the phone.
+        """
 
         async def emit(event: Event) -> None:
             if on_event is not None:
                 await on_event(event)
 
         messages = self.memory.load_history(session_id, self.settings.history_turns)
-        messages.append({"role": "user", "content": user_input})
-        self.memory.append_message(session_id, "user", user_input)
+        if images:
+            # Images lead, then the question - Claude reads them in order.
+            turn: Any = [
+                {
+                    "type": "image",
+                    "source": {"type": "base64", "media_type": media_type, "data": data},
+                }
+                for media_type, data in images
+            ]
+            turn.append({"type": "text", "text": user_input})
+            messages.append({"role": "user", "content": turn})
+            # Only the text is kept in history; the base64 would bloat the DB.
+            self.memory.append_message(
+                session_id, "user", f"{user_input}\n[{len(images)} image(s) attached]"
+            )
+        else:
+            messages.append({"role": "user", "content": user_input})
+            self.memory.append_message(session_id, "user", user_input)
 
         reply_parts: list[str] = []
 
@@ -178,7 +220,7 @@ class Agent:
             if not tool_results:
                 break
             messages.append({"role": "user", "content": tool_results})
-            self.memory.append_message(session_id, "user", tool_results)
+            self.memory.append_message(session_id, "user", strip_images(tool_results))
         else:
             note = "I stopped after too many tool steps. Ask me to narrow it down?"
             await emit(Event("error", text=note))
@@ -212,10 +254,27 @@ class Agent:
             await emit(Event("tool_start", tool=block.name, arguments=arguments))
             try:
                 output = await self.registry.call(block.name, arguments, self.context)
-                await emit(Event("tool_end", tool=block.name, result=output))
-                results.append(
-                    {"type": "tool_result", "tool_use_id": block.id, "content": output}
-                )
+                if isinstance(output, ImageResult):
+                    await emit(
+                        Event(
+                            "tool_end",
+                            tool=block.name,
+                            result=output.summary(),
+                            data={"images": len(output.images)},
+                        )
+                    )
+                    results.append(
+                        {
+                            "type": "tool_result",
+                            "tool_use_id": block.id,
+                            "content": output.to_blocks(),
+                        }
+                    )
+                else:
+                    await emit(Event("tool_end", tool=block.name, result=output))
+                    results.append(
+                        {"type": "tool_result", "tool_use_id": block.id, "content": output}
+                    )
             except ToolError as exc:
                 await emit(Event("tool_error", tool=block.name, result=str(exc)))
                 results.append(

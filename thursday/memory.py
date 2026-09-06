@@ -44,9 +44,18 @@ CREATE TABLE IF NOT EXISTS reminders (
     text        TEXT NOT NULL,
     due_at      REAL NOT NULL,
     created_at  REAL NOT NULL,
-    fired_at    REAL
+    fired_at    REAL,
+    repeat_seconds REAL
 );
 CREATE INDEX IF NOT EXISTS idx_reminders_due ON reminders(fired_at, due_at);
+
+CREATE TABLE IF NOT EXISTS routines (
+    name        TEXT PRIMARY KEY,
+    instruction TEXT NOT NULL,
+    created_at  REAL NOT NULL,
+    used_at     REAL,
+    uses        INTEGER NOT NULL DEFAULT 0
+);
 """
 
 
@@ -65,15 +74,19 @@ class Reminder:
     due_at: float
     created_at: float
     fired_at: float | None = None
+    repeat_seconds: float | None = None
 
     def as_dict(self) -> dict[str, Any]:
-        return {
+        payload: dict[str, Any] = {
             "id": self.id,
             "text": self.text,
             "due_at": iso(self.due_at),
             "due_in_seconds": round(self.due_at - _now()),
             "fired": self.fired_at is not None,
         }
+        if self.repeat_seconds:
+            payload["repeats_every_seconds"] = round(self.repeat_seconds)
+        return payload
 
 
 class Memory:
@@ -88,7 +101,14 @@ class Memory:
         self._conn.row_factory = sqlite3.Row
         with self._lock:
             self._conn.executescript(SCHEMA)
+            self._migrate()
             self._conn.commit()
+
+    def _migrate(self) -> None:
+        """Bring a database created by an older version up to date."""
+        columns = {row["name"] for row in self._conn.execute("PRAGMA table_info(reminders)")}
+        if "repeat_seconds" not in columns:
+            self._conn.execute("ALTER TABLE reminders ADD COLUMN repeat_seconds REAL")
 
     def close(self) -> None:
         with self._lock:
@@ -195,13 +215,15 @@ class Memory:
 
     # -------------------------------------------------------------- reminders
 
-    def add_reminder(self, text: str, due_at: float) -> Reminder:
+    def add_reminder(
+        self, text: str, due_at: float, repeat_seconds: float | None = None
+    ) -> Reminder:
         now = _now()
         cur = self._execute(
-            "INSERT INTO reminders (text, due_at, created_at) VALUES (?,?,?)",
-            (text, due_at, now),
+            "INSERT INTO reminders (text, due_at, created_at, repeat_seconds) VALUES (?,?,?,?)",
+            (text, due_at, now, repeat_seconds),
         )
-        return Reminder(int(cur.lastrowid or 0), text, due_at, now, None)
+        return Reminder(int(cur.lastrowid or 0), text, due_at, now, None, repeat_seconds)
 
     def pending_reminders(self) -> list[Reminder]:
         rows = self._query(
@@ -217,12 +239,59 @@ class Memory:
         )
         return [_reminder(r) for r in rows]
 
-    def mark_fired(self, reminder_id: int) -> None:
-        self._execute("UPDATE reminders SET fired_at=? WHERE id=?", (_now(), reminder_id))
+    def mark_fired(self, reminder_id: int) -> float | None:
+        """Retire a reminder, or roll a repeating one forward.
+
+        Returns the next due time for a repeating reminder, else None.
+        """
+        rows = self._query("SELECT * FROM reminders WHERE id=?", (reminder_id,))
+        if not rows:
+            return None
+        reminder = _reminder(rows[0])
+
+        if not reminder.repeat_seconds:
+            self._execute("UPDATE reminders SET fired_at=? WHERE id=?", (_now(), reminder_id))
+            return None
+
+        # Skip any occurrences missed while the assistant was not running.
+        next_due = reminder.due_at
+        now = _now()
+        while next_due <= now:
+            next_due += reminder.repeat_seconds
+        self._execute("UPDATE reminders SET due_at=? WHERE id=?", (next_due, reminder_id))
+        return next_due
 
     def cancel_reminder(self, reminder_id: int) -> bool:
         return self._execute(
             "DELETE FROM reminders WHERE id=? AND fired_at IS NULL", (reminder_id,)
+        ).rowcount > 0
+
+    # --------------------------------------------------------------- routines
+
+    def save_routine(self, name: str, instruction: str) -> None:
+        self._execute(
+            "INSERT INTO routines (name, instruction, created_at) VALUES (?,?,?) "
+            "ON CONFLICT(name) DO UPDATE SET instruction=excluded.instruction",
+            (name.strip().lower(), instruction, _now()),
+        )
+
+    def get_routine(self, name: str) -> dict[str, Any] | None:
+        rows = self._query("SELECT * FROM routines WHERE name=?", (name.strip().lower(),))
+        return _routine_dict(rows[0]) if rows else None
+
+    def list_routines(self) -> list[dict[str, Any]]:
+        return [_routine_dict(r) for r in self._query("SELECT * FROM routines ORDER BY name")]
+
+    def touch_routine(self, name: str) -> None:
+        """Record that a routine was run."""
+        self._execute(
+            "UPDATE routines SET used_at=?, uses=uses+1 WHERE name=?",
+            (_now(), name.strip().lower()),
+        )
+
+    def delete_routine(self, name: str) -> bool:
+        return self._execute(
+            "DELETE FROM routines WHERE name=?", (name.strip().lower(),)
         ).rowcount > 0
 
 
@@ -236,13 +305,24 @@ def _note_dict(row: sqlite3.Row) -> dict[str, Any]:
     }
 
 
+def _routine_dict(row: sqlite3.Row) -> dict[str, Any]:
+    return {
+        "name": row["name"],
+        "instruction": row["instruction"],
+        "uses": row["uses"],
+        "last_used": iso(row["used_at"]) if row["used_at"] else None,
+    }
+
+
 def _reminder(row: sqlite3.Row) -> Reminder:
+    keys = row.keys()
     return Reminder(
         id=row["id"],
         text=row["text"],
         due_at=row["due_at"],
         created_at=row["created_at"],
         fired_at=row["fired_at"],
+        repeat_seconds=row["repeat_seconds"] if "repeat_seconds" in keys else None,
     )
 
 

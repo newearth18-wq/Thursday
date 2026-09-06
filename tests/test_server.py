@@ -89,3 +89,63 @@ def test_declining_a_confirmation_leaves_the_disk_untouched(client, tmp_path):
                 break
 
         assert not (tmp_path / "note.txt").exists()
+
+
+def test_images_from_the_browser_reach_the_agent(tmp_path, monkeypatch):
+    """An attachment posted by the page is forwarded as an image block."""
+    settings = Settings(workspace=tmp_path, data_dir=tmp_path / "data", plugin_dirs=())
+    captured = {}
+    real_agent = server_module.Agent
+
+    def make_agent(*args, **kwargs):
+        client = StubClient([Reply([Block("text", "A cat.")])])
+        captured["client"] = client
+        kwargs["client"] = client
+        return real_agent(*args, **kwargs)
+
+    monkeypatch.setattr(server_module, "Agent", make_agent)
+    client = fastapi_testclient.TestClient(server_module.create_app(settings))
+
+    with client.websocket_connect("/ws") as socket:
+        socket.receive_text()
+        socket.send_text(
+            json.dumps(
+                {
+                    "type": "message",
+                    "text": "what is this?",
+                    "images": [
+                        {"media_type": "image/png", "data": "AAAA"},
+                        {"media_type": "text/html", "data": "<script>"},  # dropped
+                    ],
+                }
+            )
+        )
+        while json.loads(socket.receive_text())["type"] != "done":
+            pass
+
+    content = captured["client"].requests[0]["messages"][0]["content"]
+    images = [block for block in content if block["type"] == "image"]
+    assert len(images) == 1
+    assert images[0]["source"]["media_type"] == "image/png"
+
+
+def test_an_attachment_with_no_text_still_starts_a_turn(tmp_path, monkeypatch):
+    settings = Settings(workspace=tmp_path, data_dir=tmp_path / "data", plugin_dirs=())
+    real_agent = server_module.Agent
+    monkeypatch.setattr(
+        server_module,
+        "Agent",
+        lambda *a, **k: real_agent(*a, **{**k, "client": StubClient([Reply([Block("text", "ok")])])}),
+    )
+    client = fastapi_testclient.TestClient(server_module.create_app(settings))
+
+    with client.websocket_connect("/ws") as socket:
+        socket.receive_text()
+        socket.send_text(
+            json.dumps({"type": "message", "text": "", "images": [{"media_type": "image/png", "data": "AAAA"}]})
+        )
+        while True:
+            event = json.loads(socket.receive_text())
+            if event["type"] == "done":
+                assert event["text"] == "ok"
+                break

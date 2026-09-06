@@ -22,6 +22,7 @@ python3 -m venv .venv && source .venv/bin/activate
 pip install -e .            # แกนหลัก + เทอร์มินัล
 pip install -e ".[web]"     # เพิ่มหน้าเว็บ
 pip install -e ".[voice]"   # เพิ่มเสียง (ไมค์ + ลำโพง)
+pip install -e ".[vision]"  # เพิ่มการย่อรูป/สกรีนช็อต (Pillow)
 pip install -e ".[all]"     # ทั้งหมด + เครื่องมือทดสอบ
 
 cp .env.example .env        # แล้วใส่ ANTHROPIC_API_KEY
@@ -46,6 +47,8 @@ thursday ask "ตอนนี้กี่โมง"    # ถามครั้�
 | คำสั่ง | ทำอะไร |
 | --- | --- |
 | `/tools` | รายการเครื่องมือทั้งหมด |
+| `/see <path> [คำถาม]` | ให้ดูรูปแล้วถาม |
+| `/routines` | routine ที่บันทึกไว้ |
 | `/memory` | สิ่งที่ Thursday จำเกี่ยวกับคุณ |
 | `/forget <key>` | ลบความจำหนึ่งอย่าง |
 | `/reminders` | การเตือนที่ยังค้างอยู่ |
@@ -73,6 +76,9 @@ thursday ask "ตอนนี้กี่โมง"    # ถามครั้�
 กดปุ่มไมค์เพื่อคุยด้วยเสียงโดยใช้ Web Speech API ของเบราว์เซอร์เอง
 (ฝั่งเซิร์ฟเวอร์ไม่ต้องมีชุดเสียงใด ๆ) — ใช้ Chrome หรือ Edge จะได้ผลดีที่สุด
 
+**แนบรูปได้** — วางรูป (Ctrl/Cmd-V), ลากมาวาง, หรือกดปุ่ม 📎 ได้สูงสุด 4 รูปต่อครั้ง
+เซิร์ฟเวอร์ตรวจชนิดและขนาดไฟล์ก่อนส่งต่อเสมอ ไม่เชื่อสิ่งที่หน้าเว็บส่งมา
+
 ## ความสามารถ (Tools)
 
 | กลุ่ม | เครื่องมือ |
@@ -80,11 +86,40 @@ thursday ask "ตอนนี้กี่โมง"    # ถามครั้�
 | เครื่อง | `system_status` `list_processes` `open_app` `which` |
 | ไฟล์ | `read_file` `write_file`* `list_files` `search_files` |
 | เชลล์ | `run_shell`* |
+| **การมองเห็น** | `take_screenshot`* `look_at_image` |
+| **เดสก์ท็อป** | `read_clipboard` `write_clipboard` `set_volume` `media_control` `show_notification` `lock_screen` |
 | เวลา | `current_time` `set_timer` `set_reminder` `list_reminders` `cancel_reminder` |
+| **Routines** | `save_routine` `run_routine` `list_routines` `delete_routine` |
 | ความจำ | `remember_fact` `recall_facts` `forget_fact` `add_note` `search_notes` `delete_note` |
 | เว็บ | `get_weather` `fetch_url` + `web_search` / `web_fetch` (ฝั่ง Anthropic) |
 
 \* ต้องให้คุณกดอนุมัติก่อนทุกครั้ง
+
+### การมองเห็น
+
+> "Thursday ดูหน้าจอหน่อย นี่ error อะไร"
+
+ถ่ายหน้าจอ (ต้องอนุมัติก่อน) หรืออ่านไฟล์รูปในเวิร์กสเปซ รูปถูกย่อเหลือ 1568px
+และแปลงเป็น JPEG ก่อนส่งเสมอ — ส่งใหญ่กว่านั้นเปลืองเปล่า เพราะฝั่ง API ย่อให้อยู่แล้ว
+รองรับ `screencapture` (macOS), `grim`, `spectacle`, `gnome-screenshot`, `scrot`,
+`import` และ Pillow เป็นตัวสำรอง
+
+base64 ของรูป **ไม่ถูกเก็บลงประวัติ** — เก็บแค่ placeholder ไว้แทน
+ฐานข้อมูลจึงไม่บวมและไม่ replay รูปเก่าซ้ำ ๆ
+
+### Routines
+
+บันทึกชุดคำสั่งไว้เรียกด้วยชื่อ ไม่ใช่ macro ตายตัว แต่เป็นคำสั่งที่ Thursday
+เอาไปทำต่อด้วย tool อะไรก็ได้ที่จำเป็น
+
+> "จำไว้นะ routine ตอนเช้าคือ บอกอากาศกรุงเทพ แล้วอ่านเตือนความจำวันนี้"
+> — จากนั้นแค่พูดว่า "รัน routine ตอนเช้า"
+
+### เตือนความจำแบบทำซ้ำ
+
+`set_reminder` รับ `repeat` เป็น `once` / `hourly` / `daily` / `weekly` / `monthly`
+ถ้าปิดเครื่องแล้วพลาดไปหลายรอบ ระบบจะข้ามไปรอบถัดไปในอนาคต ไม่ไล่เตือนย้อนหลังรัว ๆ
+และทุกการเตือนจะเด้ง notification ของ OS ด้วย ไม่ใช่แค่ในเทอร์มินัล
 
 ## เขียน tool เพิ่มเอง
 
@@ -130,7 +165,8 @@ thursday/
   memory.py       SQLite: ประวัติแชท, โน้ต, ความจำ, การเตือน
   persona.py      system prompt (ส่วนคงที่แยกจากส่วนที่เปลี่ยนทุกครั้ง)
   events.py       เหตุการณ์ที่ front end ทุกตัวใช้ร่วมกัน
-  tools/          registry + เครื่องมือมาตรฐาน
+  notify.py       desktop notification ข้ามแพลตฟอร์ม
+  tools/          registry + เครื่องมือมาตรฐาน (มี vision, desktop, routines)
   voice/          stt.py, tts.py, loop.py (คำปลุก + VAD)
   cli.py          เทอร์มินัล
   server.py       FastAPI + WebSocket
@@ -156,7 +192,7 @@ tests/            pytest, ไม่แตะ network
 
 ```bash
 pip install -e ".[dev]"
-pytest            # 81 tests, ไม่ต้องใช้ API key และไม่ต่อเน็ต
+pytest            # 114 tests, ไม่ต้องใช้ API key และไม่ต่อเน็ต
 ```
 
 ## License

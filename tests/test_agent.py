@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import json
 from dataclasses import dataclass, field
 from typing import Any
 
@@ -91,13 +92,15 @@ def build_agent(replies, tmp_path, registry=None, **overrides):
     )
 
 
-def collect(agent, text, session="t"):
+def collect(agent, text, session="t", images=None):
     events: list[Event] = []
 
     async def on_event(event: Event) -> None:
         events.append(event)
 
-    reply = asyncio.run(agent.run(text, session_id=session, on_event=on_event))
+    reply = asyncio.run(
+        agent.run(text, session_id=session, on_event=on_event, images=images)
+    )
     return reply, events
 
 
@@ -278,3 +281,91 @@ def test_confirmation_handler_reaches_the_tool_context(tmp_path):
 
     agent.set_confirm_handler(approve)
     assert asyncio.run(agent.context.request_confirmation("x", "y")) is True
+
+
+def test_images_are_attached_to_the_user_turn(tmp_path):
+    agent = build_agent([Reply([Block("text", "A cat, sir.")])], tmp_path)
+    reply, _ = collect(agent, "what is this?", images=[("image/png", "AAAA")])
+
+    assert reply == "A cat, sir."
+    content = agent.client.requests[0]["messages"][0]["content"]
+    assert content[0] == {
+        "type": "image",
+        "source": {"type": "base64", "media_type": "image/png", "data": "AAAA"},
+    }
+    assert content[1] == {"type": "text", "text": "what is this?"}
+
+
+def test_attached_images_are_not_written_to_history(tmp_path):
+    agent = build_agent(
+        [Reply([Block("text", "one")]), Reply([Block("text", "two")])], tmp_path
+    )
+    collect(agent, "look", images=[("image/png", "A" * 5000)])
+    collect(agent, "and now?")
+
+    replayed = json.dumps(agent.client.requests[1]["messages"])
+    assert "AAAAA" not in replayed
+    assert "[1 image(s) attached]" in replayed
+
+
+def test_an_image_returning_tool_produces_image_blocks(tmp_path):
+    from thursday.tools import ImageResult
+
+    registry = ToolRegistry()
+
+    @tool(registry=registry)
+    def grab() -> ImageResult:
+        """Grab a picture."""
+        return ImageResult(text="Screenshot:", images=[("image/png", "AAAA")])
+
+    agent = build_agent(
+        [
+            Reply([Block("tool_use", id="t1", name="grab", input={})], "tool_use"),
+            Reply([Block("text", "I see a terminal.")]),
+        ],
+        tmp_path,
+        registry=registry,
+    )
+    reply, events = collect(agent, "what's on my screen")
+
+    assert reply == "I see a terminal."
+    result = next(
+        block
+        for message in agent.client.requests[1]["messages"]
+        if isinstance(message.get("content"), list)
+        for block in message["content"]
+        if isinstance(block, dict) and block.get("type") == "tool_result"
+    )
+    assert result["content"] == [
+        {"type": "text", "text": "Screenshot:"},
+        {"type": "image", "source": {"type": "base64", "media_type": "image/png", "data": "AAAA"}},
+    ]
+    # The front end is told an image went out, without the base64.
+    assert next(e for e in events if e.type == "tool_end").data == {"images": 1}
+
+
+def test_image_tool_results_are_stored_without_their_payload(tmp_path):
+    from thursday.tools import ImageResult
+
+    registry = ToolRegistry()
+
+    @tool(registry=registry)
+    def grab() -> ImageResult:
+        """Grab a picture."""
+        return ImageResult(text="Screenshot:", images=[("image/png", "B" * 5000)])
+
+    agent = build_agent(
+        [
+            Reply([Block("tool_use", id="t1", name="grab", input={})], "tool_use"),
+            Reply([Block("text", "done")]),
+            Reply([Block("text", "still here")]),
+        ],
+        tmp_path,
+        registry=registry,
+    )
+    collect(agent, "look")
+    collect(agent, "again")
+
+    replayed = json.dumps(agent.client.requests[2]["messages"])
+    assert "BBBBB" not in replayed
+    assert "[image omitted from history]" in replayed

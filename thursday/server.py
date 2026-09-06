@@ -16,6 +16,7 @@ from typing import Any
 from .agent import Agent
 from .config import Settings
 from .events import Event
+from .notify import notify_desktop
 from .persona import system_prompt
 
 WEB_DIR = Path(__file__).parent / "web"
@@ -29,6 +30,34 @@ try:
     FASTAPI_AVAILABLE = True
 except ImportError:  # pragma: no cover - depends on the install
     FASTAPI_AVAILABLE = False
+
+
+ALLOWED_MEDIA = {"image/png", "image/jpeg", "image/gif", "image/webp"}
+MAX_IMAGES = 4
+MAX_IMAGE_BYTES = 5_000_000
+
+
+def parse_attachments(raw: Any) -> list[tuple[str, str]]:
+    """Validate the browser's image attachments into (media_type, base64) pairs.
+
+    Anything unrecognised is dropped rather than forwarded - the payload comes
+    from the page, so it does not get to choose what we send to the API.
+    """
+    if not isinstance(raw, list):
+        return []
+    images: list[tuple[str, str]] = []
+    for item in raw[:MAX_IMAGES]:
+        if not isinstance(item, dict):
+            continue
+        media_type = item.get("media_type")
+        data = item.get("data")
+        if media_type not in ALLOWED_MEDIA or not isinstance(data, str):
+            continue
+        # base64 inflates by 4/3; check the decoded size.
+        if len(data) * 3 // 4 > MAX_IMAGE_BYTES:
+            continue
+        images.append((media_type, data))
+    return images
 
 
 def create_app(settings: Settings | None = None) -> Any:
@@ -96,6 +125,11 @@ def create_app(settings: Settings | None = None) -> Any:
                         await websocket.send_text(
                             json.dumps({"type": "reminder", "text": reminder.text})
                         )
+                        await asyncio.to_thread(
+                            notify_desktop,
+                            f"{settings.assistant_name} reminder",
+                            reminder.text,
+                        )
                         agent.memory.mark_fired(reminder.id)
                 except Exception:
                     return
@@ -103,17 +137,19 @@ def create_app(settings: Settings | None = None) -> Any:
 
         # Turns run in a worker so the receive loop stays free - a confirmation
         # reply arrives *while* the turn that asked for it is still waiting.
-        turns: asyncio.Queue[tuple[str, bool]] = asyncio.Queue()
+        turns: asyncio.Queue[tuple[str, bool, list[tuple[str, str]]]] = asyncio.Queue()
 
         async def worker() -> None:
             while True:
-                text, spoken = await turns.get()
+                text, spoken, images = await turns.get()
                 try:
                     # Spoken input gets the shorter, markdown-free persona.
                     if spoken != agent.voice:
                         agent.voice = spoken
                         agent.system = system_prompt(settings, voice=spoken)
-                    await agent.run(text, session_id=session_id, on_event=on_event)
+                    await agent.run(
+                        text, session_id=session_id, on_event=on_event, images=images or None
+                    )
                 except Exception as exc:  # one bad turn must not drop the socket
                     await websocket.send_text(
                         json.dumps({"type": "error", "text": f"{type(exc).__name__}: {exc}"})
@@ -146,9 +182,12 @@ def create_app(settings: Settings | None = None) -> Any:
                     await websocket.send_text(json.dumps({"type": "cleared"}))
                     continue
 
+                images = parse_attachments(payload.get("images"))
                 text = (payload.get("text") or "").strip()
-                if text:
-                    await turns.put((text, bool(payload.get("voice"))))
+                if text or images:
+                    await turns.put(
+                        (text or "What am I looking at?", bool(payload.get("voice")), images)
+                    )
         except WebSocketDisconnect:
             pass
         finally:

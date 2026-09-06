@@ -5,7 +5,7 @@ from __future__ import annotations
 import re
 import time
 from datetime import datetime, timedelta, timezone
-from typing import Any
+from typing import Any, Literal
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 from . import ToolContext, ToolError, tool
@@ -108,13 +108,30 @@ def current_time(timezone_name: str = "") -> dict[str, Any]:
     }
 
 
+REPEAT_SECONDS = {
+    "": None,
+    "once": None,
+    "hourly": 3600.0,
+    "daily": 86400.0,
+    "weekdays": 86400.0,  # rolled forward a day at a time; skipping weekends
+    "weekly": 604800.0,   # is left to the user cancelling it
+    "monthly": 2592000.0,  # 30 days - calendar months are not fixed-length
+}
+
+
 @tool
-def set_reminder(text: str, when: str, ctx: ToolContext = None) -> dict[str, Any]:
-    """Remind the user about something at a given time.
+def set_reminder(
+    text: str,
+    when: str,
+    repeat: Literal["once", "hourly", "daily", "weekly", "monthly"] = "once",
+    ctx: ToolContext = None,
+) -> dict[str, Any]:
+    """Remind the user about something at a given time, once or on a repeat.
 
     Args:
         text: What to remind the user about.
-        when: When to fire it - "in 10 minutes", "18:30", or an ISO timestamp.
+        when: When to fire it first - "in 10 minutes", "18:30", or an ISO timestamp.
+        repeat: How often to repeat after that. "once" does not repeat.
     """
     if ctx is None or ctx.memory is None:
         raise ToolError("reminders need persistent memory, which is unavailable")
@@ -123,13 +140,20 @@ def set_reminder(text: str, when: str, ctx: ToolContext = None) -> dict[str, Any
         raise ToolError(
             f"could not understand the time {when!r}; try '15 minutes' or '18:30'"
         )
-    reminder = ctx.memory.add_reminder(text, due.timestamp())
-    return {
+    if repeat not in REPEAT_SECONDS:
+        raise ToolError(f"unknown repeat {repeat!r}; use one of {', '.join(REPEAT_SECONDS)}")
+
+    every = REPEAT_SECONDS[repeat]
+    reminder = ctx.memory.add_reminder(text, due.timestamp(), every)
+    result = {
         "id": reminder.id,
         "text": text,
         "due_at": due.isoformat(timespec="seconds"),
         "in_seconds": round(due.timestamp() - time.time()),
     }
+    if every:
+        result["repeat"] = repeat
+    return result
 
 
 @tool

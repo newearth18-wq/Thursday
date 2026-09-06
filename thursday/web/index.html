@@ -81,6 +81,17 @@
   }
   .composer input:focus { border-color: var(--accent-dim); }
   #mic[aria-pressed="true"] { color: var(--user); border-color: var(--user); }
+  .tray { max-width: 860px; margin: 0 auto 10px; display: flex; gap: 8px; flex-wrap: wrap; }
+  .tray:empty { display: none; }
+  .chip { position: relative; border: 1px solid var(--line); border-radius: 8px; overflow: hidden; height: 60px; }
+  .chip img { height: 100%; display: block; }
+  .chip button {
+    position: absolute; top: 2px; right: 2px; width: 20px; height: 20px; line-height: 1;
+    padding: 0; border-radius: 50%; background: rgba(0,0,0,.65); color: var(--text);
+    border: none; cursor: pointer; font-size: 13px;
+  }
+  .turn .shot { max-width: 260px; border-radius: 8px; border: 1px solid var(--line); margin-top: 6px; display: block; }
+  body.dragging { outline: 2px dashed var(--accent); outline-offset: -8px; }
   dialog {
     background: #0b1420; color: var(--text); border: 1px solid var(--accent-dim);
     border-radius: 12px; padding: 20px; max-width: 560px; font: inherit;
@@ -109,8 +120,11 @@
 <main><div class="log" id="log"></div></main>
 
 <div class="composer">
+  <div class="tray" id="tray"></div>
   <form id="form">
     <button type="button" id="mic" aria-pressed="false" title="Hold a conversation by voice">🎙</button>
+    <button type="button" id="attach" title="Attach an image (or paste / drop one)">📎</button>
+    <input type="file" id="file" accept="image/png,image/jpeg,image/gif,image/webp" multiple hidden>
     <input id="input" autocomplete="off" placeholder="Ask Thursday anything…" autofocus>
     <button type="submit">Send</button>
   </form>
@@ -133,6 +147,8 @@ const input = document.getElementById("input");
 const micButton = document.getElementById("mic");
 const speakButton = document.getElementById("speak");
 const dialog = document.getElementById("confirm");
+const tray = document.getElementById("tray");
+const fileInput = document.getElementById("file");
 
 let socket = null;
 let currentBody = null;      // the <div> the streaming reply is written into
@@ -297,15 +313,96 @@ document.getElementById("confirm-yes").onclick = () => answerConfirmation(true);
 document.getElementById("confirm-no").onclick = () => answerConfirmation(false);
 dialog.addEventListener("cancel", (e) => { e.preventDefault(); answerConfirmation(false); });
 
+/* ----------------------------------------------------------- attachments */
+
+const ALLOWED = ["image/png", "image/jpeg", "image/gif", "image/webp"];
+const MAX_ATTACHMENTS = 4;
+let attachments = [];   // { media_type, data, url }
+
+function renderTray() {
+  tray.replaceChildren();
+  attachments.forEach((attachment, index) => {
+    const chip = document.createElement("div");
+    chip.className = "chip";
+    const preview = document.createElement("img");
+    preview.src = attachment.url;
+    preview.alt = "attachment";
+    const remove = document.createElement("button");
+    remove.textContent = "×";
+    remove.title = "Remove";
+    remove.onclick = () => { attachments.splice(index, 1); renderTray(); };
+    chip.append(preview, remove);
+    tray.append(chip);
+  });
+}
+
+async function addAttachment(file) {
+  if (!ALLOWED.includes(file.type)) {
+    addLine(`${file.name || "That file"} is not an image I can read.`, "error");
+    return;
+  }
+  if (attachments.length >= MAX_ATTACHMENTS) return;
+  const data = await new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve(String(reader.result).split(",")[1]);
+    reader.onerror = reject;
+    reader.readAsDataURL(file);
+  });
+  attachments.push({ media_type: file.type, data, url: URL.createObjectURL(file) });
+  renderTray();
+}
+
+document.getElementById("attach").onclick = () => fileInput.click();
+fileInput.onchange = async () => {
+  for (const file of fileInput.files) await addAttachment(file);
+  fileInput.value = "";
+};
+
+// Paste a screenshot straight into the composer.
+window.addEventListener("paste", async (event) => {
+  for (const item of event.clipboardData?.items || []) {
+    if (item.kind === "file") await addAttachment(item.getAsFile());
+  }
+});
+
+// ...or drop one anywhere on the page.
+window.addEventListener("dragover", (event) => {
+  event.preventDefault();
+  document.body.classList.add("dragging");
+});
+window.addEventListener("dragleave", () => document.body.classList.remove("dragging"));
+window.addEventListener("drop", async (event) => {
+  event.preventDefault();
+  document.body.classList.remove("dragging");
+  for (const file of event.dataTransfer?.files || []) await addAttachment(file);
+});
+
 /* --------------------------------------------------------------- sending */
 
 function send(text, byVoice) {
-  if (!text.trim() || socket?.readyState !== WebSocket.OPEN) return;
-  addTurn("You", "you").textContent = text;
+  if ((!text.trim() && !attachments.length) || socket?.readyState !== WebSocket.OPEN) return;
+
+  const body = addTurn("You", "you");
+  body.textContent = text;
+  for (const attachment of attachments) {
+    const preview = document.createElement("img");
+    preview.src = attachment.url;
+    preview.className = "shot";
+    preview.alt = "attached image";
+    body.append(preview);
+  }
+
   voiceTurn = !!byVoice;
   currentBody = null;
   document.body.classList.add("thinking");
-  socket.send(JSON.stringify({ type: "message", text, voice: !!byVoice }));
+  socket.send(JSON.stringify({
+    type: "message",
+    text,
+    voice: !!byVoice,
+    images: attachments.map(({ media_type, data }) => ({ media_type, data })),
+  }));
+  attachments = [];
+  renderTray();
 }
 
 form.onsubmit = (event) => {

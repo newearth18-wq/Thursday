@@ -12,6 +12,7 @@ from typing import Any
 from .agent import Agent
 from .config import Settings
 from .events import Event
+from .notify import notify_desktop
 
 RESET = "\033[0m"
 DIM = "\033[2m"
@@ -34,9 +35,11 @@ HELP = """
 Commands:
   /help              show this
   /tools             list the tools I can use
+  /see <path> [ask]  show me an image and ask about it
   /memory            show what I remember about you
   /forget <key>      make me forget one thing
   /reminders         list pending reminders
+  /routines          list saved routines
   /clear             wipe this session's history
   /thinking          toggle showing my reasoning
   /quit              exit
@@ -86,6 +89,14 @@ class Printer:
             self._in_text = False
 
 
+def load_image(agent: Agent, path: str) -> tuple[str, str]:
+    """Read an image off disk for attaching to a turn."""
+    from .tools.vision import encode
+    from .tools.files import resolve
+
+    return encode(resolve(agent.context, path))
+
+
 async def confirm_in_terminal(title: str, detail: str) -> bool:
     """Ask the user to approve a dangerous tool call."""
     color = supports_color()
@@ -98,11 +109,15 @@ async def confirm_in_terminal(title: str, detail: str) -> bool:
 
 
 async def watch_reminders(agent: Agent, printer: Printer) -> None:
-    """Announce reminders as they come due."""
+    """Announce reminders as they come due, on screen and on the desktop."""
     while True:
         try:
             for reminder in agent.memory.due_reminders():
                 print(printer.paint(f"\n⏰ {reminder.text}", YELLOW))
+                # The terminal may be buried; the OS notification is not.
+                await asyncio.to_thread(
+                    notify_desktop, f"{agent.settings.assistant_name} reminder", reminder.text
+                )
                 agent.memory.mark_fired(reminder.id)
         except Exception:
             pass
@@ -132,7 +147,19 @@ def handle_command(line: str, agent: Agent, session_id: str, printer: Printer) -
         print("  forgotten" if agent.memory.forget(argument) else "  no such fact")
     elif command == "reminders":
         pending = agent.memory.pending_reminders()
-        print("\n".join(f"  [{r.id}] {r.text} - {r.as_dict()['due_at']}" for r in pending) or "  (none)")
+        lines = []
+        for reminder in pending:
+            detail = reminder.as_dict()
+            repeat = f" (every {round(reminder.repeat_seconds / 3600)}h)" if reminder.repeat_seconds else ""
+            lines.append(f"  [{reminder.id}] {reminder.text} - {detail['due_at']}{repeat}")
+        print("\n".join(lines) or "  (none)")
+    elif command == "routines":
+        routines = agent.memory.list_routines()
+        for routine in routines:
+            print(f"  {printer.paint(routine['name'], BOLD)} (used {routine['uses']}x)")
+            print(f"    {routine['instruction'][:160]}")
+        if not routines:
+            print("  (none yet - just tell me to remember a routine)")
     elif command == "clear":
         removed = agent.memory.clear_session(session_id)
         print(f"  cleared {removed} messages")
@@ -166,6 +193,21 @@ async def chat(settings: Settings | None = None, session_id: str = "cli") -> Non
             line = line.strip()
             if not line:
                 continue
+            if line.startswith("/see "):
+                path, _, question = line[5:].strip().partition(" ")
+                try:
+                    images = [load_image(agent, path)]
+                except Exception as exc:
+                    print(printer.paint(f"  {exc}", RED))
+                    continue
+                await agent.run(
+                    question.strip() or "What am I looking at?",
+                    session_id=session_id,
+                    on_event=printer,
+                    images=images,
+                )
+                continue
+
             if line.startswith("/"):
                 if not handle_command(line, agent, session_id, printer):
                     break
