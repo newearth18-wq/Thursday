@@ -16,7 +16,10 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
-web = ["fastapi>=0.110", "uvicorn[standard]>=0.27"]
+# qrcode is in `web` rather than its own extra: pairing a phone is only
+# useful once there is a page for it to open, and it is a pure-Python module
+# of a few dozen kilobytes.
+web = ["fastapi>=0.110", "uvicorn[standard]>=0.27", "qrcode>=7.4"]
 vision = ["pillow>=10"]
 mcp = ["mcp>=2"]
 documents = ["pypdf>=4", "python-docx>=1"]
@@ -30,7 +33,7 @@ voice = [
     "piper-tts>=1.2; sys_platform == 'linux'",
 ]
 dev = ["pytest>=8", "pytest-asyncio>=0.23", "pyflakes>=3"]
-all = ["thursday[web,voice,vision,mcp,documents,dev]"]
+all = ["thursday[web,voice,vision,mcp,documents,browser,dev]"]
 
 [project.scripts]
 thursday = "thursday.__main__:main"

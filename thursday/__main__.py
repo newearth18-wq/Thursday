@@ -5,6 +5,7 @@ from __future__ import annotations
 import argparse
 import asyncio
 import logging
+import os
 import sys
 
 from .config import Settings
@@ -22,7 +23,7 @@ def build_parser() -> argparse.ArgumentParser:
         choices=[
             "chat", "voice", "serve", "tools", "ask",
             "providers", "profiles", "models", "usage", "config", "service",
-            "audit", "permissions", "mcp", "watching",
+            "audit", "permissions", "mcp", "watching", "pair", "vault",
         ],
         help="chat: terminal · voice: wake word + speech · serve: web UI · "
         "tools: list capabilities · ask: one-shot question · "
@@ -32,7 +33,9 @@ def build_parser() -> argparse.ArgumentParser:
         "service: run in the background from login · "
         "audit: what has touched this machine · permissions: what it may do · "
         "mcp: serve Thursday's memory to other apps over MCP · "
-        "watching: what it is keeping an eye on",
+        "watching: what it is keeping an eye on · "
+        "pair: a QR code that puts it on your phone · "
+        "vault: your Obsidian vault, and how connected it is",
     )
     parser.add_argument("question", nargs="*", help="the question, for `ask`")
     parser.add_argument("--model", help="override the model id")
@@ -155,6 +158,67 @@ def show_audit(settings: Settings, limit: int = 40) -> None:
     print("\nby tool:")
     for entry in memory.access_summary():
         print(f"  {entry['tool']:<22} {entry['outcome']:<10} {entry['count']}")
+
+
+def show_pairing(settings: Settings, host: str = "", port: int = 0) -> int:
+    """A QR code that points a phone at this machine, token and all."""
+    from .auth import ensure_token
+    from .pairing import PairingError, build, instructions, qr_lines
+
+    token = os.environ.get("THURSDAY_ACCESS_TOKEN", "").strip()
+    if not token and settings.auth != "off":
+        token, made = ensure_token()
+        if made:
+            print("  (generated an access token for you)")
+
+    try:
+        pairing = build(host=host, port=port or settings.port, token=token)
+    except PairingError as exc:
+        print(f"  {exc}")
+        return 1
+
+    lines = qr_lines(pairing.link)
+    print()
+    for line in lines:
+        print(f"  {line}")
+    if lines:
+        print()
+    for line in instructions(pairing, bool(lines)):
+        print(f"  {line}")
+    print()
+    if len(pairing.addresses) > 1:
+        others = ", ".join(pairing.addresses[1:])
+        print(f"  (other addresses on this machine: {others})")
+    if settings.auth == "off":
+        print("  Note: THURSDAY_AUTH is off, so anyone on this network can use it.")
+    print("  Thursday must be running: thursday serve")
+    print()
+    return 0
+
+
+def show_vault(settings: Settings) -> int:
+    """How big the second brain is, and how much of it is adrift."""
+    from .vault import Vault, VaultError
+
+    if not settings.vault_path:
+        print("  no vault set. Point THURSDAY_VAULT at your Obsidian folder -")
+        print("  the one with .obsidian in it.")
+        return 1
+    try:
+        facts = Vault(settings.vault_path).describe()
+        adrift = Vault(settings.vault_path).orphans()
+    except VaultError as exc:
+        print(f"  {exc}")
+        return 1
+
+    print(f"  {facts['root']}")
+    print(f"  {facts['notes']} notes · {facts['links']} links · {facts['tags']} tags")
+    print(f"  {facts['connected']} connected · {facts['orphans']} adrift")
+    for title in adrift[:10]:
+        print(f"      {title}")
+    if facts["orphans"]:
+        print("  `thursday` then /connect finds links between them.")
+    return 0
 
 
 def show_watching(settings: Settings) -> None:
@@ -368,6 +432,10 @@ def main(argv: list[str] | None = None) -> int:
     if args.mode == "watching":
         show_watching(settings)
         return 0
+    if args.mode == "pair":
+        return show_pairing(settings, args.host, args.port)
+    if args.mode == "vault":
+        return show_vault(settings)
     if args.mode == "mcp":
         from .mcp_server import serve as serve_mcp
 

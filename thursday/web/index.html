@@ -1551,23 +1551,29 @@ async function checkAccess() {
   }
 }
 
-$("lockForm").onsubmit = async (event) => {
-  event.preventDefault();
-  $("lockSaid").textContent = "";
+async function unlock(token) {
   const response = await fetch("/api/login", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ token: $("lockToken").value }),
+    body: JSON.stringify({ token }),
   });
   if (!response.ok) {
     const payload = await response.json().catch(() => ({}));
     $("lockSaid").textContent = payload.error || "could not unlock";
-    return;
+    return false;
   }
   $("lockToken").value = "";
   document.body.classList.remove("locked");
   connect();
+  return true;
+}
+
+$("lockForm").onsubmit = async (event) => {
+  event.preventDefault();
+  $("lockSaid").textContent = "";
+  await unlock($("lockToken").value);
 };
+
 
 /* ------------------------------------------------------------ people */
 
@@ -2131,7 +2137,21 @@ if ("serviceWorker" in navigator && location.protocol === "https:") {
   navigator.serviceWorker.register("/sw.js").catch(() => {});
 }
 
-checkAccess().then((open) => { if (open) connect(); });
+// Start up, in order. The order matters: a token from the pairing QR code has
+// to be redeemed before the access check runs, or the check answers "locked"
+// from the state as it was a moment ago and locks the page again behind the
+// login that just succeeded.
+(async () => {
+  const paired = new URLSearchParams(location.search).get("t");
+  if (paired) {
+    // Out of the address bar the moment it is read: it is a key, and leaving
+    // it in the phone's history, bookmarks or whatever it syncs is not worth
+    // the convenience.
+    history.replaceState(null, "", location.pathname);
+    if (await unlock(paired)) return;      // unlock() connects on success
+  }
+  if (await checkAccess()) connect();
+})();
 </script>
 </body>
 </html>
