@@ -116,13 +116,24 @@
   .panel .body::-webkit-scrollbar { width: 5px; }
   .panel .body::-webkit-scrollbar-thumb { background: var(--line); }
 
-  .left { grid-area: left; display: flex; flex-direction: column; gap: 14px; min-height: 0; }
-  .right { grid-area: right; display: flex; flex-direction: column; gap: 14px; min-height: 0; }
+  /* The rails scroll. There are now more panels than a laptop screen holds,
+     and a panel sliced off by the dock is worse than one you scroll to. */
+  .left, .right { display: flex; flex-direction: column; gap: 14px; min-height: 0;
+                  overflow-y: auto; overscroll-behavior: contain; }
+  .left { grid-area: left; }
+  .right { grid-area: right; }
+  .left::-webkit-scrollbar, .right::-webkit-scrollbar { width: 5px; }
+  .left::-webkit-scrollbar-thumb, .right::-webkit-scrollbar-thumb { background: var(--line); }
+  /* A panel keeps its own size while the column scrolls, rather than being
+     squeezed to nothing by the ones below it. */
+  .left > .panel, .right > .panel { flex: 0 0 auto; }
+  .left > .panel .body, .right > .panel .body { max-height: 42vh; }
   .left .panel, .right .panel { display: flex; flex-direction: column; min-height: 0; }
-  /* The last panel in a column takes the slack, so the frame reaches the
-     bottom instead of leaving the rail floating. */
-  .left .panel:last-child, .right .panel:last-child { flex: 1; }
-  .left .panel .body, .right .panel .body { flex: 1; }
+  /* The last panel still takes the slack when there is any, so a short column
+     reaches the bottom rather than leaving the rail floating - but it may not
+     force the column taller than the screen. */
+  .left > .panel:last-child, .right > .panel:last-child { flex: 1 1 auto; min-height: 0; }
+  .left > .panel:last-child .body, .right > .panel:last-child .body { max-height: none; }
 
   .row { display: flex; justify-content: space-between; gap: 10px; padding: 3px 0; font-size: 11.5px; }
   .row span:first-child { color: var(--muted); letter-spacing: .08em; text-transform: uppercase; font-size: 10px; }
@@ -146,6 +157,64 @@
   .brief div::before { content: "·"; position: absolute; left: 0; color: var(--muted); }
   .brief .quiet { color: var(--muted); font-style: italic; padding-left: 0; }
   .brief .quiet::before { content: ""; }
+
+  /* ---------------------------------------------------------- boot-up */
+  /* A machine that was off a moment ago. Once per load, ~1.4s, and it never
+     blocks anything: the page is live underneath it from the first frame. */
+  .boot { position: fixed; inset: 0; z-index: 90; background: #02060c;
+          display: grid; place-items: center; pointer-events: none;
+          animation: bootOut .5s ease-in 1.25s forwards; }
+  .boot-lines { font-size: 11px; letter-spacing: .22em; text-transform: uppercase;
+                color: var(--cyan-dim); line-height: 2; text-align: left; }
+  .boot-lines b { color: var(--mood); font-weight: 500; }
+  .boot-lines div { opacity: 0; animation: bootLine .28s ease-out forwards; }
+  .boot-lines div:nth-child(1) { animation-delay: .06s }
+  .boot-lines div:nth-child(2) { animation-delay: .30s }
+  .boot-lines div:nth-child(3) { animation-delay: .54s }
+  .boot-lines div:nth-child(4) { animation-delay: .78s }
+  @keyframes bootLine { from { opacity: 0; transform: translateX(-8px) } to { opacity: 1 } }
+  @keyframes bootOut { to { opacity: 0; visibility: hidden } }
+  body.booted .boot { display: none; }
+
+  /* The reactor irises open as the boot screen fades. */
+  .reactor svg { animation: iris 1.1s cubic-bezier(.2,.8,.25,1) .5s both; }
+  @keyframes iris {
+    from { transform: scale(.72) rotate(-14deg); opacity: 0 }
+    to   { transform: none; opacity: 1 }
+  }
+  /* The rails slide in behind it. */
+  .left  { animation: railIn .7s cubic-bezier(.2,.8,.25,1) .9s both }
+  .right { animation: railIn .7s cubic-bezier(.2,.8,.25,1) 1.0s both }
+  .dock  { animation: dockIn .6s cubic-bezier(.2,.8,.25,1) 1.1s both }
+  @keyframes railIn { from { opacity: 0; transform: translateY(14px) } to { opacity: 1 } }
+  @keyframes dockIn { from { opacity: 0; transform: translateY(22px) } to { opacity: 1 } }
+
+  /* --------------------------------------------------------- holography */
+  /* The core sits on its own plane and leans with the pointer, which is what
+     makes a flat SVG read as something suspended in the room. */
+  .core { perspective: 1400px; }
+  .reactor { transform-style: preserve-3d;
+             transform: rotateX(var(--tilt-x, 0deg)) rotateY(var(--tilt-y, 0deg));
+             transition: transform .5s cubic-bezier(.2,.8,.25,1); }
+  /* A faint horizontal scan drifting over the core. */
+  .reactor::after {
+    content: ""; position: absolute; inset: -6%; pointer-events: none;
+    background: repeating-linear-gradient(
+      180deg, transparent 0 3px, rgba(94,234,255,.05) 3px 4px);
+    mask-image: radial-gradient(circle at 50% 50%, #000 42%, transparent 72%);
+    -webkit-mask-image: radial-gradient(circle at 50% 50%, #000 42%, transparent 72%);
+    animation: scan 7s linear infinite;
+  }
+  @keyframes scan { to { background-position: 0 400px } }
+
+  /* While it is listening, the core answers your voice. Driven from the
+     microphone's own level, so it moves with you rather than on a timer. */
+  .heart { transform: scale(calc(1 + var(--level, 0) * .16)); }
+  body.listening .reactor::before {
+    content: ""; position: absolute; inset: 0; border-radius: 50%;
+    box-shadow: 0 0 calc(30px + var(--level, 0) * 90px) var(--mood-soft);
+    pointer-events: none;
+  }
 
   .steps { list-style: none; margin: 0; padding: 0; font-size: 11.5px; }
   .steps li { display: flex; gap: 7px; padding: 3px 0; color: var(--muted);
@@ -322,9 +391,15 @@
 
   .bot { width: min(64vh, 460px); height: auto; overflow: visible; }
   .bot .float { animation: float 4.2s ease-in-out infinite; transform-origin: 200px 430px; }
+  /* The breath is folded into the float rather than being its own animation:
+     two animations on the same transform do not compose, the last one simply
+     wins. The uneven timings are the point - a perfectly regular hover looks
+     mechanical, which is the one thing this is trying not to be. */
   @keyframes float {
     0%, 100% { transform: translateY(0) scale(1, 1); }
-    45%      { transform: translateY(-16px) scale(.995, 1.01); }
+    28%      { transform: translateY(-9px) scale(1.006, 1.004); }
+    45%      { transform: translateY(-16px) scale(.995, 1.014); }
+    70%      { transform: translateY(-7px) scale(1.004, 1.002); }
     92%      { transform: translateY(2px) scale(1.02, .975); }
   }
   body[data-mood="working"] .bot .float { animation-duration: 1.9s; }
@@ -345,6 +420,10 @@
   body[data-mood="asleep"] .bot .blink { animation: none; transform: scaleY(.1); transform-box: fill-box; transform-origin: center; }
 
   /* The antenna light keeps time with the mood. */
+  /* The eyes follow the pointer. Small numbers on purpose: a face that
+     tracks too far reads as unnerving rather than attentive. */
+  .bot .eyes { transform: translate(var(--gaze-x, 0px), var(--gaze-y, 0px));
+               transition: transform .35s cubic-bezier(.2,.8,.25,1); }
   .bot .bulb { animation: bulb 2.6s ease-in-out infinite; }
   @keyframes bulb { 0%,100% { opacity: .45 } 50% { opacity: 1 } }
   body[data-mood="working"] .bot .bulb { animation-duration: .8s; }
@@ -402,7 +481,10 @@
 
   @media (prefers-reduced-motion: reduce) {
     .sweep, .bot .float, .bot .shadow, .bot .blink, .bot .bulb,
-    .ring, .heart { animation: none !important; }
+    .ring, .heart, .reactor svg, .reactor::after, .left, .right, .dock,
+    .boot-lines div { animation: none !important; }
+    .boot { display: none; }
+    .reactor { transition: none; transform: none !important; }
   }
 
   @media (max-width: 1100px) {
@@ -449,6 +531,15 @@
 <i class="corner tl"></i><i class="corner tr"></i><i class="corner bl"></i><i class="corner br"></i>
 
 <!-- ============================================================== HUD -->
+<div class="boot" id="boot" aria-hidden="true">
+  <div class="boot-lines">
+    <div>reactor <b>online</b></div>
+    <div>memory <b>attached</b></div>
+    <div>tools <b>ready</b></div>
+    <div><b id="bootName">thursday</b> standing by</div>
+  </div>
+</div>
+
 <div class="rehearse-band">rehearsing — nothing will be changed</div>
 
 <div class="hud">
@@ -953,6 +1044,123 @@ async function loadAccess() {
     line.title = entry.arguments || "";
     box.append(line);
   }
+}
+
+/* ------------------------------------------------------------ liveliness */
+
+// Everything in here is decoration, so all of it is optional: each piece
+// checks for what it needs and does nothing when it is missing, and all of it
+// is skipped for a viewer who has asked for reduced motion.
+const stillPlease = window.matchMedia?.("(prefers-reduced-motion: reduce)").matches;
+
+/* The core leans towards the pointer. A flat SVG reads as something
+   suspended in the room only if it has a plane to lean on. */
+function watchPointer() {
+  if (stillPlease) return;
+  let queued = false;
+  addEventListener("pointermove", (event) => {
+    if (queued) return;
+    queued = true;
+    requestAnimationFrame(() => {
+      queued = false;
+      const x = (event.clientX / innerWidth - 0.5) * 2;
+      const y = (event.clientY / innerHeight - 0.5) * 2;
+      const root = document.documentElement.style;
+      root.setProperty("--tilt-y", `${(x * 7).toFixed(2)}deg`);
+      root.setProperty("--tilt-x", `${(-y * 5).toFixed(2)}deg`);
+      // The robot looks where you are, within reason.
+      root.setProperty("--gaze-x", `${(x * 7).toFixed(2)}px`);
+      root.setProperty("--gaze-y", `${(y * 5).toFixed(2)}px`);
+    });
+  }, { passive: true });
+}
+
+/* While the microphone is open, the core answers your voice.
+   Read from the real stream, so it moves with you rather than on a timer. */
+let meter = null;
+
+async function startMeter() {
+  document.body.classList.add("listening");
+  if (stillPlease || meter || !navigator.mediaDevices?.getUserMedia) return;
+  const Ctx = window.AudioContext || window.webkitAudioContext;
+  if (!Ctx) return;
+  try {
+    const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+    const audio = new Ctx();
+    const source = audio.createMediaStreamSource(stream);
+    const analyser = audio.createAnalyser();
+    analyser.fftSize = 256;
+    source.connect(analyser);
+    const bins = new Uint8Array(analyser.frequencyBinCount);
+    let running = true;
+
+    const tick = () => {
+      if (!running) return;
+      analyser.getByteFrequencyData(bins);
+      let total = 0;
+      for (const value of bins) total += value;
+      const level = Math.min(1, total / bins.length / 90);
+      // Eased, or it jitters on every consonant.
+      const now = Number(document.documentElement.style.getPropertyValue("--level") || 0);
+      const next = now + (level - now) * 0.25;
+      document.documentElement.style.setProperty("--level", next.toFixed(3));
+      requestAnimationFrame(tick);
+    };
+    tick();
+
+    meter = () => {
+      running = false;
+      document.documentElement.style.setProperty("--level", "0");
+      stream.getTracks().forEach((track) => track.stop());
+      audio.close?.();
+      meter = null;
+    };
+  } catch {
+    // No microphone, or permission declined. The rest of the page is fine.
+  }
+}
+
+function stopMeter() {
+  document.body.classList.remove("listening");
+  meter?.();
+}
+
+/* Blinking on a metronome is the thing that makes a face look like a machine.
+   Real blinks come in irregular bursts, so these do too. */
+function blinkNaturally() {
+  if (stillPlease) return;
+  const eyes = document.querySelectorAll(".bot .blink");
+  if (!eyes.length) return;
+
+  const blink = () => {
+    if (document.body.dataset.mood === "asleep") return;
+    for (const eye of eyes) {
+      eye.style.transition = "transform .09s ease-in";
+      eye.style.transform = "scaleY(.08)";
+      setTimeout(() => { eye.style.transform = ""; }, 95);
+    }
+  };
+
+  const again = () => {
+    // Occasionally a double blink, the way people actually do it.
+    blink();
+    if (Math.random() < 0.22) setTimeout(blink, 220);
+    setTimeout(again, 2200 + Math.random() * 5200);
+  };
+  setTimeout(again, 1200 + Math.random() * 2000);
+}
+
+/* It notices when you come back to the tab. */
+function noticeReturn() {
+  if (stillPlease) return;
+  addEventListener("visibilitychange", () => {
+    if (document.hidden) return;
+    const bot = document.querySelector(".bot .float");
+    if (!bot) return;
+    bot.style.transition = "transform .5s cubic-bezier(.2,1.6,.4,1)";
+    bot.style.transform = "translateY(-10px) scale(1.02)";
+    setTimeout(() => { bot.style.transform = ""; }, 520);
+  });
 }
 
 /* ----------------------------------------------------------------- brief */
@@ -1879,6 +2087,7 @@ function startListening() {
   listening = true;
   speakReplies = true;
   $("speak").setAttribute("aria-pressed", "true");
+  startMeter();          // the core answers your voice while it is open
   try { recognition.start(); } catch { /* already going */ }
 }
 
@@ -1887,6 +2096,7 @@ function stopListening() {
   handsFree = false;
   $("mic").setAttribute("aria-pressed", "false");
   $("handsfree").setAttribute("aria-pressed", "false");
+  stopMeter();
   try { recognition?.stop(); } catch { /* already stopped */ }
 }
 
@@ -1906,6 +2116,15 @@ $("handsfree").onclick = () => {
   startListening();
   addLine(`Listening for "${assistantName}"…`, "meta");
 };
+
+// --------------------------------------------------------------- start up
+watchPointer();
+blinkNaturally();
+noticeReturn();
+$("bootName").textContent = assistantName.toLowerCase();
+// The page is live under the boot screen from the first frame, so this only
+// has to take the screen away again.
+setTimeout(() => document.body.classList.add("booted"), 1800);
 
 // Installable on a phone; the worker deliberately caches nothing.
 if ("serviceWorker" in navigator && location.protocol === "https:") {
