@@ -7,7 +7,6 @@ from __future__ import annotations
 
 import asyncio
 import sys
-from typing import Any
 
 from .agent import Agent
 from .config import Settings
@@ -34,6 +33,9 @@ BANNER = f"""{CYAN}{BOLD}
 HELP = """
 Commands:
   /help              show this
+  /profile [name]    show or pin the profile (empty name unpins)
+  /profiles          list profiles and the model behind each
+  /providers         which backends are reachable right now
   /tools             list the tools I can use
   /see <path> [ask]  show me an image and ask about it
   /memory            show what I remember about you
@@ -53,8 +55,9 @@ def supports_color() -> bool:
 class Printer:
     """Prints agent events, keeping the streamed reply on one flowing line."""
 
-    def __init__(self, color: bool = True) -> None:
+    def __init__(self, color: bool = True, show_profile: bool = True) -> None:
         self.color = color
+        self.show_profile = show_profile
         self._in_text = False
 
     def paint(self, text: str, code: str) -> str:
@@ -68,6 +71,16 @@ class Printer:
             print(event.text, end="", flush=True)
         elif event.type == "thinking":
             print(self.paint(event.text, DIM), end="", flush=True)
+        elif event.type == "profile":
+            if self.show_profile:
+                data = event.data
+                self._newline()
+                print(
+                    self.paint(
+                        f"  ▸ {data['profile']} · {data['provider']}/{data['model']} ({data['reason']})",
+                        DIM,
+                    )
+                )
         elif event.type == "tool_start":
             self._newline()
             arguments = ", ".join(f"{k}={v!r}" for k, v in list(event.arguments.items())[:4])
@@ -108,6 +121,30 @@ async def confirm_in_terminal(title: str, detail: str) -> bool:
     return answer.strip().lower() in {"y", "yes"}
 
 
+async def check_providers(settings: Settings) -> list[tuple[str, bool, str]]:
+    """Ask every known backend whether it is usable right now."""
+    from .providers import build_provider, has_credentials, key_env_for, provider_names
+
+    results: list[tuple[str, bool, str]] = []
+    for name in provider_names():
+        if not has_credentials(name):
+            results.append((name, False, f"{key_env_for(name)} is not set"))
+            continue
+        try:
+            provider = build_provider(name, base_url=settings.base_url or None)
+        except Exception as exc:
+            results.append((name, False, str(exc)))
+            continue
+        try:
+            ok, detail = await provider.available()
+        except Exception as exc:
+            ok, detail = False, str(exc)
+        finally:
+            await provider.close()
+        results.append((name, ok, detail))
+    return results
+
+
 async def watch_reminders(agent: Agent, printer: Printer) -> None:
     """Announce reminders as they come due, on screen and on the desktop."""
     while True:
@@ -140,6 +177,41 @@ def handle_command(line: str, agent: Agent, session_id: str, printer: Printer) -
             print(f"  {printer.paint(tool_obj.name, BOLD)}{mark} {origin}\n    {tool_obj.description.splitlines()[0]}")
         if agent.settings.enable_web_search:
             print(f"  {printer.paint('web_search, web_fetch', BOLD)} (server-side)")
+    elif command == "profile":
+        if not argument.strip():
+            agent.router.pin(None)
+            print("  routing is back to automatic")
+        else:
+            try:
+                pinned = agent.router.pin(argument.strip())
+            except KeyError:
+                print(f"  no profile called {argument.strip()!r}; try /profiles")
+            else:
+                print(
+                    f"  pinned to {printer.paint(pinned.name, BOLD)} "
+                    f"({agent.provider_name_for(pinned)}/{agent.model_for(pinned)})"
+                )
+    elif command == "profiles":
+        for profile in agent.profiles.values():
+            marker = "*" if profile.name == agent.router.pinned else " "
+            head = f"{marker} {printer.paint(profile.name, BOLD)}"
+            print(f"{head} - {agent.provider_name_for(profile)}/{agent.model_for(profile)}")
+            if profile.description:
+                print(f"    {profile.description}")
+            limits = []
+            if profile.tools:
+                limits.append(f"only {len(profile.tools)} tools")
+            if profile.deny_tools:
+                limits.append(f"blocks {', '.join(profile.deny_tools[:4])}")
+            if not profile.web_search:
+                limits.append("no web search")
+            if limits:
+                print(printer.paint(f"    {'; '.join(limits)}", DIM))
+    elif command == "providers":
+        results = asyncio.run(check_providers(agent.settings))
+        for name, ok, detail in results:
+            mark = printer.paint("ok", GREEN) if ok else printer.paint("--", RED)
+            print(f"  [{mark}] {name}{f' - {detail}' if detail else ''}")
     elif command == "memory":
         facts = agent.memory.all_facts()
         print("\n".join(f"  {k}: {v}" for k, v in facts.items()) or "  (nothing yet)")
@@ -179,7 +251,12 @@ async def chat(settings: Settings | None = None, session_id: str = "cli") -> Non
 
     printer = Printer(color=supports_color())
     print(BANNER if printer.color else "Thursday at your service - /help for commands")
-    print(f"{DIM}model {settings.model} · {len(agent.registry)} tools · session {session_id}{RESET}\n")
+    default_profile = agent.profiles[agent.router.default_name]
+    print(
+        f"{DIM}{agent.provider_name_for(default_profile)}/{agent.model_for(default_profile)} · "
+        f"{len(agent.profiles)} profiles ({agent.router.mode} routing) · "
+        f"{len(agent.registry)} tools · session {session_id}{RESET}\n"
+    )
 
     watcher = asyncio.create_task(watch_reminders(agent, printer))
     try:
@@ -216,6 +293,7 @@ async def chat(settings: Settings | None = None, session_id: str = "cli") -> Non
             await agent.run(line, session_id=session_id, on_event=printer)
     finally:
         watcher.cancel()
+        await agent.close()
         print(f"{DIM}Goodbye.{RESET}")
 
 

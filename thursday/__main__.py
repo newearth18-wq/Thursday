@@ -19,12 +19,31 @@ def build_parser() -> argparse.ArgumentParser:
         "mode",
         nargs="?",
         default="chat",
-        choices=["chat", "voice", "serve", "tools", "ask"],
+        choices=["chat", "voice", "serve", "tools", "ask", "providers", "profiles", "models"],
         help="chat: terminal · voice: wake word + speech · serve: web UI · "
-        "tools: list capabilities · ask: one-shot question",
+        "tools: list capabilities · ask: one-shot question · "
+        "providers: which backends are reachable · profiles: task profiles · "
+        "models: models a provider offers",
     )
     parser.add_argument("question", nargs="*", help="the question, for `ask`")
     parser.add_argument("--model", help="override the model id")
+    parser.add_argument(
+        "--provider",
+        help="backend to use: anthropic, openai, gemini, groq, openrouter, "
+        "deepseek, mistral, xai, together, ollama, lmstudio, llamacpp, vllm, custom",
+    )
+    parser.add_argument("--base-url", help="endpoint for a custom OpenAI-compatible server")
+    parser.add_argument("--profile", help="profile to start pinned to")
+    parser.add_argument(
+        "--routing",
+        choices=["off", "keyword", "llm"],
+        help="how a profile is chosen per turn",
+    )
+    parser.add_argument(
+        "--local",
+        action="store_true",
+        help="shorthand for --provider ollama: nothing leaves this machine",
+    )
     parser.add_argument("--effort", choices=["low", "medium", "high", "xhigh", "max"])
     parser.add_argument("--session", default=None, help="conversation to continue")
     parser.add_argument("--host", help="web UI bind address")
@@ -35,6 +54,16 @@ def build_parser() -> argparse.ArgumentParser:
 
 
 def apply_overrides(settings: Settings, args: argparse.Namespace) -> Settings:
+    if args.local:
+        settings.provider = "ollama"
+    if args.provider:
+        settings.provider = args.provider.strip().lower()
+    if args.base_url:
+        settings.base_url = args.base_url
+    if args.profile:
+        settings.profile = args.profile.strip().lower()
+    if args.routing:
+        settings.routing = args.routing
     if args.model:
         settings.model = args.model
     if args.effort:
@@ -46,6 +75,54 @@ def apply_overrides(settings: Settings, args: argparse.Namespace) -> Settings:
     if args.no_confirm:
         settings.require_confirmation = False
     return settings
+
+
+def list_providers(settings: Settings) -> None:
+    """Show which backends are usable right now."""
+    from .cli import check_providers
+    from .providers import PRESETS
+
+    for name, ok, detail in asyncio.run(check_providers(settings)):
+        mark = "ok" if ok else "--"
+        preset = PRESETS.get(name)
+        kind = "local" if preset and preset.local else "hosted"
+        print(f"[{mark}] {name:12} {kind:7} {detail}")
+    print("\nAnything else that speaks the OpenAI API: --provider custom --base-url URL")
+
+
+def list_profiles(settings: Settings) -> None:
+    """Show the task profiles and what each one runs on."""
+    from .agent import Agent
+
+    agent = Agent(settings=settings)
+    for profile in agent.profiles.values():
+        marker = "*" if profile.name == agent.router.default_name else " "
+        print(f"{marker} {profile.name:9} {agent.provider_name_for(profile)}/{agent.model_for(profile)}")
+        if profile.description:
+            print(f"    {profile.description}")
+        if profile.triggers:
+            print(f"    triggers: {', '.join(profile.triggers)}")
+    print(f"\nrouting: {agent.router.mode}   (* = default)")
+
+
+def list_models(settings: Settings) -> None:
+    """Ask a provider which models it can serve."""
+    from .providers import build_provider
+
+    async def fetch() -> list[str]:
+        provider = build_provider(settings.provider, base_url=settings.base_url or None)
+        try:
+            return await provider.list_models()
+        finally:
+            await provider.close()
+
+    models = asyncio.run(fetch())
+    if not models:
+        print(f"{settings.provider} returned no models (unreachable, or it does not list them)")
+        return
+    print(f"{len(models)} models on {settings.provider}:")
+    for model in models:
+        print(f"  {model}")
 
 
 def list_tools(settings: Settings) -> None:
@@ -113,6 +190,15 @@ def main(argv: list[str] | None = None) -> int:
 
     if args.mode == "tools":
         list_tools(settings)
+        return 0
+    if args.mode == "providers":
+        list_providers(settings)
+        return 0
+    if args.mode == "profiles":
+        list_profiles(settings)
+        return 0
+    if args.mode == "models":
+        list_models(settings)
         return 0
     if args.mode == "serve":
         from .server import serve

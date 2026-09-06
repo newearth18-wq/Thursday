@@ -105,7 +105,24 @@ class VoiceSettings:
 class Settings:
     """Top-level settings shared by every front end."""
 
-    model: str = "claude-opus-5"
+    # Which backend serves the default profile: "anthropic", a preset such as
+    # "openai" / "gemini" / "ollama" / "lmstudio", or "custom" with a base_url.
+    provider: str = "anthropic"
+    # Overrides the provider's own key environment variable when set.
+    api_key: str = ""
+    # Points a provider at a different endpoint - a proxy, a second machine.
+    base_url: str = ""
+
+    # Which profile handles a turn when nothing else decides.
+    profile: str = "default"
+    # off | keyword | llm
+    routing: str = "keyword"
+    classifier_provider: str = "anthropic"
+    classifier_model: str = "claude-haiku-4-5"
+
+    # Empty means "whatever the resolved provider defaults to"; setting it
+    # pins the model for every profile that does not pin one itself.
+    model: str = ""
     max_tokens: int = 16000
     # low | medium | high | xhigh | max - medium keeps a conversational
     # assistant responsive; raise it for research-heavy work.
@@ -143,8 +160,16 @@ class Settings:
         plugin_dirs = tuple(
             Path(p).expanduser() for p in plugin_raw.split(os.pathsep) if p.strip()
         ) or (PROJECT_ROOT / "plugins",)
+        provider = os.environ.get("THURSDAY_PROVIDER", "anthropic").strip().lower()
         return cls(
-            model=os.environ.get("THURSDAY_MODEL", "claude-opus-5"),
+            provider=provider,
+            api_key=os.environ.get("THURSDAY_API_KEY", ""),
+            base_url=os.environ.get("THURSDAY_BASE_URL", ""),
+            profile=os.environ.get("THURSDAY_PROFILE", "default"),
+            routing=os.environ.get("THURSDAY_ROUTING", "keyword"),
+            classifier_provider=os.environ.get("THURSDAY_CLASSIFIER_PROVIDER", "anthropic"),
+            classifier_model=os.environ.get("THURSDAY_CLASSIFIER_MODEL", "claude-haiku-4-5"),
+            model=os.environ.get("THURSDAY_MODEL", ""),
             max_tokens=_env_int("THURSDAY_MAX_TOKENS", 16000),
             effort=os.environ.get("THURSDAY_EFFORT", "medium"),
             thinking=_env_bool("THURSDAY_THINKING", True),
@@ -171,6 +196,14 @@ class Settings:
     @property
     def db_path(self) -> Path:
         return self.data_dir / "thursday.db"
+
+    @property
+    def profile_paths(self) -> tuple[Path, ...]:
+        """Where profiles.json may live, later files winning."""
+        override = os.environ.get("THURSDAY_PROFILES")
+        if override:
+            return (Path(override).expanduser(),)
+        return (PROJECT_ROOT / "profiles.json", self.data_dir / "profiles.json")
 
     def ensure_dirs(self) -> None:
         self.data_dir.mkdir(parents=True, exist_ok=True)

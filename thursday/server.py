@@ -75,10 +75,23 @@ def create_app(settings: Settings | None = None) -> Any:
     @app.get("/api/status")
     async def status() -> Any:
         agent = Agent(settings=settings)
+        default = agent.profiles[agent.router.default_name]
         return JSONResponse(
             {
                 "name": settings.assistant_name,
-                "model": settings.model,
+                "provider": agent.provider_name_for(default),
+                "model": agent.model_for(default),
+                "profile": default.name,
+                "routing": agent.router.mode,
+                "profiles": [
+                    {
+                        "name": profile.name,
+                        "description": profile.description,
+                        "provider": agent.provider_name_for(profile),
+                        "model": agent.model_for(profile),
+                    }
+                    for profile in agent.profiles.values()
+                ],
                 "tools": [
                     {"name": t.name, "description": t.description, "dangerous": t.dangerous,
                      "source": t.source}
@@ -137,18 +150,22 @@ def create_app(settings: Settings | None = None) -> Any:
 
         # Turns run in a worker so the receive loop stays free - a confirmation
         # reply arrives *while* the turn that asked for it is still waiting.
-        turns: asyncio.Queue[tuple[str, bool, list[tuple[str, str]]]] = asyncio.Queue()
+        turns: asyncio.Queue[tuple[str, bool, list[tuple[str, str]], str]] = asyncio.Queue()
 
         async def worker() -> None:
             while True:
-                text, spoken, images = await turns.get()
+                text, spoken, images, profile = await turns.get()
                 try:
                     # Spoken input gets the shorter, markdown-free persona.
                     if spoken != agent.voice:
                         agent.voice = spoken
                         agent.system = system_prompt(settings, voice=spoken)
                     await agent.run(
-                        text, session_id=session_id, on_event=on_event, images=images or None
+                        text,
+                        session_id=session_id,
+                        on_event=on_event,
+                        images=images or None,
+                        profile=profile or None,
                     )
                 except Exception as exc:  # one bad turn must not drop the socket
                     await websocket.send_text(
@@ -159,8 +176,26 @@ def create_app(settings: Settings | None = None) -> Any:
 
         reminder_task = asyncio.create_task(push_reminders())
         worker_task = asyncio.create_task(worker())
+        default_profile = agent.profiles[agent.router.default_name]
         await websocket.send_text(
-            json.dumps({"type": "ready", "session": session_id, "model": settings.model})
+            json.dumps(
+                {
+                    "type": "ready",
+                    "session": session_id,
+                    "provider": agent.provider_name_for(default_profile),
+                    "model": agent.model_for(default_profile),
+                    "routing": agent.router.mode,
+                    "profiles": [
+                        {
+                            "name": profile.name,
+                            "description": profile.description,
+                            "provider": agent.provider_name_for(profile),
+                            "model": agent.model_for(profile),
+                        }
+                        for profile in agent.profiles.values()
+                    ],
+                }
+            )
         )
 
         try:
@@ -184,9 +219,18 @@ def create_app(settings: Settings | None = None) -> Any:
 
                 images = parse_attachments(payload.get("images"))
                 text = (payload.get("text") or "").strip()
+                # The page may name a profile; an unknown one falls through to
+                # the router rather than erroring the turn.
+                requested = str(payload.get("profile") or "").strip().lower()
+                profile = requested if requested in agent.profiles else ""
                 if text or images:
                     await turns.put(
-                        (text or "What am I looking at?", bool(payload.get("voice")), images)
+                        (
+                            text or "What am I looking at?",
+                            bool(payload.get("voice")),
+                            images,
+                            profile,
+                        )
                     )
         except WebSocketDisconnect:
             pass

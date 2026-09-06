@@ -37,10 +37,18 @@ thursday              # โหมดแชทในเทอร์มินั�
 thursday voice        # โหมดเสียง: พูด "Thursday ..." เพื่อปลุก
 thursday serve        # หน้าเว็บที่ http://127.0.0.1:8765
 thursday tools        # ดูว่ามีความสามารถอะไรบ้าง
+thursday profiles     # ดู profile และโมเดลที่อยู่เบื้องหลังแต่ละอัน
+thursday providers    # เช็คว่าต่อ backend ไหนได้บ้างตอนนี้
+thursday models       # ถามว่า provider ปัจจุบันมีโมเดลอะไร
 thursday ask "ตอนนี้กี่โมง"    # ถามครั้งเดียวแล้วจบ
+
+thursday --local                     # ทุกอย่างรันบน Ollama ในเครื่อง
+thursday --provider groq             # ใช้ Groq
+thursday --provider custom --base-url http://192.168.1.9:8000/v1
 ```
 
-ธงที่ใช้ได้: `--model` `--effort` `--session` `--host` `--port` `--no-confirm` `-v`
+ธงที่ใช้ได้: `--provider` `--base-url` `--model` `--profile` `--routing` `--local`
+`--effort` `--session` `--host` `--port` `--no-confirm` `-v`
 
 ### ในเทอร์มินัล
 
@@ -78,6 +86,71 @@ thursday ask "ตอนนี้กี่โมง"    # ถามครั้�
 
 **แนบรูปได้** — วางรูป (Ctrl/Cmd-V), ลากมาวาง, หรือกดปุ่ม 📎 ได้สูงสุด 4 รูปต่อครั้ง
 เซิร์ฟเวอร์ตรวจชนิดและขนาดไฟล์ก่อนส่งต่อเสมอ ไม่เชื่อสิ่งที่หน้าเว็บส่งมา
+
+## ใช้โมเดลค่ายไหนก็ได้ รวมถึงในเครื่อง
+
+Anthropic เป็น backend หลัก (ได้ของครบ: thinking, ค้นเว็บฝั่งเซิร์ฟเวอร์, prompt
+caching) ส่วนที่เหลือคุยผ่านมาตรฐาน OpenAI chat API ซึ่งครอบคลุมเกือบทุกอย่าง
+
+| ประเภท | provider |
+| --- | --- |
+| Native | `anthropic` |
+| Hosted | `openai` `gemini` `groq` `openrouter` `deepseek` `mistral` `xai` `together` |
+| **ในเครื่อง** | `ollama` `lmstudio` `llamacpp` `vllm` |
+| อื่น ๆ | `custom` + `--base-url` (พร็อกซีบริษัท, เครื่องอื่นในวง LAN) |
+
+```bash
+# ในเครื่อง ไม่ต้องมี API key ไม่มีอะไรออกเน็ต
+ollama serve && ollama pull qwen2.5
+THURSDAY_PROVIDER=ollama THURSDAY_MODEL=qwen2.5 thursday
+
+thursday providers    # บอกว่าตัวไหนพร้อม ตัวไหนขาดอะไร
+```
+
+`thursday providers` จะบอกตรง ๆ ว่าติดอะไร — คีย์ไม่ได้ตั้ง หรือต่อเซิร์ฟเวอร์
+ในเครื่องไม่ได้ พร้อมคำสั่งที่ต้องรันเพื่อแก้
+
+**สิ่งที่หายไปเมื่อไม่ได้ใช้ Anthropic** — ระบบบอกชัดเจนแทนที่จะเงียบ ๆ:
+`web_search`/`web_fetch` เป็น server tool ของ Anthropic จึงไม่ถูกส่งให้ provider อื่น,
+thinking block ที่ replay ได้มีแค่ของ Anthropic (ค่ายอื่นสตรีม reasoning ให้ดูได้
+แต่ไม่เก็บเป็นบล็อก), prompt caching และ mid-conversation system message
+ก็เฉพาะ Anthropic เช่นกัน
+
+ภายในโปรเจกต์ใช้รูปแบบข้อความของ Anthropic เป็นมาตรฐานกลาง (มันแสดงอะไรได้เยอะสุด)
+แล้วแปลงที่ขอบของแต่ละ provider — ทาง Anthropic จึงไม่สูญเสียอะไรเลย
+
+## Profiles — เลือกสมองให้เหมาะกับงาน
+
+profile หนึ่งอันมัดรวม provider + โมเดล + ระดับความคิด + tool ที่ใช้ได้ + สไตล์การตอบ
+
+| profile | ใช้ตอนไหน | เบื้องหลัง |
+| --- | --- | --- |
+| `default` | งานทั่วไป | Opus 5, effort กลาง, ครบทุก tool |
+| `quick` | ถามเวลา/ตั้งเตือน/ตอบสั้น | Haiku 4.5, effort ต่ำ, tool จำกัด, ไม่ค้นเว็บ |
+| `deep` | ค้นคว้า วิเคราะห์ วางแผน | Opus 5, effort xhigh, ครบทุก tool |
+| `coder` | อ่าน/เขียน/รันโค้ด | Opus 5, effort สูง, tool ไฟล์+ระบบ |
+| `private` | ห้ามหลุดออกจากเครื่อง | **Ollama ในเครื่อง**, ตัด tool ที่แตะเน็ตทิ้งหมด |
+
+เลือกได้สามทาง:
+
+```bash
+thursday --profile deep          # ปักไว้ตั้งแต่เริ่ม
+/profile coder                   # ปักระหว่างคุย (/profile เปล่า = กลับเป็นอัตโนมัติ)
+"ใช้โหมด private ที"              # พูดในประโยคเลย
+```
+
+หรือปล่อยให้ router เลือกเอง (`THURSDAY_ROUTING`):
+
+- `off` — ใช้ profile เดียวตลอด
+- `keyword` (ค่าเริ่มต้น) — จับคำที่แต่ละ profile ประกาศไว้ ฟรีและทันที รองรับไทย
+- `llm` — คีย์เวิร์ดก่อน ถ้าไม่เข้าค่อยถามโมเดลเล็ก ๆ ให้จัดหมวด
+
+**การจำกัด tool บังคับใช้จริงตอนรัน** ไม่ใช่แค่ไม่ส่งรายการไปให้โมเดล — ถ้าโมเดล
+เรียก tool ที่ profile นั้นห้าม การเรียกจะถูกปฏิเสธก่อนฟังก์ชันจะทำงาน
+`private` จึงหมายความว่าไม่มีอะไรออกเน็ตจริง ๆ
+
+เพิ่ม profile ของตัวเองได้ที่ `profiles.json` (ดูตัวอย่างใน `profiles.example.json`)
+ชื่อซ้ำกับของเดิม = แก้ทับเฉพาะฟิลด์ที่ใส่
 
 ## ความสามารถ (Tools)
 
@@ -160,7 +233,10 @@ JSON schema ถูกสร้างจาก type hints และ docstring ใ
 
 ```
 thursday/
-  agent.py        ลูปคุยกับ Claude: สตรีม, เรียก tool, กัน pause_turn/refusal
+  agent.py        ลูปคุย: สตรีม, เรียก tool, กัน pause_turn/refusal
+  providers/      base.py, anthropic_provider.py, openai_compat.py
+  profiles.py     profile และการสืบทอดค่า
+  router.py       เลือก profile ต่อเทิร์น
   config.py       ตั้งค่าทั้งหมดจาก environment
   memory.py       SQLite: ประวัติแชท, โน้ต, ความจำ, การเตือน
   persona.py      system prompt (ส่วนคงที่แยกจากส่วนที่เปลี่ยนทุกครั้ง)
@@ -177,7 +253,7 @@ tests/            pytest, ไม่แตะ network
 
 ## หมายเหตุด้านเทคนิค
 
-- ใช้ **Claude Opus 5** (`claude-opus-5`) พร้อม adaptive thinking และ
+- ค่าเริ่มต้นใช้ **Claude Opus 5** (`claude-opus-5`) พร้อม adaptive thinking และ
   `effort: medium` ซึ่งเป็นจุดที่สมดุลสำหรับผู้ช่วยที่ต้องตอบไว —
   ปรับได้ด้วย `--effort` หรือ `THURSDAY_EFFORT`
 - เปิด **server-side fallback** ไว้ ถ้าคำขอถูกปฏิเสธ (`stop_reason: refusal`)
@@ -192,8 +268,12 @@ tests/            pytest, ไม่แตะ network
 
 ```bash
 pip install -e ".[dev]"
-pytest            # 114 tests, ไม่ต้องใช้ API key และไม่ต่อเน็ต
+pytest            # 165 tests, ไม่ต้องใช้ API key และไม่ต่อเน็ต
 ```
+
+เทสต์ของ provider ยิงผ่าน socket จริงไปยังเซิร์ฟเวอร์ OpenAI-compatible ปลอม
+(`tests/fake_openai_server.py`) จึงครอบคลุม SSE, tool call ที่ถูกหั่นเป็นชิ้น
+และการรันครบลูปบนโมเดลในเครื่อง โดยไม่ต้องติดตั้ง Ollama
 
 ## License
 

@@ -13,7 +13,7 @@ from thursday.agent import Agent, server_tools, supports_mid_conversation_system
 from thursday.config import Settings
 from thursday.events import Event
 from thursday.memory import Memory
-from thursday.tools import ToolContext, ToolError, ToolRegistry, tool
+from thursday.tools import ToolError, ToolRegistry, tool
 
 
 # --------------------------------------------------------------- stub client
@@ -21,14 +21,24 @@ from thursday.tools import ToolContext, ToolError, ToolRegistry, tool
 
 @dataclass
 class Block:
+    """Stands in for an SDK content block."""
+
     type: str
     text: str = ""
     id: str = ""
     name: str = ""
     input: dict[str, Any] = field(default_factory=dict)
 
-    def model_dump(self) -> dict[str, Any]:
-        return {"type": self.type, "text": self.text, "name": self.name, "input": self.input}
+    def model_dump(self, exclude_none: bool = False) -> dict[str, Any]:
+        payload = {
+            "type": self.type,
+            "text": self.text,
+            "id": self.id,
+            "name": self.name,
+            "input": self.input,
+        }
+        # Mirror the SDK: empty optionals drop out under exclude_none.
+        return {k: v for k, v in payload.items() if v or k == "type"} if exclude_none else payload
 
 
 @dataclass
@@ -36,6 +46,8 @@ class Reply:
     content: list[Block]
     stop_reason: str = "end_turn"
     stop_details: Any = None
+    usage: Any = None
+    model: str = "claude-opus-5"
 
 
 class StubStream:

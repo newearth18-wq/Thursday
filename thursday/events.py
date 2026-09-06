@@ -11,6 +11,7 @@ EventType = Literal[
     "tool_start",   # a tool is about to run
     "tool_end",     # a tool finished
     "tool_error",   # a tool raised
+    "profile",      # which profile/model is handling this turn
     "turn_end",     # one model turn completed (more may follow)
     "done",         # the whole run is complete
     "error",        # the run failed

@@ -149,3 +149,57 @@ def test_an_attachment_with_no_text_still_starts_a_turn(tmp_path, monkeypatch):
             if event["type"] == "done":
                 assert event["text"] == "ok"
                 break
+
+
+@pytest.fixture()
+def plain_client(tmp_path, monkeypatch):
+    """A web app whose agent just answers, with no tool call to confirm."""
+    settings = Settings(workspace=tmp_path, data_dir=tmp_path / "data", plugin_dirs=())
+    real_agent = server_module.Agent
+
+    def make_agent(*args, **kwargs):
+        kwargs["client"] = StubClient([Reply([Block("text", "ok")]) for _ in range(8)])
+        return real_agent(*args, **kwargs)
+
+    monkeypatch.setattr(server_module, "Agent", make_agent)
+    return fastapi_testclient.TestClient(server_module.create_app(settings))
+
+
+def _profile_of(socket, payload):
+    """Send a turn and report which profile handled it."""
+    socket.send_text(json.dumps(payload))
+    chosen = None
+    while True:
+        event = json.loads(socket.receive_text())
+        if event["type"] == "profile":
+            chosen = event["data"]
+        if event["type"] == "done":
+            return chosen
+
+
+def test_the_page_is_told_which_profiles_exist(plain_client):
+    with plain_client.websocket_connect("/ws") as socket:
+        ready = json.loads(socket.receive_text())
+
+    assert ready["type"] == "ready"
+    assert ready["provider"] == "anthropic"
+    names = {profile["name"] for profile in ready["profiles"]}
+    assert {"default", "quick", "deep", "coder", "private"} <= names
+
+
+def test_the_page_can_choose_a_profile(plain_client):
+    with plain_client.websocket_connect("/ws") as socket:
+        socket.receive_text()
+        chosen = _profile_of(socket, {"type": "message", "text": "hello", "profile": "deep"})
+
+    assert chosen["profile"] == "deep"
+    assert chosen["reason"] == "requested"
+
+
+def test_an_unknown_profile_from_the_page_falls_back_to_routing(plain_client):
+    """The page does not get to name anything it likes."""
+    with plain_client.websocket_connect("/ws") as socket:
+        socket.receive_text()
+        chosen = _profile_of(socket, {"type": "message", "text": "hello", "profile": "../etc/passwd"})
+
+    assert chosen["profile"] == "default"
