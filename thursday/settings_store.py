@@ -135,6 +135,21 @@ FIELDS: tuple[Field, ...] = (
     Field("THURSDAY_SMTP_FROM", "Send as", "Connected", placeholder="you@example.com"),
     Field("THURSDAY_SMTP_FROM_NAME", "Your name", "Connected", placeholder="Supakit"),
 
+    # ---- from a phone ----------------------------------------------------
+    Field("THURSDAY_LINE_TOKEN", "LINE channel token", "Chat", kind="password",
+          help="From the LINE Developers console. Webhook URL: https://your-host/hooks/line"),
+    Field("THURSDAY_LINE_SECRET", "LINE channel secret", "Chat", kind="password",
+          help="Used to check each delivery really came from LINE."),
+    Field("THURSDAY_LINE_ALLOW", "LINE ids allowed", "Chat", placeholder="U1234…",
+          help="Your own user id. Empty means nobody — an open bot is an open shell."),
+    Field("THURSDAY_TELEGRAM_TOKEN", "Telegram bot token", "Chat", kind="password",
+          help="From @BotFather. Webhook URL: https://your-host/hooks/telegram"),
+    Field("THURSDAY_TELEGRAM_SECRET", "Telegram hook secret", "Chat", kind="password",
+          help="The secret_token you passed to setWebhook."),
+    Field("THURSDAY_TELEGRAM_ALLOW", "Telegram ids allowed", "Chat", placeholder="123456789"),
+    Field("THURSDAY_CHAT_PROFILE", "Chat profile", "Chat", placeholder="chat",
+          help="Which profile phone messages run under. `chat` has no shell and no file writing."),
+
     # ---- who may use it --------------------------------------------------
     Field("THURSDAY_AUTH", "Require token", "Access", kind="choice",
           choices=("off", "remote", "always"), attr="auth",

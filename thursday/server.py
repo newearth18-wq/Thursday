@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import logging
 import os
 import uuid
 from pathlib import Path
@@ -19,6 +20,7 @@ from .config import Settings
 from .events import Event
 from .auth import COOKIE, Gate, ensure_token
 from .identity import Doorman, Enrolment, MissingBackend, build_encoder, decode_data_url
+from .bridge import Bridge, Channel, PLATFORMS
 from .drafts import DraftError, Outbox
 from .memory import Memory
 from .mood import MoodTracker
@@ -29,6 +31,8 @@ from .persona import system_prompt
 from .settings_store import describe as describe_settings
 from .settings_store import update as update_settings
 from .settings_store import validate as validate_settings
+
+log = logging.getLogger(__name__)
 
 WEB_DIR = Path(__file__).parent / "web"
 
@@ -428,6 +432,58 @@ def create_app(settings: Settings | None = None) -> Any:
             return JSONResponse({"error": str(exc)}, status_code=400)
         finally:
             outbox.memory.close()
+
+    # --------------------------------------------------------------- chat
+
+    @app.post("/hooks/{platform}")
+    async def chat_webhook(request: Request, platform: str) -> Any:
+        """A message from LINE or Telegram.
+
+        Deliberately terse: every refusal answers 200 with the same body. A
+        webhook URL is on the open internet, and telling a prober whether the
+        signature or the allow list rejected them is telling them which one to
+        work on. The platform only cares that we answered.
+        """
+        if platform not in PLATFORMS:
+            return JSONResponse({"ok": False}, status_code=404)
+
+        channel = Channel.from_env(platform)
+        if not channel.configured or not channel.allowed:
+            log.info("%s webhook is not set up: %s", platform, channel.why_not())
+            return JSONResponse({"ok": True})
+
+        body = await request.body()
+        bridge = Bridge(channel, lambda: Agent(settings=current()))
+        messages = bridge.accept(body, dict(request.headers))
+
+        # Answered in the background: LINE times the webhook out after a few
+        # seconds, and a real answer takes longer than that.
+        for message in messages:
+            asyncio.create_task(_answer_chat(bridge, message))
+        return JSONResponse({"ok": True})
+
+    async def _answer_chat(bridge: Any, message: Any) -> None:
+        try:
+            reply = await bridge.answer(message)
+            await bridge.send(message, reply)
+        except Exception:  # pragma: no cover - a chat must not kill the server
+            log.exception("chat message failed")
+
+    @app.get("/api/chat")
+    async def chat_setup(request: Request) -> Any:
+        """Whether the phone bridges are usable, and what is missing if not."""
+        if not guard(request):
+            return JSONResponse({"error": "unauthorised"}, status_code=401)
+        channels = {}
+        for platform in PLATFORMS:
+            channel = Channel.from_env(platform)
+            problem = channel.why_not()
+            channels[platform] = {
+                "ready": not problem,
+                "detail": problem or f"{len(channel.allowed)} chat id(s) allowed",
+                "webhook": f"/hooks/{platform}",
+            }
+        return JSONResponse({"channels": channels, "profile": "chat"})
 
     @app.get("/api/status")
     async def status() -> Any:

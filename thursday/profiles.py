@@ -121,6 +121,25 @@ BUILTIN_PROFILES: tuple[Profile, ...] = (
         triggers=("code", "โค้ด", "bug", "refactor", "test", "compile", "repo", "git"),
     ),
     Profile(
+        name="chat",
+        description="Messages arriving from a phone, over LINE or Telegram.",
+        max_tokens=4000,
+        # Nothing that would need a confirmation: there is nobody at the
+        # keyboard to answer one, so the request would simply hang until it
+        # timed out - and a bus is not where you approve `rm`.
+        deny_tools=(
+            "run_shell", "write_file", "take_screenshot", "browse", "browser_act",
+            "browser_screenshot", "open_app", "lock_screen", "send_draft",
+        ),
+        style=(
+            "You are being read on a phone, in a chat app. Keep it to a few "
+            "lines. No markdown tables or code blocks. Nobody is at the keyboard "
+            "to approve anything, so if a request needs the shell, a file "
+            "written, or a draft sent, say what you would do and leave it for "
+            "when they are back at the machine."
+        ),
+    ),
+    Profile(
         name="private",
         description=(
             "Anything the user does not want leaving this machine. Runs on a local "
