@@ -22,7 +22,7 @@ def build_parser() -> argparse.ArgumentParser:
         choices=[
             "chat", "voice", "serve", "tools", "ask",
             "providers", "profiles", "models", "usage", "config", "service",
-            "audit", "permissions",
+            "audit", "permissions", "mcp", "watching",
         ],
         help="chat: terminal · voice: wake word + speech · serve: web UI · "
         "tools: list capabilities · ask: one-shot question · "
@@ -30,7 +30,9 @@ def build_parser() -> argparse.ArgumentParser:
         "models: models a provider offers · usage: tokens and cost · "
         "config: current settings and where each came from · "
         "service: run in the background from login · "
-        "audit: what has touched this machine · permissions: what it may do",
+        "audit: what has touched this machine · permissions: what it may do · "
+        "mcp: serve Thursday's memory to other apps over MCP · "
+        "watching: what it is keeping an eye on",
     )
     parser.add_argument("question", nargs="*", help="the question, for `ask`")
     parser.add_argument("--model", help="override the model id")
@@ -153,6 +155,28 @@ def show_audit(settings: Settings, limit: int = 40) -> None:
     print("\nby tool:")
     for entry in memory.access_summary():
         print(f"  {entry['tool']:<22} {entry['outcome']:<10} {entry['count']}")
+
+
+def show_watching(settings: Settings) -> None:
+    """What Thursday is keeping an eye on."""
+    from .memory import Memory
+    from .watchers import Watch
+
+    memory = Memory(settings.db_path)
+    try:
+        entries = Watch(memory).all()
+    finally:
+        memory.close()
+    if not entries:
+        print("  nothing - try \"tell me when a pdf lands in Downloads\"")
+        return
+    for entry in entries:
+        state = "on " if entry["enabled"] else "off"
+        does = "runs" if entry["action"] == "run" else "tells"
+        print(f"  {state} {entry['name']:18} {entry['kind']:9} {entry['target'][:44]}")
+        print(f"      {does}, every {int(entry['every_seconds'])}s")
+        if entry["last_error"]:
+            print(f"      last error: {entry['last_error'][:120]}")
 
 
 def show_permissions(settings: Settings) -> None:
@@ -340,6 +364,15 @@ def main(argv: list[str] | None = None) -> int:
         return 0
     if args.mode == "permissions":
         show_permissions(settings)
+        return 0
+    if args.mode == "watching":
+        show_watching(settings)
+        return 0
+    if args.mode == "mcp":
+        from .mcp_server import serve as serve_mcp
+
+        # stdout belongs to the protocol from here on, so nothing is printed.
+        serve_mcp(settings)
         return 0
     if args.mode == "serve":
         from .server import serve
