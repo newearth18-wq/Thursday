@@ -40,6 +40,16 @@ async def run_shell(command: str, timeout: int = 30, ctx: ToolContext = None) ->
     if is_blocked(command):
         return {"error": "refused: this command is destructive", "command": command}
 
+    # Nothing can say what an arbitrary command would do, so dry-run reports
+    # the command itself and does not run it. That is still the useful half:
+    # the user gets to read it before it happens.
+    if ctx and ctx.state.get("dry_run"):
+        return {
+            "would_run": command,
+            "ran": False,
+            "detail": "nothing was run - the user has asked to see what you would do first",
+        }
+
     approved = await ctx.request_confirmation("Run shell command", command)
     if not approved:
         return {"error": "the user declined to run this command", "command": command}

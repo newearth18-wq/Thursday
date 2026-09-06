@@ -27,6 +27,7 @@ from .mood import MoodTracker
 from .proactive import Proactive
 from .people import Household, ROLES
 from .permissions import Policy
+from .undo import Journal, UndoError
 from .planner import Planner
 from .persona import system_prompt
 from .settings_store import describe as describe_settings
@@ -547,6 +548,40 @@ def create_app(settings: Settings | None = None) -> Any:
         household.save()
         return JSONResponse({"people": household.summary(), "saved": True})
 
+    @app.get("/api/changes")
+    async def read_changes(request: Request) -> Any:
+        """What has been changed on disk, and what can be put back."""
+        if not guard(request):
+            return JSONResponse({"error": "unauthorised"}, status_code=401)
+        settings = current()
+        memory = Memory(settings.db_path)
+        try:
+            changes = Journal(memory, settings.data_dir / "undo").recent(25)
+        finally:
+            memory.close()
+        return JSONResponse(
+            {
+                "count": len(changes),
+                "changes": [change.as_dict() for change in changes],
+            }
+        )
+
+    @app.post("/api/changes/{change_id}/undo")
+    async def undo_change(request: Request, change_id: int) -> Any:
+        """Put one change back. Local only: it overwrites a file on this
+        machine, which is not something to allow over the network."""
+        if not guard(request) or not is_local(client_host(request)):
+            return JSONResponse({"error": "only allowed from this machine"}, status_code=403)
+        settings = current()
+        memory = Memory(settings.db_path)
+        try:
+            change = Journal(memory, settings.data_dir / "undo").undo(change_id)
+        except UndoError as exc:
+            return JSONResponse({"error": str(exc)}, status_code=400)
+        finally:
+            memory.close()
+        return JSONResponse({"change": change.as_dict()})
+
     @app.get("/api/status")
     async def status() -> Any:
         agent = Agent(settings=current())
@@ -734,6 +769,14 @@ def create_app(settings: Settings | None = None) -> Any:
                 if kind == "clear":
                     agent.memory.clear_session(session_id)
                     await websocket.send_text(json.dumps({"type": "cleared"}))
+                    continue
+                if kind == "dry_run":
+                    # Set from the page, never by a tool: a model that could
+                    # switch off "show me what you would do first" would make
+                    # the whole idea pointless.
+                    on = bool(payload.get("on"))
+                    agent.context.state["dry_run"] = on
+                    await websocket.send_text(json.dumps({"type": "dry_run", "on": on}))
                     continue
 
                 images = parse_attachments(payload.get("images"))

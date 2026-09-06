@@ -42,6 +42,30 @@ def resolve(ctx: ToolContext, path: str) -> Path:
     return resolved
 
 
+def journal(ctx: ToolContext) -> Any:
+    """Where changes are written down, so they can be put back."""
+    from ..undo import Journal
+
+    existing = ctx.state.get("journal")
+    if existing is not None:
+        return existing
+    if ctx.memory is None or ctx.settings is None:
+        return None
+    made = Journal(ctx.memory, Path(ctx.settings.data_dir) / "undo")
+    ctx.state["journal"] = made
+    return made
+
+
+def rehearsing(ctx: ToolContext) -> bool:
+    """Whether to say what would happen instead of doing it.
+
+    Set by the user, never by the model: "show me what you would do" is a
+    thing a person asks for, and a model that could switch it off would make
+    the whole idea pointless.
+    """
+    return bool(ctx and ctx.state.get("dry_run"))
+
+
 @tool
 def read_file(path: str, max_bytes: int = MAX_READ_BYTES, ctx: ToolContext = None) -> str:
     """Read a UTF-8 text file from the workspace.
@@ -70,17 +94,68 @@ async def write_file(path: str, content: str, append: bool = False, ctx: ToolCon
     """
     target = resolve(ctx, path)
     action = "Append to" if append else "Write"
+    existed = target.is_file()
+
+    if rehearsing(ctx):
+        would = "append to" if append else ("overwrite" if existed else "create")
+        return (
+            f"would {would} {target} with {len(content)} characters. "
+            "Nothing was changed - the user has asked to see what you would do first."
+        )
+
     preview = content if len(content) <= 400 else content[:400] + "..."
     approved = await ctx.request_confirmation(
-        f"{action} {target}", f"{len(content)} characters:\n{preview}"
+        f"{action} {target}",
+        f"{len(content)} characters"
+        + (" (overwriting what is there)" if existed and not append else "")
+        + f":\n{preview}",
     )
     if not approved:
         return "the user declined this write"
 
+    # Written down before the write, so a write that then fails leaves a
+    # harmless spare entry rather than a missing one.
+    book = journal(ctx)
+    change_id = book.before(target, "append" if append else "write") if book else 0
+
     target.parent.mkdir(parents=True, exist_ok=True)
     with target.open("a" if append else "w", encoding="utf-8") as handle:
         handle.write(content)
-    return f"{'appended to' if append else 'wrote'} {target} ({len(content)} chars)"
+    done = f"{'appended to' if append else 'wrote'} {target} ({len(content)} chars)"
+    return f"{done}; undo with change {change_id}" if change_id else done
+
+
+@tool(dangerous=True)
+async def delete_file(path: str, ctx: ToolContext = None) -> str:
+    """Delete a file from the workspace. Asks the user first, and is undoable.
+
+    Args:
+        path: The file to delete.
+    """
+    target = resolve(ctx, path)
+    if not target.is_file():
+        raise ToolError(f"{target} is not a file")
+
+    if rehearsing(ctx):
+        return (
+            f"would delete {target} ({target.stat().st_size} bytes). "
+            "Nothing was changed - the user has asked to see what you would do first."
+        )
+
+    approved = await ctx.request_confirmation(
+        f"Delete {target}", f"{target.stat().st_size} bytes. This can be undone."
+    )
+    if not approved:
+        return "the user declined this deletion"
+
+    book = journal(ctx)
+    change_id = book.before(target, "delete") if book else 0
+    target.unlink()
+    return (
+        f"deleted {target}; undo with change {change_id}"
+        if change_id
+        else f"deleted {target}"
+    )
 
 
 @tool

@@ -160,6 +160,23 @@ CREATE TABLE IF NOT EXISTS plans (
 );
 CREATE INDEX IF NOT EXISTS idx_plans_state ON plans(state, id);
 
+-- What has been changed on disk, and where the previous version was put.
+-- Not version control: entries age out, and a repository does this properly.
+CREATE TABLE IF NOT EXISTS changes (
+    id          INTEGER PRIMARY KEY AUTOINCREMENT,
+    -- write | append | delete | create
+    action      TEXT NOT NULL,
+    path        TEXT NOT NULL,
+    -- Where the previous contents were copied. Empty when there were none.
+    backup      TEXT NOT NULL DEFAULT '',
+    size        INTEGER NOT NULL DEFAULT 0,
+    undone      INTEGER NOT NULL DEFAULT 0,
+    -- Why it cannot be put back, if it cannot. Empty means it can.
+    reason      TEXT NOT NULL DEFAULT '',
+    created_at  REAL NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_changes_time ON changes(created_at);
+
 -- Things to keep an eye on. `state` is whatever the watcher needs to tell
 -- new from already-seen, and is written before anything is announced.
 CREATE TABLE IF NOT EXISTS watchers (
@@ -748,6 +765,39 @@ class Memory:
             "UPDATE drafts SET status=?, updated_at=? WHERE id=?",
             (status, _now(), draft_id),
         )
+
+    # ---------------------------------------------------------------- changes
+
+    def record_change(
+        self, action: str, path: str, backup: str, size: int, reason: str
+    ) -> int:
+        cur = self._execute(
+            "INSERT INTO changes (action, path, backup, size, reason, created_at) "
+            "VALUES (?,?,?,?,?,?)",
+            (action, path, backup, size, reason[:300], _now()),
+        )
+        return int(cur.lastrowid or 0)
+
+    def change(self, change_id: int) -> Any:
+        rows = self._query("SELECT * FROM changes WHERE id=?", (change_id,))
+        return rows[0] if rows else None
+
+    def changes(self, limit: int = 20) -> list[Any]:
+        return self._query("SELECT * FROM changes ORDER BY id DESC LIMIT ?", (limit,))
+
+    def mark_undone(self, change_id: int) -> None:
+        self._execute("UPDATE changes SET undone=1 WHERE id=?", (change_id,))
+
+    def stale_changes(self, before: float, keep_recent: int) -> list[Any]:
+        """Old entries, never touching the most recent ones however old."""
+        return self._query(
+            "SELECT * FROM changes WHERE created_at < ? AND id NOT IN "
+            "(SELECT id FROM changes ORDER BY id DESC LIMIT ?)",
+            (before, keep_recent),
+        )
+
+    def drop_change(self, change_id: int) -> None:
+        self._execute("DELETE FROM changes WHERE id=?", (change_id,))
 
     # --------------------------------------------------------------- watchers
 

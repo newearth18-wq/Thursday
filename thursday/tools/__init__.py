@@ -405,6 +405,7 @@ BUILTIN_TOOL_MODULES = (
     "library",
     "mail",
     "planning",
+    "rehearsal",
     "routines",
     "scheduling",
     "shell",

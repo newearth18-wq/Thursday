@@ -47,6 +47,9 @@ Commands:
   /plan              the long job in progress, and which step
   /watching          what I am keeping an eye on
   /people            who lives here, and what each may do
+  /dryrun            toggle: say what you would do, change nothing
+  /changes [n]       what has been changed on disk
+  /undo [id]         put a change back
   /drafts            mail and diary entries waiting for you
   /approve <id>      approve a draft, then /send it
   /send <id>         send a draft you have approved
@@ -343,6 +346,53 @@ def handle_command(line: str, agent: Agent, session_id: str, printer: Printer) -
             print(f"  also writable: {', '.join(rules['extra_writable'])}")
         if rules["denied_tools"]:
             print(f"  switched off: {', '.join(rules['denied_tools'])}")
+    elif command == "dryrun":
+        on = not agent.context.state.get("dry_run")
+        agent.context.state["dry_run"] = on
+        if on:
+            print(printer.paint("  dry run ON - I will say what I would do "
+                                "and change nothing", YELLOW))
+        else:
+            print(printer.paint("  dry run off - changes will happen again", GREEN))
+    elif command in {"changes", "undo"}:
+        from pathlib import Path as _Path
+
+        from .undo import Journal, UndoError
+
+        book = Journal(agent.memory, _Path(agent.settings.data_dir) / "undo")
+        if command == "changes":
+            try:
+                count = max(1, int(argument.strip() or 10))
+            except ValueError:
+                count = 10
+            entries = book.recent(count)
+            if not entries:
+                print("  nothing has been changed")
+            for entry in entries:
+                if entry.undone:
+                    mark, colour = "\u21b6", DIM
+                elif entry.undoable:
+                    mark, colour = "\u2022", GREEN
+                else:
+                    mark, colour = "\u2717", RED
+                print(f"  {printer.paint(mark, colour)} {entry.id:>4}  "
+                      f"{entry.when[11:19]}  {entry.describe()}")
+                if entry.reason:
+                    print(printer.paint(f"        {entry.reason}", DIM))
+            if entries:
+                print(printer.paint("  /undo <id>, or /undo for the last one", DIM))
+        else:
+            try:
+                target = int(argument.strip()) if argument.strip() else 0
+            except ValueError:
+                print(printer.paint("  /undo takes a change id from /changes", RED))
+                target = -1
+            if target >= 0:
+                try:
+                    put_back = book.undo(target)
+                    print(printer.paint(f"  put back: {put_back.describe()}", GREEN))
+                except UndoError as exc:
+                    print(printer.paint(f"  {exc}", RED))
     elif command == "people":
         people = agent.household.summary()
         if not people:

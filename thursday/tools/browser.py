@@ -86,7 +86,22 @@ def _session(ctx: ToolContext | None) -> Session:
     return session
 
 
+class Rehearsing(ToolError):
+    """Not an error so much as an answer: this is what would have happened."""
+
+
 async def _approve(ctx: ToolContext, what: str, detail: str) -> None:
+    """Ask before acting - or, in dry-run, say what would have been done.
+
+    Raised rather than returned so every caller stops here. A browser action
+    that carried on and only *reported* that it would not have acted would be
+    the one thing dry-run must never do.
+    """
+    if ctx and ctx.state.get("dry_run"):
+        raise Rehearsing(
+            f"would {what.lower()}: {detail}. Nothing was done - the user has "
+            "asked to see what you would do first."
+        )
     if not await ctx.request_confirmation(what, detail):
         raise ToolError("the user declined that")
 
