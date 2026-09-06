@@ -8,6 +8,11 @@ dist/
 .env
 .pytest_cache/
 data/
+# Your own copies; the .example files are the ones tracked.
+permissions.json
+mcp.json
+profiles.json
+pricing.json
 *.db
 *.sqlite3
 models/

@@ -522,6 +522,18 @@
 
   <!-- --------------------------------------------------------- right -->
   <aside class="right">
+    <section class="panel" style="flex:none">
+      <h2>Access</h2>
+      <div class="body">
+        <div class="row"><span>workspace</span><span id="aWorkspace" title="—">—</span></div>
+        <div class="row"><span>protected</span><span id="aProtected">—</span></div>
+        <div class="row"><span>confirmations</span><span id="aConfirm">—</span></div>
+        <div class="row"><span>switched off</span><span id="aDenied">none</span></div>
+        <div class="row"><span>refused today</span><span id="aRefused">0</span></div>
+        <div id="aRecent" style="margin-top:6px;font-size:11px;color:var(--muted)"></div>
+      </div>
+    </section>
+
     <section class="panel">
       <h2>Activity</h2>
       <div class="body" id="activityLog" style="font-size:11.5px"></div>
@@ -839,6 +851,40 @@ function logActivity(text) {
   log.scrollTop = log.scrollHeight;
 }
 
+/* ------------------------------------------------------ machine access */
+
+// What Thursday may do to this machine, and what it last tried. Refreshed
+// after a refusal, because that is the moment you want to see the rule.
+async function loadAccess() {
+  let data;
+  try {
+    const response = await fetch("/api/permissions");
+    if (!response.ok) return;
+    data = await response.json();
+  } catch { return; }
+
+  $("aWorkspace").textContent = (data.workspace || "").split("/").pop() || data.workspace || "—";
+  $("aWorkspace").title = data.workspace || "";
+  $("aProtected").textContent = `${data.protected_paths} paths`;
+  $("aConfirm").textContent = data.confirmations ? "asks first" : "off";
+  $("aDenied").textContent = (data.denied_tools || []).join(", ") || "none";
+
+  const refused = (data.summary || [])
+    .filter((entry) => entry.outcome === "denied")
+    .reduce((total, entry) => total + entry.count, 0);
+  $("aRefused").textContent = String(refused);
+
+  const box = $("aRecent");
+  box.replaceChildren();
+  for (const entry of (data.recent || []).filter((row) => row.outcome === "denied").slice(0, 6)) {
+    const line = document.createElement("div");
+    line.style.cssText = "padding:2px 0;color:var(--warn)";
+    line.textContent = `✗ ${entry.tool} — ${entry.reason}`;
+    line.title = entry.arguments || "";
+    box.append(line);
+  }
+}
+
 /* -------------------------------------------------------- speech out */
 
 const synth = window.speechSynthesis;
@@ -899,6 +945,7 @@ function handle(event) {
       $("sProfile").textContent = "auto";
       fillProfiles(event.profiles || []);
       applyState({ mood: "calm", activity: "standing by", detail: "" });
+      loadAccess();
       break;
 
     case "state":
@@ -955,6 +1002,7 @@ function handle(event) {
     case "tool_error":
       addLine(`${event.tool}: ${event.result}`, "error");
       logActivity(`✗ ${event.tool}`);
+      loadAccess();
       break;
 
     case "usage": {

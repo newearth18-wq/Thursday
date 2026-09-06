@@ -274,6 +274,14 @@ class Settings:
         return overlay_path()
 
     @property
+    def permission_paths(self) -> tuple[Path, ...]:
+        """Where the machine-access rules may live."""
+        override = os.environ.get("THURSDAY_PERMISSIONS")
+        if override:
+            return (Path(override).expanduser(),)
+        return (PROJECT_ROOT / "permissions.json", self.data_dir / "permissions.json")
+
+    @property
     def mcp_paths(self) -> tuple[Path, ...]:
         """Where MCP server definitions may live; the first hit wins."""
         override = os.environ.get("THURSDAY_MCP_CONFIG")

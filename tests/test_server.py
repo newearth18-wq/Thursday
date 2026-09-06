@@ -243,3 +243,30 @@ def test_the_wake_words_reach_the_page(plain_client):
 
     assert ready["name"] == "Thursday"
     assert "thursday" in ready["wake_words"]
+
+
+def test_the_page_can_see_what_thursday_may_do(plain_client, tmp_path):
+    """The Access panel reads this: the rules, and what was refused."""
+    from thursday.memory import Memory
+
+    memory = Memory(tmp_path / "data" / "thursday.db")
+    memory.record_access("read_file", {"path": ".env"}, "denied", "that one is protected")
+    memory.close()
+
+    payload = plain_client.get("/api/permissions").json()
+
+    assert payload["protected_paths"] > 0
+    assert payload["confirmations"] is True
+    assert payload["tools"]["run_shell"] == "confirm"
+    assert payload["workspace"] == str(tmp_path)
+    assert payload["recent"][0]["tool"] == "read_file"
+    assert payload["recent"][0]["outcome"] == "denied"
+    assert {"tool": "read_file", "outcome": "denied", "count": 1} in payload["summary"]
+
+
+def test_the_permissions_view_needs_the_token_from_elsewhere(tmp_path, monkeypatch):
+    settings = Settings(workspace=tmp_path, data_dir=tmp_path / "data", plugin_dirs=(), auth="always")
+    monkeypatch.setenv("THURSDAY_ACCESS_TOKEN", "letmein")
+    client = fastapi_testclient.TestClient(server_module.create_app(settings))
+
+    assert client.get("/api/permissions").status_code == 401

@@ -22,13 +22,15 @@ def build_parser() -> argparse.ArgumentParser:
         choices=[
             "chat", "voice", "serve", "tools", "ask",
             "providers", "profiles", "models", "usage", "config", "service",
+            "audit", "permissions",
         ],
         help="chat: terminal · voice: wake word + speech · serve: web UI · "
         "tools: list capabilities · ask: one-shot question · "
         "providers: which backends are reachable · profiles: task profiles · "
         "models: models a provider offers · usage: tokens and cost · "
         "config: current settings and where each came from · "
-        "service: run in the background from login",
+        "service: run in the background from login · "
+        "audit: what has touched this machine · permissions: what it may do",
     )
     parser.add_argument("question", nargs="*", help="the question, for `ask`")
     parser.add_argument("--model", help="override the model id")
@@ -131,6 +133,51 @@ def list_models(settings: Settings) -> None:
     print(f"{len(models)} models on {settings.provider}:")
     for model in models:
         print(f"  {model}")
+
+
+def show_audit(settings: Settings, limit: int = 40) -> None:
+    """What has reached for this machine, and how it went."""
+    from .memory import Memory
+
+    memory = Memory(settings.db_path)
+    rows = memory.access_log(limit)
+    if not rows:
+        print("nothing has touched the machine yet")
+        return
+
+    for row in rows:
+        detail = f" — {row['reason']}" if row["reason"] else ""
+        print(f"{row['when'][:19]}  {row['outcome']:<9} {row['tool']:<20} "
+              f"{row['arguments'][:70]}{detail}")
+
+    print("\nby tool:")
+    for entry in memory.access_summary():
+        print(f"  {entry['tool']:<22} {entry['outcome']:<10} {entry['count']}")
+
+
+def show_permissions(settings: Settings) -> None:
+    """What Thursday may do to this machine."""
+    from .permissions import Policy
+
+    policy = Policy.from_settings(settings)
+    rules = policy.describe()
+
+    print(f"workspace: {settings.workspace}")
+    print(f"protected path patterns: {rules['protected_paths']} "
+          "(secrets, and my own settings, database and enrolment)")
+    print(f"confirmations: {'on' if rules['confirmations'] else 'OFF'}\n")
+
+    print("tools:")
+    for name, rule in rules["tools"].items():
+        print(f"  {name:<22} {rule}")
+    if rules["denied_tools"]:
+        print(f"\nswitched off: {', '.join(rules['denied_tools'])}")
+    if rules["extra_readable"]:
+        print(f"also readable: {', '.join(rules['extra_readable'])}")
+    if rules["extra_writable"]:
+        print(f"also writable: {', '.join(rules['extra_writable'])}")
+    print(f"\nedit {settings.permission_paths[0]} to change this "
+          "(see permissions.example.json)")
 
 
 def manage_service(settings: Settings, apply: bool, remove: bool) -> int:
@@ -288,6 +335,12 @@ def main(argv: list[str] | None = None) -> int:
         return 0
     if args.mode == "service":
         return manage_service(settings, args.apply, args.remove)
+    if args.mode == "audit":
+        show_audit(settings, args.days * 10)
+        return 0
+    if args.mode == "permissions":
+        show_permissions(settings)
+        return 0
     if args.mode == "serve":
         from .server import serve
 

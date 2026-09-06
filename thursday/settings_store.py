@@ -146,6 +146,9 @@ FIELDS: tuple[Field, ...] = (
           attr="browser_visible", help="Watch what it does rather than letting it work unseen."),
     Field("THURSDAY_BROWSER_BINARY", "Browser binary", "Safety", kind="path",
           help="Leave empty for Playwright's own Chromium; set it to use a system Chrome."),
+    Field("THURSDAY_PERMISSIONS", "Permissions file", "Safety", kind="path",
+          placeholder="./permissions.json",
+          help="Which paths are off limits and which tools may run. See permissions.example.json."),
 
     # ---- money -----------------------------------------------------------
     Field("THURSDAY_DAILY_BUDGET", "Daily budget (USD)", "Spending", kind="number",

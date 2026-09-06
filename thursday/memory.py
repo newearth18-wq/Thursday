@@ -70,6 +70,18 @@ CREATE TABLE IF NOT EXISTS usage (
 );
 CREATE INDEX IF NOT EXISTS idx_usage_time ON usage(created_at);
 
+CREATE TABLE IF NOT EXISTS audit (
+    id          INTEGER PRIMARY KEY AUTOINCREMENT,
+    tool        TEXT NOT NULL,
+    arguments   TEXT NOT NULL DEFAULT '',
+    -- allowed | confirmed | declined | denied | failed
+    outcome     TEXT NOT NULL,
+    reason      TEXT NOT NULL DEFAULT '',
+    session_id  TEXT NOT NULL DEFAULT '',
+    created_at  REAL NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_audit_time ON audit(created_at);
+
 CREATE TABLE IF NOT EXISTS jobs (
     id          INTEGER PRIMARY KEY AUTOINCREMENT,
     title       TEXT NOT NULL,
@@ -482,6 +494,58 @@ class Memory:
     def spend_since(self, since: float) -> float:
         rows = self._query("SELECT SUM(cost) AS total FROM usage WHERE created_at >= ?", (since,))
         return float(rows[0]["total"] or 0.0) if rows else 0.0
+
+    # ------------------------------------------------------------------ audit
+
+    def record_access(
+        self,
+        tool: str,
+        arguments: Any,
+        outcome: str,
+        reason: str = "",
+        session_id: str = "",
+    ) -> None:
+        """Note that something reached for the machine, and what happened."""
+        try:
+            rendered = json.dumps(arguments, ensure_ascii=False, default=str)[:2000]
+        except (TypeError, ValueError):
+            rendered = str(arguments)[:2000]
+        self._execute(
+            "INSERT INTO audit (tool, arguments, outcome, reason, session_id, created_at) "
+            "VALUES (?,?,?,?,?,?)",
+            (tool, rendered, outcome, reason[:500], session_id, _now()),
+        )
+
+    def access_log(self, limit: int = 50, outcome: str = "") -> list[dict[str, Any]]:
+        sql = "SELECT * FROM audit"
+        params: list[Any] = []
+        if outcome:
+            sql += " WHERE outcome=?"
+            params.append(outcome)
+        sql += " ORDER BY id DESC LIMIT ?"
+        params.append(limit)
+        return [
+            {
+                "when": iso(row["created_at"]),
+                "tool": row["tool"],
+                "arguments": row["arguments"],
+                "outcome": row["outcome"],
+                "reason": row["reason"],
+            }
+            for row in self._query(sql, params)
+        ]
+
+    def access_summary(self, since: float | None = None) -> list[dict[str, Any]]:
+        sql = "SELECT tool, outcome, COUNT(*) AS n FROM audit"
+        params: list[Any] = []
+        if since is not None:
+            sql += " WHERE created_at >= ?"
+            params.append(since)
+        sql += " GROUP BY tool, outcome ORDER BY n DESC"
+        return [
+            {"tool": row["tool"], "outcome": row["outcome"], "count": row["n"]}
+            for row in self._query(sql, params)
+        ]
 
     # ------------------------------------------------------------------- jobs
 

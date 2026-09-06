@@ -19,6 +19,7 @@ from .config import Settings
 from .events import Event, EventHandler
 from .mcp import MCPManager
 from .memory import Memory
+from .permissions import Policy
 from .persona import situational_context, system_prompt
 from .pricing import estimate_cost, format_cost, load_prices, normalise_usage
 from .profiles import Profile, load_profiles
@@ -96,6 +97,10 @@ class Agent:
         self.voice = voice
         self.base_system = system_prompt(self.settings, voice=voice)
         self.context = ToolContext(settings=self.settings, memory=self.memory)
+        # What Thursday may do to this machine. The tool layer consults it too,
+        # but this is the choke point every call goes through.
+        self.policy = Policy.from_settings(self.settings)
+        self.context.state["policy"] = self.policy
 
         # An injected client (tests, a pre-configured SDK client) belongs to the
         # Anthropic provider.
@@ -417,6 +422,10 @@ class Agent:
         await emit(Event("done", text=final))
         return final
 
+    def _is_dangerous(self, name: str) -> bool:
+        tool = self.registry.get(name)
+        return bool(tool and tool.dangerous)
+
     def over_budget(self) -> bool:
         """Whether today's known spend has passed the configured ceiling."""
         if self.settings.daily_budget <= 0:
@@ -471,6 +480,25 @@ class Agent:
             arguments = dict(block.get("input") or {})
             await emit(Event("tool_start", tool=name, arguments=arguments))
 
+            # The machine-access policy comes first: a denied call is not
+            # run, not confirmed, and not quietly dropped - the model is told
+            # why so it can say so rather than trying again.
+            decision = self.policy.decide(name, arguments, dangerous=self._is_dangerous(name))
+            if decision.refused:
+                self.memory.record_access(
+                    name, arguments, "denied", decision.reason, self.context.state.get("session_id", "")
+                )
+                await emit(Event("tool_error", tool=name, result=decision.reason))
+                results.append(
+                    {
+                        "type": "tool_result",
+                        "tool_use_id": block_id,
+                        "content": f"refused: {decision.reason}",
+                        "is_error": True,
+                    }
+                )
+                continue
+
             # A model may name a tool the active profile withholds.
             if not profile.allows(name):
                 message = (
@@ -490,6 +518,9 @@ class Agent:
 
             try:
                 output = await self.registry.call(name, arguments, self.context)
+                self.memory.record_access(
+                    name, arguments, "allowed", "", self.context.state.get("session_id", "")
+                )
                 if isinstance(output, ImageResult):
                     await emit(
                         Event(
@@ -512,6 +543,9 @@ class Agent:
                         {"type": "tool_result", "tool_use_id": block_id, "content": output}
                     )
             except ToolError as exc:
+                self.memory.record_access(
+                    name, arguments, "failed", str(exc), self.context.state.get("session_id", "")
+                )
                 await emit(Event("tool_error", tool=name, result=str(exc)))
                 results.append(
                     {

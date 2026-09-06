@@ -45,6 +45,8 @@ Commands:
   /forget <key>      make me forget one thing
   /reminders         list pending reminders
   /usage [days]      tokens and cost, by model
+  /audit [n]         what reached for this machine, and what happened
+  /permissions       what Thursday may do to this machine
   /routines          list saved routines
   /clear             wipe this session's history
   /thinking          toggle showing my reasoning
@@ -308,6 +310,32 @@ def handle_command(line: str, agent: Agent, session_id: str, printer: Printer) -
                 )
                 total += row["cost"] or 0.0
             print(f"    {'total':26} {'':>4}        {'':>9}     {'':>8}      {format_cost(total):>10}")
+    elif command == "audit":
+        try:
+            count = max(1, int(argument.strip() or 20))
+        except ValueError:
+            count = 20
+        rows = agent.memory.access_log(count)
+        if not rows:
+            print("  nothing has touched the machine yet")
+        for row in rows:
+            colour = {"denied": RED, "failed": RED, "confirmed": YELLOW}.get(row["outcome"], DIM)
+            detail = f" — {row['reason']}" if row["reason"] else ""
+            outcome = printer.paint(f"{row['outcome']:<9}", colour)
+            print(f"  {row['when'][11:19]} {outcome} {row['tool']} {row['arguments'][:60]}{detail}")
+    elif command == "permissions":
+        rules = agent.policy.describe()
+        print(f"  {rules['protected_paths']} protected path patterns (secrets, and my own files)")
+        print(f"  confirmations: {'on' if rules['confirmations'] else 'OFF'}")
+        for name, rule in rules["tools"].items():
+            colour = {"deny": RED, "confirm": YELLOW}.get(rule, GREEN)
+            print(f"    {name:22} {printer.paint(rule, colour)}")
+        if rules["extra_readable"]:
+            print(f"  also readable: {', '.join(rules['extra_readable'])}")
+        if rules["extra_writable"]:
+            print(f"  also writable: {', '.join(rules['extra_writable'])}")
+        if rules["denied_tools"]:
+            print(f"  switched off: {', '.join(rules['denied_tools'])}")
     elif command == "routines":
         routines = agent.memory.list_routines()
         for routine in routines:

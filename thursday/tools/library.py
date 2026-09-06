@@ -16,7 +16,7 @@ def _library(ctx: ToolContext | None) -> Library:
     # connection are not rebuilt for every call.
     existing = ctx.state.get("library")
     if existing is None:
-        existing = Library(ctx.memory)
+        existing = Library(ctx.memory, policy=ctx.state.get("policy"))
         ctx.state["library"] = existing
     return existing
 

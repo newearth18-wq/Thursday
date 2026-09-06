@@ -19,8 +19,10 @@ from .config import Settings
 from .events import Event
 from .auth import COOKIE, Gate, ensure_token
 from .identity import Doorman, Enrolment, MissingBackend, build_encoder, decode_data_url
+from .memory import Memory
 from .mood import MoodTracker
 from .proactive import Proactive
+from .permissions import Policy
 from .persona import system_prompt
 from .settings_store import describe as describe_settings
 from .settings_store import update as update_settings
@@ -351,6 +353,29 @@ def create_app(settings: Settings | None = None) -> Any:
         name = str((body or {}).get("name") or "").strip()
         removed = enrolment.forget(name, str((body or {}).get("modality") or ""))
         return JSONResponse({"ok": removed, "people": enrolment.summary()})
+
+    @app.get("/api/permissions")
+    async def permissions(request: Request) -> Any:
+        """What Thursday may do to this machine, and what it has tried."""
+        if not guard(request):
+            return JSONResponse({"error": "unauthorised"}, status_code=401)
+        settings = current()
+        policy = Policy.from_settings(settings)
+        memory = Memory(settings.db_path)
+        try:
+            recent = memory.access_log(limit=60)
+            summary = memory.access_summary()
+        finally:
+            memory.close()
+        return JSONResponse(
+            {
+                **policy.describe(),
+                "workspace": str(policy.workspace),
+                "config": [str(path) for path in settings.permission_paths],
+                "recent": recent,
+                "summary": summary,
+            }
+        )
 
     @app.get("/api/status")
     async def status() -> Any:

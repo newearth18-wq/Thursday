@@ -164,9 +164,12 @@ class Hit:
 class Library:
     """Indexed documents, kept alongside everything else Thursday remembers."""
 
-    def __init__(self, memory: Any, embedder: Embedder | None = None) -> None:
+    def __init__(self, memory: Any, embedder: Embedder | None = None, policy: Any = None) -> None:
         self.memory = memory
         self.embedder = embedder or Embedder.from_env()
+        # Indexing a secret would put it in a searchable index and, once
+        # embedded, into whatever answers quote it.
+        self.policy = policy
         with memory._lock:  # the schema lives in the same file as the rest
             memory._conn.executescript(SCHEMA)
             memory._conn.commit()
@@ -175,6 +178,8 @@ class Library:
 
     def index(self, path: Path, force: bool = False) -> dict[str, Any]:
         """Index one file. Returns what happened."""
+        if self.policy is not None and not self.policy.may_read(path):
+            raise Unreadable(f"{path.name} is protected and will not be indexed")
         text = extract(path)
         pieces = chunk(text)
         if not pieces:
@@ -215,6 +220,8 @@ class Library:
                 continue
             if candidate.suffix.lower() not in READABLE:
                 continue
+            if self.policy is not None and not self.policy.may_read(candidate):
+                continue        # skipped silently: naming it is a hint in itself
             try:
                 done.append(self.index(candidate))
             except (Unreadable, OSError) as exc:

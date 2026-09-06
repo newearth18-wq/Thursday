@@ -511,14 +511,71 @@ JSON schema ถูกสร้างจาก type hints และ docstring ใ
   `await ctx.request_confirmation(...)` ได้ (พารามิเตอร์นี้ถูกซ่อนจาก Claude)
 - ฟังก์ชัน `async def` ใช้ได้เหมือนกัน ฟังก์ชันธรรมดาจะถูกรันในเธรดแยก
 
-## ความปลอดภัย
+## ควบคุมการเข้าถึงเครื่อง
 
-- เครื่องมือไฟล์ออกนอก `THURSDAY_WORKSPACE` ไม่ได้ (กัน `../` และ symlink ด้วย
-  การ resolve จริง)
+workspace ตอบได้แค่ **"ที่ไหน"** แต่ตอบไม่ได้ว่า **"อะไร"** — ในโฟลเดอร์เดียวกันนั้น
+มี `.env` มี `data/settings.json` ที่เก็บ API key ทุกใบ และ `data/people.json`
+ที่เก็บ embedding ใบหน้าคุณ ก่อนหน้านี้ `read_file("data/settings.json")` อ่านได้หมด
+และตอนนี้ Thursday อ่านเอกสาร อ่านเว็บ อ่านอีเมล ซึ่งทุกอย่างพาคำสั่งที่ไม่ได้มาจากคุณ
+เข้ามาได้ — จาก "อ่าน key ของตัวเอง" ไป "ส่ง key ออกไป" เป็นระยะทางที่สั้นมาก
+
+จึงมี 4 ชั้นซ้อนกัน:
+
+| ชั้น | ตอบคำถามว่า | ตั้งที่ |
+| --- | --- | --- |
+| workspace | ไปถึงที่ไหนได้ | `THURSDAY_WORKSPACE` |
+| deny list | ห้ามแตะอะไร | `deny_paths` |
+| tool rules | ทำได้แค่ไหน (allow/confirm/deny) | `tools` |
+| audit | เกิดอะไรขึ้นบ้าง | `thursday audit` |
+
+```bash
+thursday permissions     # ตอนนี้กติกาเป็นยังไง
+thursday audit           # อะไรเอื้อมมาที่เครื่องนี้ และผลเป็นยังไง
+```
+
+ในเทอร์มินัลใช้ `/permissions` กับ `/audit [n]` ได้เหมือนกัน
+บนหน้าเว็บมีแผง **Access** ที่มุมขวาบน บอกจำนวน path ที่ถูกกัน
+และรายการที่เพิ่งถูกปฏิเสธ (เด้งอัพเดตทันทีที่มีการปฏิเสธ)
+
+### สิ่งที่ถูกกันไว้ตั้งแต่ต้น ไม่ต้องตั้งเอง
+
+`.env`, `.ssh/`, `id_rsa`, `*.pem`, `.aws/credentials`, `.netrc`, `.gnupg/`,
+`.password-store/`, `.kube/config`, `.docker/config.json`, `.npmrc`, `.pypirc`,
+keychain, keyring — บวกไฟล์ของ Thursday เอง (`data/`, ฐานข้อมูล, settings, ใบหน้า)
+
+จับที่ **path จริงหลัง resolve** แล้ว symlink กับ `../` จึงหลบไม่ได้ และชื่อสั้น ๆ
+ก็นับด้วย: `cat .env` กับ `read_file(".env")` คือการกระทำเดียวกัน ได้คำตอบเดียวกัน
+`search_files` ก็ข้ามไฟล์เหล่านี้ — grep เจอ key ก็คืออ่าน key อยู่ดี
+
+### ปรับเองได้ที่ `permissions.json`
+
+คัดลอกจาก `permissions.example.json` วางไว้ที่รากโปรเจกต์หรือ `data/`
+(หรือชี้ด้วย `THURSDAY_PERMISSIONS`)
+
+```json
+{
+  "read_paths": ["~/Documents"],
+  "write_paths": ["~/Downloads/thursday"],
+  "deny_paths": ["**/Documents/tax/**"],
+  "tools": { "run_shell": "confirm", "lock_screen": "deny" },
+  "denied_commands": ["git push --force"]
+}
+```
+
+- `read_paths` / `write_paths` คือวิธี **เปิด** ไดเรกทอรีนอก workspace —
+  ไม่ใส่ = เข้าไม่ได้ ไม่ใช่ "ไม่มีกฎ = ผ่าน"
+- `deny_paths` ที่คุณเขียน **เพิ่มเข้าไป** ในของเดิม ไม่ได้แทนที่ —
+  พิมพ์ผิดในไฟล์นี้ไม่ควรทำให้ SSH key ของคุณเปิดโล่ง
+- ไฟล์พังหรือ JSON ไม่ถูกต้อง → กลับไปใช้ค่าเริ่มต้น ไม่ใช่เปิดหมด
+
+### ก่อนจะถามด้วยซ้ำ
+
+- คำสั่งทำลายล้าง (`rm -rf /`, `mkfs`, fork bomb, `dd if=/dev/zero`,
+  `shutdown`, `history -c`) ถูกปฏิเสธทันที
 - `write_file` และ `run_shell` ต้องได้รับการอนุมัติจากคุณก่อนเสมอ — ในเทอร์มินัล
   เป็นคำถาม y/N บนเว็บเป็น dialog ในโหมดเสียงถามออกมาเป็นคำพูด
-- คำสั่งทำลายล้าง (`rm -rf /`, `mkfs`, fork bomb ฯลฯ) ถูกปฏิเสธก่อนที่จะถามด้วยซ้ำ
-- ปิดเชลล์ทั้งหมดได้ด้วย `THURSDAY_ALLOW_SHELL=0`
+- ปิดเชลล์ทั้งหมดได้ด้วย `THURSDAY_ALLOW_SHELL=0` (เท่ากับ `denied_tools: ["run_shell"]`)
+- ทุกการตัดสินใจถูกบันทึกลงตาราง `audit` พร้อมเหตุผล — รวมถึงครั้งที่ถูกปฏิเสธ
 
 ## โครงสร้าง
 
@@ -542,6 +599,7 @@ thursday/
   documents.py    ทำดัชนี/ค้นเอกสาร (ถอยไปใช้คำเมื่อไม่มีโมเดล)
   service.py      systemd/launchd unit
   auth.py         access token, session, การล็อกเมื่อเดาผิด (กำแพงจริง)
+  permissions.py  กติกาว่าแตะเครื่องนี้ได้แค่ไหน + บันทึกทุกการตัดสินใจ
   identity.py     จดจำหน้า/เสียง + นโยบาย (ระบุตัวตน ไม่ใช่ความปลอดภัย)
   pricing.py      ตารางราคาและการคิดค่าใช้จ่าย
   tools/          registry + เครื่องมือมาตรฐาน (มี vision, desktop, routines)
