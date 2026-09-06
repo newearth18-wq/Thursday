@@ -44,6 +44,7 @@ Commands:
   /memory            show what I remember about you
   /forget <key>      make me forget one thing
   /reminders         list pending reminders
+  /plan              the long job in progress, and which step
   /drafts            mail and diary entries waiting for you
   /approve <id>      approve a draft, then /send it
   /send <id>         send a draft you have approved
@@ -340,6 +341,22 @@ def handle_command(line: str, agent: Agent, session_id: str, printer: Printer) -
             print(f"  also writable: {', '.join(rules['extra_writable'])}")
         if rules["denied_tools"]:
             print(f"  switched off: {', '.join(rules['denied_tools'])}")
+    elif command == "plan":
+        from .planner import Planner
+
+        plan = Planner(agent.memory).current()
+        if plan is None:
+            print("  nothing in progress")
+        else:
+            print(f"  {printer.paint(plan.title, BOLD)}  ({plan.done_count}/{len(plan.steps)})")
+            marks = {"done": ("\u25cf", GREEN), "doing": ("\u25c9", CYAN),
+                     "skipped": ("\u2013", DIM), "failed": ("\u2717", RED), "todo": ("\u25cb", DIM)}
+            for step in plan.steps:
+                glyph, colour = marks.get(step.state, ("\u25cb", DIM))
+                line = f"  {printer.paint(glyph, colour)} {step.text}"
+                print(line if step.state != "skipped" else printer.paint(line, DIM))
+                if step.result:
+                    print(printer.paint(f"      {step.result[:150]}", DIM))
     elif command in {"drafts", "approve", "send", "discard"}:
         from .drafts import DraftError, Outbox
 

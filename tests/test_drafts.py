@@ -275,3 +275,28 @@ def test_drafting_an_event_from_words(context):
     assert draft.starts_at.date() == tomorrow
     assert draft.starts_at.hour == 14
     assert draft.status == "draft"
+
+
+def test_sending_an_approved_draft_still_asks(context, monkeypatch):
+    """The last gate before it actually leaves - and it takes a title AND a
+    detail, which is how every other dangerous tool calls it."""
+    registry = build_registry(context.settings)
+    outbox = context.state["outbox"]
+    call(registry, "draft_email",
+         {"to": "them@example.com", "subject": "Hi", "body": "hello"}, context)
+    draft_id = outbox.list()[0].id
+    outbox.approve(draft_id)
+
+    asked = []
+
+    async def confirm(title, detail):
+        asked.append((title, detail))
+        return False
+
+    context.confirm = confirm
+    with pytest.raises(ToolError, match="declined"):
+        call(registry, "send_draft", {"draft_id": draft_id}, context)
+
+    assert asked and "Hi" in asked[0][0]
+    assert "them@example.com" in asked[0][1]
+    assert outbox.get(draft_id).status == "approved"    # not sent, not failed

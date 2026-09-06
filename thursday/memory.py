@@ -138,6 +138,30 @@ CREATE TABLE IF NOT EXISTS drafts (
     updated_at  REAL NOT NULL
 );
 CREATE INDEX IF NOT EXISTS idx_drafts_status ON drafts(status, created_at);
+
+-- Work too big for one turn, written down before it starts so you can see
+-- what is meant to happen and where it has got to.
+CREATE TABLE IF NOT EXISTS plans (
+    id          INTEGER PRIMARY KEY AUTOINCREMENT,
+    title       TEXT NOT NULL,
+    -- open | finished | abandoned
+    state       TEXT NOT NULL DEFAULT 'open',
+    session_id  TEXT NOT NULL DEFAULT '',
+    created_at  REAL NOT NULL,
+    updated_at  REAL NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_plans_state ON plans(state, id);
+
+CREATE TABLE IF NOT EXISTS plan_steps (
+    plan_id     INTEGER NOT NULL,
+    number      INTEGER NOT NULL,
+    text        TEXT NOT NULL,
+    -- todo | doing | done | skipped | failed
+    state       TEXT NOT NULL DEFAULT 'todo',
+    result      TEXT NOT NULL DEFAULT '',
+    updated_at  REAL NOT NULL,
+    PRIMARY KEY (plan_id, number)
+);
 """
 
 
@@ -608,6 +632,68 @@ class Memory:
         self._execute(
             "UPDATE drafts SET status=?, updated_at=? WHERE id=?",
             (status, _now(), draft_id),
+        )
+
+    # ------------------------------------------------------------------ plans
+
+    def add_plan(self, title: str, steps: list[str], session_id: str = "") -> int:
+        now = _now()
+        with self._lock:
+            cur = self._conn.execute(
+                "INSERT INTO plans (title, session_id, created_at, updated_at) VALUES (?,?,?,?)",
+                (title, session_id, now, now),
+            )
+            plan_id = int(cur.lastrowid or 0)
+            self._conn.executemany(
+                "INSERT INTO plan_steps (plan_id, number, text, updated_at) VALUES (?,?,?,?)",
+                [(plan_id, index, text, now) for index, text in enumerate(steps, start=1)],
+            )
+            self._conn.commit()
+        return plan_id
+
+    def plan(self, plan_id: int) -> Any:
+        rows = self._query("SELECT * FROM plans WHERE id=?", (plan_id,))
+        return rows[0] if rows else None
+
+    def plans(self, state: str = "", limit: int = 20) -> list[Any]:
+        sql = "SELECT * FROM plans"
+        params: list[Any] = []
+        if state:
+            sql += " WHERE state=?"
+            params.append(state)
+        sql += " ORDER BY id DESC LIMIT ?"
+        params.append(limit)
+        return self._query(sql, params)
+
+    def plan_steps(self, plan_id: int) -> list[Any]:
+        return self._query(
+            "SELECT * FROM plan_steps WHERE plan_id=? ORDER BY number", (plan_id,)
+        )
+
+    def add_plan_step(self, plan_id: int, text: str) -> int:
+        with self._lock:
+            row = self._conn.execute(
+                "SELECT COALESCE(MAX(number), 0) AS n FROM plan_steps WHERE plan_id=?",
+                (plan_id,),
+            ).fetchone()
+            number = int(row["n"]) + 1
+            self._conn.execute(
+                "INSERT INTO plan_steps (plan_id, number, text, updated_at) VALUES (?,?,?,?)",
+                (plan_id, number, text, _now()),
+            )
+            self._conn.commit()
+        return number
+
+    def set_step(self, plan_id: int, number: int, state: str, result: str = "") -> None:
+        self._execute(
+            "UPDATE plan_steps SET state=?, result=?, updated_at=? WHERE plan_id=? AND number=?",
+            (state, result, _now(), plan_id, number),
+        )
+        self._execute("UPDATE plans SET updated_at=? WHERE id=?", (_now(), plan_id))
+
+    def set_plan_state(self, plan_id: int, state: str) -> None:
+        self._execute(
+            "UPDATE plans SET state=?, updated_at=? WHERE id=?", (state, _now(), plan_id)
         )
 
     # ------------------------------------------------------------------- jobs

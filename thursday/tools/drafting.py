@@ -224,8 +224,10 @@ async def send_draft(draft_id: str, ctx: ToolContext = None) -> dict[str, Any]:
             "Show it to the user and let them approve it - you cannot approve it yourself."
         )
     if ctx is not None:
-        where = ", ".join(draft.to) or "the calendar"
-        agreed = await ctx.request_confirmation(f"Send \"{draft.subject}\" to {where}?")
+        where = ", ".join(draft.to) or "your calendar"
+        agreed = await ctx.request_confirmation(
+            f"Send \"{draft.subject}\"?", f"To {where}\n\n{draft.body[:600]}"
+        )
         if not agreed:
             raise ToolError("the user declined to send it")
     try:

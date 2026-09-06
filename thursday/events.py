@@ -12,6 +12,7 @@ EventType = Literal[
     "tool_end",     # a tool finished
     "tool_error",   # a tool raised
     "profile",      # which profile/model is handling this turn
+    "plan",         # the plan for a long piece of work, and where it has got to
     "turn_end",     # one model turn completed (more may follow)
     "usage",        # tokens and cost for a model turn
     "cancelled",    # the user stopped the turn part way

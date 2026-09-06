@@ -467,6 +467,26 @@ class Agent:
             )
         )
 
+    #: Tools that change the plan, so the front ends can redraw it live rather
+    #: than polling for something that changes a handful of times a turn.
+    PLAN_TOOLS = frozenset({
+        "make_plan", "start_step", "finish_step", "skip_step", "fail_step",
+        "add_plan_step", "show_plan", "abandon_plan",
+    })
+
+    async def _emit_plan(self, tool_name: str, emit: Any) -> None:
+        """Send the plan out after anything that touched it."""
+        if tool_name not in self.PLAN_TOOLS:
+            return
+        from .planner import Planner
+
+        try:
+            plan = Planner(self.memory).current()
+        except Exception:  # pragma: no cover - a plan is never worth a turn
+            log.exception("could not read the plan back")
+            return
+        await emit(Event("plan", data=plan.as_dict() if plan else {"state": "none"}))
+
     async def _run_tools(
         self, content: Iterable[dict[str, Any]], profile: Profile, emit
     ) -> list[dict[str, Any]]:
@@ -542,6 +562,7 @@ class Agent:
                     results.append(
                         {"type": "tool_result", "tool_use_id": block_id, "content": output}
                     )
+                await self._emit_plan(name, emit)
             except ToolError as exc:
                 self.memory.record_access(
                     name, arguments, "failed", str(exc), self.context.state.get("session_id", "")

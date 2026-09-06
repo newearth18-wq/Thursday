@@ -404,6 +404,7 @@ BUILTIN_TOOL_MODULES = (
     "knowledge",
     "library",
     "mail",
+    "planning",
     "routines",
     "scheduling",
     "shell",

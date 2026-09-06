@@ -24,6 +24,7 @@ from .memory import Memory
 from .mood import MoodTracker
 from .proactive import Proactive
 from .permissions import Policy
+from .planner import Planner
 from .persona import system_prompt
 from .settings_store import describe as describe_settings
 from .settings_store import update as update_settings
@@ -578,6 +579,12 @@ def create_app(settings: Settings | None = None) -> Any:
                         }
                         for profile in agent.profiles.values()
                     ],
+                    # Work already under way, so a reload lands back on the
+                    # same step rather than on an empty rail.
+                    "plan": (
+                        current_plan.as_dict() if (current_plan := Planner(agent.memory).current())
+                        else None
+                    ),
                 }
             )
         )
