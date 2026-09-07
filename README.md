@@ -23,6 +23,23 @@
 irm https://raw.githubusercontent.com/newearth18-wq/Thursday/main/install.ps1 | iex
 ```
 
+> **ถ้าโค้ดยังไม่ถูก merge เข้า `main`** คำสั่งข้างบนจะขึ้น `404: Not Found`
+> เพราะ `main` ยังว่างอยู่ ให้ใส่ชื่อ branch ทั้งสองที่ — ทั้ง URL ที่ดึงสคริปต์
+> และ `-Branch` ที่บอกว่าจะติดตั้งอะไร:
+>
+> ```powershell
+> $b = 'claude/jarvis-assistant-mhfwe6'
+> & ([scriptblock]::Create((irm "https://raw.githubusercontent.com/newearth18-wq/Thursday/$b/install.ps1"))) -Branch $b
+> ```
+>
+> หรือถ้ามี git อยู่แล้ว จะตรงกว่า:
+>
+> ```powershell
+> git clone -b claude/jarvis-assistant-mhfwe6 https://github.com/newearth18-wq/Thursday.git
+> cd Thursday
+> .\install.ps1
+> ```
+
 มันจะติดตั้ง Python ให้ถ้ายังไม่มี สร้าง venv ลงแพ็กเกจ ถาม API key
 ถามที่อยู่ vault ของ Obsidian แล้ววางช็อตคัตไว้บน Start menu
 

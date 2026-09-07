@@ -8,6 +8,11 @@
 
         irm https://raw.githubusercontent.com/newearth18-wq/Thursday/main/install.ps1 | iex
 
+    From a branch that has not been merged yet, both halves need the branch -
+    the URL to fetch this script, and -Branch to tell it what to install:
+
+        & ([scriptblock]::Create((irm https://raw.githubusercontent.com/newearth18-wq/Thursday/BRANCH/install.ps1))) -Branch BRANCH
+
     Or, from a clone:
 
         .\install.ps1
@@ -26,6 +31,9 @@
 param(
     # Where to put it. Defaults beside this script when run from a clone.
     [string] $Path = "",
+    # Which branch to install from. Only worth changing before a change has
+    # been merged - see the README.
+    [string] $Branch = "main",
     # Install the voice extras too. Off by default: they pull in torch.
     [switch] $WithVoice,
     # Run it when the install finishes.
@@ -105,21 +113,36 @@ if (-not $Path) {
 if (Test-Path (Join-Path $Path "pyproject.toml")) {
     Say "using $Path" "Green"
 } elseif (Get-Command git -ErrorAction SilentlyContinue) {
-    git clone --depth 1 $Repo $Path
-    Say "cloned into $Path" "Green"
+    git clone --depth 1 --branch $Branch $Repo $Path
+    Say "cloned $Branch into $Path" "Green"
 } else {
     # No git is normal on a fresh Windows machine, and installing it to fetch
     # one zip is not a reasonable ask.
     $zip = Join-Path $env:TEMP "thursday.zip"
-    Invoke-WebRequest "$Repo/archive/refs/heads/main.zip" -OutFile $zip
+    try {
+        Invoke-WebRequest "$Repo/archive/refs/heads/$Branch.zip" -OutFile $zip
+    } catch {
+        Die "could not download branch '$Branch' from $Repo. Check the name and try again."
+    }
     Expand-Archive $zip -DestinationPath $env:TEMP -Force
+    # GitHub names the folder after the branch with every / turned into a -,
+    # so a branch like feature/thing unpacks as Repo-feature-thing.
+    $unpacked = Join-Path $env:TEMP ("Thursday-" + ($Branch -replace "/", "-"))
     New-Item -ItemType Directory -Force -Path $Path | Out-Null
-    Copy-Item (Join-Path $env:TEMP "Thursday-main\*") $Path -Recurse -Force
+    Copy-Item (Join-Path $unpacked "*") $Path -Recurse -Force
     Remove-Item $zip -Force
-    Say "downloaded into $Path" "Green"
+    Say "downloaded $Branch into $Path" "Green"
 }
 
 Set-Location $Path
+
+# Checked rather than assumed: a branch that exists but holds no code clones
+# perfectly happily, and the first sign would otherwise be a confusing pip
+# error several steps later.
+if (-not (Test-Path (Join-Path $Path "pyproject.toml"))) {
+    Die ("no pyproject.toml in $Path - branch '$Branch' does not contain Thursday. " +
+         "If the code is still on a feature branch, pass -Branch <name>.")
+}
 
 # ------------------------------------------------------------- the venv
 

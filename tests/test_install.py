@@ -241,3 +241,36 @@ def test_local_addresses_are_real_and_reachable():
     for address in local_addresses():
         assert not address.startswith("127.")
         assert not address.startswith("169.254.")
+
+
+def test_the_installer_can_be_pointed_at_a_branch():
+    """Until a change is merged, `main` is not where the code is - and the
+    404 that produces is the least helpful error in the whole flow."""
+    text = (Path(__file__).resolve().parent.parent / "install.ps1").read_text(
+        encoding="utf-8"
+    )
+
+    assert "$Branch" in text
+    assert "--branch $Branch" in text                  # the clone honours it
+    assert "refs/heads/$Branch.zip" in text            # so does the download
+
+
+def test_the_installer_notices_a_branch_with_no_code_in_it():
+    """A branch that exists but is empty clones perfectly happily; without
+    this the first sign is a confusing pip error several steps later."""
+    text = (Path(__file__).resolve().parent.parent / "install.ps1").read_text(
+        encoding="utf-8"
+    )
+
+    assert "does not contain Thursday" in text
+
+
+def test_a_branch_name_with_a_slash_unpacks_under_the_right_folder():
+    """GitHub turns every / in a branch name into a - in the zip's folder,
+    so feature/thing arrives as Repo-feature-thing."""
+    text = (Path(__file__).resolve().parent.parent / "install.ps1").read_text(
+        encoding="utf-8"
+    )
+
+    assert '$Branch -replace "/", "-"' in text
+    assert "Thursday-main" not in text          # no hardcoded branch left
