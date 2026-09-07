@@ -206,11 +206,12 @@ def test_binding_everywhere_is_opened_somewhere_reachable():
 
 
 def test_the_selftest_covers_everything_the_release_notes_promise():
-    carried = {module for _, module in app.REQUIRED + app.OPTIONAL}
+    """Whatever the notes say is in the box, the exe can be asked about."""
+    carried = {module.split(".")[0] for _, module in app.REQUIRED + app.OPTIONAL}
 
-    for module in ("anthropic", "uvicorn", "pypdf", "docx", "mcp", "playwright",
-                   "qrcode", "sounddevice", "faster_whisper"):
-        assert module in carried
+    for package in ("anthropic", "uvicorn", "pypdf", "docx", "mcp", "playwright",
+                    "qrcode", "sounddevice", "faster_whisper", "PIL"):
+        assert package in carried
 
 
 def test_a_missing_optional_package_is_not_a_broken_build():
@@ -242,6 +243,35 @@ def test_the_packages_that_carry_their_own_files_are_collected():
 
     for package in ("anthropic", "certifi", "uvicorn", "playwright", "sounddevice"):
         assert f'"{package}"' in spec
+
+
+def test_only_packages_that_are_safe_to_import_are_walked():
+    """collect_submodules imports every submodule to find out what is there,
+    and two things that come up raise BaseException rather than Exception, so
+    PyInstaller's error handling never sees them and the build simply dies:
+    mcp's cli calls sys.exit() when typer is missing, and qrcode's own tests
+    raise _pytest.outcomes.Skipped. Both cost a build, so both are pinned."""
+    spec = read_spec()
+    walked = spec.split("collect_submodules(package", 1)[0].rsplit("for package in", 1)[1]
+
+    assert "mcp" not in walked
+    assert "qrcode" not in walked
+    assert '"uvicorn"' in walked and '"thursday"' in walked
+
+
+def test_what_is_not_walked_is_named_instead():
+    """Dropping a package from the walk has to move its dynamic imports, not
+    lose them."""
+    spec = read_spec()
+
+    assert '"pyttsx3.drivers.sapi5"' in spec
+    assert '"mcp.server"' in spec
+
+
+def test_the_selftest_asks_for_the_part_that_can_actually_be_missing():
+    """`import mcp` succeeding proves nothing once the submodules are not
+    collected wholesale; mcp.server is the piece Thursday serves from."""
+    assert ("MCP", "mcp.server") in app.OPTIONAL
 
 
 def test_the_page_is_in_the_bundle():

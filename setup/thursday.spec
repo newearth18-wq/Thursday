@@ -8,11 +8,32 @@ nowhere to put one.
 The rule throughout: nothing is downloaded at runtime, so anything that would
 have been downloaded has to be found now. The two things that break that rule
 do so for a reason and are named where they happen.
+
+The other rule is subtler and cost a build to learn. There are two ways to
+collect a package and they are not interchangeable:
+
+    collect_data_files      reads the filesystem. Safe on anything.
+    collect_submodules      imports every submodule to find out what is
+                            there, in this interpreter, right now.
+
+So collecting submodules from a package that ships a command-line tool runs
+that tool's imports - and `mcp.cli` calls sys.exit() when typer is missing,
+which does not raise an exception PyInstaller can catch. It takes the whole
+analysis down with it. (collect_all's filter_submodules does not help: the
+filter is applied to the list after the child process has already imported
+everything to build it.)
+
+Hence the split below. Submodules are walked only where something really is
+imported by name at runtime and static analysis would miss it.
 """
 
 import os
 
-from PyInstaller.utils.hooks import collect_all, collect_submodules
+from PyInstaller.utils.hooks import (
+    collect_data_files,
+    collect_dynamic_libs,
+    collect_submodules,
+)
 
 ROOT = os.path.dirname(SPECPATH)  # noqa: F821 - SPECPATH is injected by PyInstaller
 
@@ -20,50 +41,49 @@ datas = []
 binaries = []
 hiddenimports = []
 
-# Packages whose own files are part of them: certificates, a Node driver, a
-# PortAudio DLL. PyInstaller follows imports, not data, so these say so.
+# Packages whose own files are part of them, and whose code is reached by
+# ordinary imports that analysis can follow on its own.
 #
-#   anthropic     the Claude client, which imports its models by name
-#   certifi       the CA bundle every https call needs; without it, nothing
-#                 talks to anything
-#   uvicorn       picks its http and websocket implementations by string at
-#                 startup, so static analysis finds none of them
-#   playwright    carries a Node driver it runs as a subprocess
-#   sounddevice   is a wrapper around a PortAudio DLL that ships beside it
-#   mcp, qrcode   small, and both are imported lazily from inside functions
-for package in ("anthropic", "certifi", "uvicorn", "playwright",
-                "sounddevice", "mcp", "qrcode"):
-    found_datas, found_binaries, found_hidden = collect_all(package)
-    datas += found_datas
-    binaries += found_binaries
-    hiddenimports += found_hidden
+#   certifi          the CA bundle every https call needs; without it,
+#                    nothing talks to anything
+#   playwright       carries a Node driver it runs as a subprocess
+#   sounddevice      wraps a PortAudio DLL that ships beside it
+#   faster_whisper   carries the voice-activity model as an .onnx file
+#   mcp, anthropic   no data worth mentioning, but harmless to ask, and
+#                    listing them says they were considered
+for package in ("certifi", "playwright", "sounddevice", "faster_whisper",
+                "mcp", "anthropic", "PIL"):
+    datas += collect_data_files(package)
+    binaries += collect_dynamic_libs(package)
 
-# Thursday reaches for most of itself lazily - `from .vault import Vault`
-# inside the function that needs it - which PyInstaller does follow, but
-# there is no reason to depend on it having followed every one.
-hiddenimports += collect_submodules("thursday")
+# The only two packages walked for submodules, which is to say imported one
+# by one. uvicorn chooses its http and websocket implementations at startup
+# and static analysis finds none of them; Thursday reaches for most of itself
+# lazily, and while PyInstaller does follow a function-level import there is
+# no reason to depend on it having followed every one. Both were checked by
+# doing the walk by hand first.
+for package in ("uvicorn", "thursday"):
+    hiddenimports += collect_submodules(package, on_error="warn")
 
-# What uvicorn[standard] installs and then imports by name. uvloop is
-# deliberately absent: it does not build on Windows, and uvicorn falls back
-# to asyncio on its own.
+# Everything else reached by name is named here instead of walked, because
+# walking is not free of consequence. It imports a package's own test
+# modules too, and a test module that skips itself raises
+# _pytest.outcomes.Skipped - which, like sys.exit, inherits from
+# BaseException rather than Exception, so PyInstaller's error handling never
+# sees it and the analysis process simply dies. qrcode is the one that does
+# that; nothing here needs its image backends anyway, since a QR code for a
+# terminal is drawn out of half-block characters.
 hiddenimports += [
-    "h11", "httptools", "websockets", "websockets.legacy",
-    "watchfiles", "dotenv", "multipart",
+    # uvicorn[standard], picked by name at startup. uvloop is deliberately
+    # absent: it does not build on Windows, and uvicorn falls back to asyncio.
+    "h11", "httptools", "websockets", "watchfiles", "dotenv",
+    # The speech driver for this platform. pyttsx3 picks one by name.
+    "pyttsx3.drivers", "pyttsx3.drivers.sapi5",
+    # Both halves of MCP, each imported inside the function that needs it.
+    "mcp.server", "mcp.server.stdio", "mcp.client", "mcp.client.stdio",
+    # Drafting an email builds these by hand.
     "email.mime.text", "email.mime.multipart", "email.mime.base",
 ]
-
-# Speech, which is optional at runtime and imported inside the functions that
-# use it, so nothing here is reachable by analysis. Missing on a machine
-# where the wheel would not install, which is not an error - Thursday says so
-# and carries on, exactly as it does from a source install.
-for package in ("faster_whisper", "pyttsx3", "comtypes"):
-    try:
-        found_datas, found_binaries, found_hidden = collect_all(package)
-    except Exception:                                     # noqa: BLE001
-        continue
-    datas += found_datas
-    binaries += found_binaries
-    hiddenimports += found_hidden
 
 # The page, and the example files that get copied into the person's own
 # folder on first run so there is something to edit.

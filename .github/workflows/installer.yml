@@ -47,7 +47,7 @@ jobs:
         run: |
           python -m pip install --upgrade pip
           pip install pyinstaller
-          pip install -e ".[web,documents,browser,mcp,voice]"
+          pip install -e ".[web,vision,documents,browser,mcp,voice]"
 
       - name: Draw the icon
         run: python setup/make_icon.py setup/thursday.ico

@@ -55,8 +55,12 @@ REQUIRED = (
 OPTIONAL = (
     ("PDF", "pypdf"),
     ("Word", "docx"),
-    ("MCP", "mcp"),
-    ("browser control", "playwright"),
+    # mcp.server, not mcp: the top-level package imports on its own, and the
+    # part Thursday serves other apps from is a submodule, which is exactly
+    # the piece a bundle can be missing while `import mcp` still works.
+    ("MCP", "mcp.server"),
+    ("browser control", "playwright.sync_api"),
+    ("images", "PIL.Image"),
     ("QR codes", "qrcode"),
     ("microphone", "sounddevice"),
     ("speech recognition", "faster_whisper"),
