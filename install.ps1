@@ -59,42 +59,90 @@ Write-Host @"
 
 Step "Looking for Python"
 
-function Find-Python {
-    # The launcher first: it knows about every install, including ones not on
-    # PATH, which is the usual reason "python" fails on a Windows box that
-    # definitely has Python.
-    foreach ($candidate in @(
-        @{ exe = "py";     args = @("-3", "-c", "import sys; print(sys.executable)") },
-        @{ exe = "python"; args = @("-c", "import sys; print(sys.executable)") }
-    )) {
-        if (-not (Get-Command $candidate.exe -ErrorAction SilentlyContinue)) { continue }
-        try {
-            $found = & $candidate.exe @($candidate.args) 2>$null
-        } catch { continue }
-        # The Microsoft Store ships a stub that prints nothing and opens the
-        # Store when you run it. It is not Python.
-        if (-not $found -or $found -match "WindowsApps") { continue }
-        $version = & $found -c "import sys; print('%d.%d' % sys.version_info[:2])" 2>$null
-        if ($version -and [version]$version -ge [version]"3.10") {
-            return @{ exe = $found; version = $version }
+# The newest Python is often the wrong one. Wheels for the heavier
+# dependencies - playwright, pypdf, the uvicorn extras - lag a new release by
+# months, and without a wheel pip builds from source, which needs the C++
+# compiler this script exists to avoid. So: prefer the newest Python that is
+# not newer than this, and fall back to whatever is there with a warning.
+$KnownGood = [version]"3.13"
+$Oldest = [version]"3.10"
+
+function Get-PythonCandidates {
+    $found = @()
+
+    # The launcher knows about every install, including ones not on PATH -
+    # which is the usual reason "python" fails on a box that definitely has
+    # Python. -0p lists them all with their paths.
+    if (Get-Command py -ErrorAction SilentlyContinue) {
+        foreach ($line in (& py -0p 2>$null)) {
+            # " -V:3.12 *        C:\Python312\python.exe", and the older
+            # " -3.12-64          C:\Python312\python.exe".
+            if ($line -match "(\d+\.\d+).*?([A-Za-z]:\\.*python\.exe)") {
+                $found += @{ version = [version]$Matches[1]; exe = $Matches[2].Trim() }
+            }
         }
     }
-    return $null
+
+    # And whatever plain `python` resolves to, in case the launcher is absent.
+    if (Get-Command python -ErrorAction SilentlyContinue) {
+        try {
+            $exe = & python -c "import sys; print(sys.executable)" 2>$null
+            $raw = & python -c "import sys; print('%d.%d' % sys.version_info[:2])" 2>$null
+            if ($exe -and $raw) { $found += @{ version = [version]$raw; exe = $exe.Trim() } }
+        } catch { }
+    }
+
+    # The Microsoft Store ships a stub that prints nothing and opens the Store
+    # when you run it. It is not Python.
+    $found | Where-Object {
+        $_.exe -and ($_.exe -notmatch "WindowsApps") -and ($_.version -ge $Oldest)
+    }
+}
+
+function Find-Python {
+    $all = @(Get-PythonCandidates)
+    if (-not $all) { return $null }
+
+    $supported = @($all | Where-Object { $_.version -le $KnownGood } |
+                   Sort-Object { $_.version } -Descending)
+    if ($supported) { return $supported[0] }
+
+    # Only something newer than we have wheels for. Usable, but say so: the
+    # install may stop and ask for a compiler, and that is not a mystery
+    # anyone should have to solve on their own.
+    $newest = @($all | Sort-Object { $_.version })[0]
+    Warn ("only Python $($newest.version) was found. Some packages have no wheels for it " +
+          "yet and may try to build from source.")
+    Warn ("If the install fails, get Python $KnownGood from python.org and run this again.")
+    return $newest
+}
+
+function Install-Python {
+    if (-not (Get-Command winget -ErrorAction SilentlyContinue)) { return $null }
+    winget install --id Python.Python.3.12 --source winget `
+        --accept-package-agreements --accept-source-agreements --silent
+    # winget puts it on PATH for new processes, not this one.
+    $env:Path = [Environment]::GetEnvironmentVariable("Path", "Machine") + ";" +
+                [Environment]::GetEnvironmentVariable("Path", "User")
+    return Find-Python
 }
 
 $python = Find-Python
+
+if ($python -and $python.version -gt $KnownGood) {
+    # There is a Python, but it is ahead of the wheels. Getting a supported
+    # one is a two-minute download and saves an install that stops halfway
+    # asking for Visual Studio.
+    Say "fetching Python 3.12 as well, so nothing has to be compiled"
+    $better = Install-Python
+    if ($better -and $better.version -le $KnownGood) { $python = $better }
+}
+
 if ($python) {
     Say "found Python $($python.version) at $($python.exe)" "Green"
 } else {
     Warn "no Python 3.10 or newer found - installing it"
-    if (Get-Command winget -ErrorAction SilentlyContinue) {
-        winget install --id Python.Python.3.12 --source winget `
-            --accept-package-agreements --accept-source-agreements --silent
-        # winget puts it on PATH for new processes, not this one.
-        $env:Path = [Environment]::GetEnvironmentVariable("Path", "Machine") + ";" +
-                    [Environment]::GetEnvironmentVariable("Path", "User")
-        $python = Find-Python
-    }
+    $python = Install-Python
     if (-not $python) {
         Die "could not install Python. Get it from https://python.org/downloads and run this again."
     }
@@ -106,8 +154,16 @@ if ($python) {
 Step "Getting Thursday"
 
 if (-not $Path) {
-    $Path = if (Test-Path (Join-Path $PSScriptRoot "pyproject.toml")) { $PSScriptRoot }
-            else { Join-Path $env:LOCALAPPDATA "Thursday" }
+    # $PSScriptRoot is empty when this is piped into iex - there is no script
+    # file to be beside - and Join-Path throws on an empty path rather than
+    # returning one, so it has to be checked before it is used.
+    $beside = if ($PSScriptRoot -and (Test-Path (Join-Path $PSScriptRoot "pyproject.toml"))) {
+        $PSScriptRoot
+    } else { "" }
+
+    $Path = if ($beside) { $beside }
+            elseif ($env:LOCALAPPDATA) { Join-Path $env:LOCALAPPDATA "Thursday" }
+            else { Join-Path $HOME "Thursday" }
 }
 
 if (Test-Path (Join-Path $Path "pyproject.toml")) {

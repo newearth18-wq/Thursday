@@ -274,3 +274,42 @@ def test_a_branch_name_with_a_slash_unpacks_under_the_right_folder():
 
     assert '$Branch -replace "/", "-"' in text
     assert "Thursday-main" not in text          # no hardcoded branch left
+
+
+def _installer() -> str:
+    return (Path(__file__).resolve().parent.parent / "install.ps1").read_text(
+        encoding="utf-8"
+    )
+
+
+def test_the_installer_survives_being_piped_into_iex():
+    """$PSScriptRoot is empty when there is no script file, and Join-Path
+    throws on an empty path rather than returning one - which is exactly what
+    the one-line install hit."""
+    text = _installer()
+
+    assert "$PSScriptRoot -and (Test-Path" in text
+    # And the fallbacks it lands on are themselves guarded.
+    assert "elseif ($env:LOCALAPPDATA)" in text
+    assert 'Join-Path $HOME "Thursday"' in text
+
+
+def test_the_installer_prefers_a_python_that_has_wheels():
+    """The newest Python is often the wrong one: wheels lag a release by
+    months, and without one pip builds from source - needing exactly the
+    compiler this script exists to avoid."""
+    text = _installer()
+
+    assert '$KnownGood = [version]"3.13"' in text
+    assert "$_.version -le $KnownGood" in text
+    # Too new is not fatal - it fetches a supported one rather than stopping.
+    assert "$python.version -gt $KnownGood" in text
+    assert "Install-Python" in text
+
+
+def test_the_installer_finds_pythons_that_are_not_on_path():
+    """`py -0p` lists every install; not being on PATH is the usual reason
+    `python` fails on a machine that definitely has Python."""
+    text = _installer()
+
+    assert "py -0p" in text
