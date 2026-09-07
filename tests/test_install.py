@@ -255,6 +255,43 @@ def test_the_installer_can_be_pointed_at_a_branch():
     assert "refs/heads/$Branch.zip" in text            # so does the download
 
 
+def test_nobody_has_to_know_which_branch_the_code_is_on():
+    """The whole point of a one-line install is that it is one line. Passing
+    a branch name is not something anyone should have to look up."""
+    text = (Path(__file__).resolve().parent.parent / "install.ps1").read_text(
+        encoding="utf-8"
+    )
+
+    assert '[string] $Branch = ""' in text        # empty means work it out
+    assert "function Resolve-Branch" in text
+    # main first, so this needs no maintenance once the code is merged.
+    assert "@($MainBranch, $WorkBranch)" in text
+    # A branch holds Thursday if it holds a pyproject.toml.
+    assert "$branch/pyproject.toml" in text
+
+
+def test_a_branch_that_cannot_be_found_says_what_to_do():
+    text = (Path(__file__).resolve().parent.parent / "install.ps1").read_text(
+        encoding="utf-8"
+    )
+
+    assert "could not find a branch" in text
+    assert "-Branch <name>" in text
+
+
+def test_the_installer_advertises_a_url_that_exists():
+    """A one-line install is only easy if the line is real. Every URL in the
+    docstring points at raw.githubusercontent, not a shortener nobody made."""
+    text = (Path(__file__).resolve().parent.parent / "install.ps1").read_text(
+        encoding="utf-8"
+    )
+    shown = [line for line in text.splitlines() if "irm http" in line]
+
+    assert shown
+    assert all("raw.githubusercontent.com/newearth18-wq/Thursday/" in line
+               for line in shown)
+
+
 def test_the_installer_notices_a_branch_with_no_code_in_it():
     """A branch that exists but is empty clones perfectly happily; without
     this the first sign is a confusing pip error several steps later."""
@@ -313,3 +350,17 @@ def test_the_installer_finds_pythons_that_are_not_on_path():
     text = _installer()
 
     assert "py -0p" in text
+
+
+def test_a_clone_install_asks_the_network_nothing_about_branches():
+    """Running .\\install.ps1 from a checkout should work with the network
+    unplugged - the code is already there, so there is nothing to resolve."""
+    text = (Path(__file__).resolve().parent.parent / "install.ps1").read_text(
+        encoding="utf-8"
+    )
+    body = text[text.index('if (Test-Path (Join-Path $Path "pyproject.toml"))'):
+                text.index("Set-Location $Path")]
+    already_here, needs_fetching = body.split("} else {", 1)
+
+    assert "Resolve-Branch" not in already_here
+    assert "Resolve-Branch" in needs_fetching

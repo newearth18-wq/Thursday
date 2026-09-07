@@ -17,37 +17,44 @@
 
 ### Windows — คำสั่งเดียว
 
-เปิด PowerShell ธรรมดา (ไม่ต้อง Administrator) แล้ววาง:
+เปิด PowerShell ธรรมดา (ไม่ต้อง Administrator) แล้ววางบรรทัดนี้:
 
 ```powershell
-irm https://raw.githubusercontent.com/newearth18-wq/Thursday/main/install.ps1 | iex
+irm https://raw.githubusercontent.com/newearth18-wq/Thursday/claude/jarvis-assistant-mhfwe6/install.ps1 | iex
 ```
 
-> **ถ้าโค้ดยังไม่ถูก merge เข้า `main`** คำสั่งข้างบนจะขึ้น `404: Not Found`
-> เพราะ `main` ยังว่างอยู่ ให้ใส่ชื่อ branch ทั้งสองที่ — ทั้ง URL ที่ดึงสคริปต์
-> และ `-Branch` ที่บอกว่าจะติดตั้งอะไร:
->
-> ```powershell
-> $b = 'claude/jarvis-assistant-mhfwe6'
-> & ([scriptblock]::Create((irm "https://raw.githubusercontent.com/newearth18-wq/Thursday/$b/install.ps1"))) -Branch $b
-> ```
->
-> หรือถ้ามี git อยู่แล้ว จะตรงกว่า:
->
-> ```powershell
-> git clone -b claude/jarvis-assistant-mhfwe6 https://github.com/newearth18-wq/Thursday.git
-> cd Thursday
-> .\install.ps1
-> ```
+แค่นั้น ไม่ต้องตั้งตัวแปร ไม่ต้องใส่ `-Branch` ไม่ต้องรู้ว่าโค้ดอยู่ branch ไหน —
+สคริปต์หาเอง (ลอง `main` ก่อน ไม่มีค่อยไปหาที่อื่น)
+พอ merge เข้า `main` แล้วจะสั้นลงเหลือ `.../Thursday/main/install.ps1`
 
-มันจะติดตั้ง Python ให้ถ้ายังไม่มี สร้าง venv ลงแพ็กเกจ ถาม API key
-ถามที่อยู่ vault ของ Obsidian แล้ววางช็อตคัตไว้บน Start menu
+มันจะ:
+1. หา Python ที่ใช้ได้ ถ้าไม่มีก็ลงให้ (เลี่ยงตัวที่ใหม่เกินจนไม่มี wheel)
+2. สร้าง venv + ลงแพ็กเกจ
+3. ถาม API key กับที่อยู่ vault ของ Obsidian
+4. วางช็อตคัตบน Start menu
+
+จากนั้นกด **Thursday** ใน Start menu ได้เลย
 
 - **ไม่ลงอะไรที่ต้องใช้ C++ compiler** — การจดจำใบหน้าต้อง dlib ซึ่งต้อง
   Visual Studio Build Tools หลายกิกะไบต์ สคริปต์เลยข้ามไป แล้วบอกวิธีเพิ่มทีหลัง
 - **ไม่ลงเสียงเว้นแต่จะขอ** (`-WithVoice`) เพราะ torch หนักประมาณ 2 GB
   และหน้าเว็บใช้ระบบเสียงของเบราว์เซอร์เองได้อยู่แล้ว
 - ให้รันตั้งแต่เปิดเครื่อง: `thursday service --apply` (ใช้ Task Scheduler)
+
+<details>
+<summary>ถ้าอยากใช้ git แทน</summary>
+
+```powershell
+cd $HOME
+git clone -b claude/jarvis-assistant-mhfwe6 https://github.com/newearth18-wq/Thursday.git
+cd Thursday
+.\install.ps1
+```
+
+`git clone` สร้างโฟลเดอร์ `Thursday` **ข้างใน**ที่ที่คุณยืนอยู่ ถ้าอยู่ใน
+`C:\Users\คุณ\Thursday` อยู่แล้ว ไฟล์จะไปอยู่ที่ `...\Thursday\Thursday\`
+— `cd Thursday` อีกทีก่อนรัน
+</details>
 
 ### Android — สแกนครั้งเดียว
 

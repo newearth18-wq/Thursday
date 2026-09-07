@@ -6,12 +6,15 @@
     One command, from a normal PowerShell window - no administrator rights,
     no Visual Studio, no WSL:
 
+        irm https://raw.githubusercontent.com/newearth18-wq/Thursday/claude/jarvis-assistant-mhfwe6/install.ps1 | iex
+
+    and, once that branch is merged, the shorter
+
         irm https://raw.githubusercontent.com/newearth18-wq/Thursday/main/install.ps1 | iex
 
-    From a branch that has not been merged yet, both halves need the branch -
-    the URL to fetch this script, and -Branch to tell it what to install:
-
-        & ([scriptblock]::Create((irm https://raw.githubusercontent.com/newearth18-wq/Thursday/BRANCH/install.ps1))) -Branch BRANCH
+    Either way it works out for itself which branch of the repository holds
+    the code, so there is nothing to pass and nothing to know. -Branch is
+    there for anyone who wants a particular one.
 
     Or, from a clone:
 
@@ -31,9 +34,9 @@
 param(
     # Where to put it. Defaults beside this script when run from a clone.
     [string] $Path = "",
-    # Which branch to install from. Only worth changing before a change has
-    # been merged - see the README.
-    [string] $Branch = "main",
+    # Which branch to install from. Left empty it works this out itself, so
+    # nobody has to know or care which branch the code is currently on.
+    [string] $Branch = "",
     # Install the voice extras too. Off by default: they pull in torch.
     [switch] $WithVoice,
     # Run it when the install finishes.
@@ -41,7 +44,17 @@ param(
 )
 
 $ErrorActionPreference = "Stop"
-$Repo = "https://github.com/newearth18-wq/Thursday"
+$Owner = "newearth18-wq"
+$Name = "Thursday"
+$Repo = "https://github.com/$Owner/$Name"
+
+# Where the code lives once it has been merged. Tried first, so this file
+# needs no maintenance after that happens.
+$MainBranch = "main"
+
+# And where it lives before then. A one-line install should not require the
+# person running it to know which branch a change is sitting on.
+$WorkBranch = "claude/jarvis-assistant-mhfwe6"
 
 function Say($text, $colour = "Cyan") { Write-Host "  $text" -ForegroundColor $colour }
 function Step($text) { Write-Host "`n$text" -ForegroundColor White }
@@ -153,6 +166,34 @@ if ($python) {
 
 Step "Getting Thursday"
 
+function Test-Branch($branch) {
+    # A branch holds Thursday if it holds a pyproject.toml. Cheaper and more
+    # reliable than cloning to find out, and it is the same check the install
+    # would make three steps later anyway.
+    if (-not $branch) { return $false }
+    $url = "https://raw.githubusercontent.com/$Owner/$Name/$branch/pyproject.toml"
+    try {
+        Invoke-WebRequest $url -Method Head -UseBasicParsing -TimeoutSec 15 | Out-Null
+        return $true
+    } catch { return $false }
+}
+
+function Resolve-Branch {
+    # main once it is merged, the working branch until then, and if someone
+    # has renamed things since, ask GitHub what branches there are.
+    foreach ($candidate in @($MainBranch, $WorkBranch)) {
+        if (Test-Branch $candidate) { return $candidate }
+    }
+    try {
+        $listed = Invoke-RestMethod "https://api.github.com/repos/$Owner/$Name/branches" `
+            -TimeoutSec 20
+        foreach ($entry in $listed) {
+            if (Test-Branch $entry.name) { return $entry.name }
+        }
+    } catch { }
+    return $null
+}
+
 if (-not $Path) {
     # $PSScriptRoot is empty when this is piped into iex - there is no script
     # file to be beside - and Join-Path throws on an empty path rather than
@@ -167,27 +208,40 @@ if (-not $Path) {
 }
 
 if (Test-Path (Join-Path $Path "pyproject.toml")) {
+    # Already here - run from a clone, or a second time. Nothing to fetch,
+    # and no reason to ask the network which branch to fetch it from.
     Say "using $Path" "Green"
-} elseif (Get-Command git -ErrorAction SilentlyContinue) {
-    git clone --depth 1 --branch $Branch $Repo $Path
-    Say "cloned $Branch into $Path" "Green"
 } else {
-    # No git is normal on a fresh Windows machine, and installing it to fetch
-    # one zip is not a reasonable ask.
-    $zip = Join-Path $env:TEMP "thursday.zip"
-    try {
-        Invoke-WebRequest "$Repo/archive/refs/heads/$Branch.zip" -OutFile $zip
-    } catch {
-        Die "could not download branch '$Branch' from $Repo. Check the name and try again."
+    if (-not $Branch) {
+        $Branch = Resolve-Branch
+        if (-not $Branch) {
+            Die ("could not find a branch of $Repo holding Thursday. Check the " +
+                 "network, or pass -Branch <name> if you know which one to use.")
+        }
+        Say "installing from $Branch"
     }
-    Expand-Archive $zip -DestinationPath $env:TEMP -Force
-    # GitHub names the folder after the branch with every / turned into a -,
-    # so a branch like feature/thing unpacks as Repo-feature-thing.
-    $unpacked = Join-Path $env:TEMP ("Thursday-" + ($Branch -replace "/", "-"))
-    New-Item -ItemType Directory -Force -Path $Path | Out-Null
-    Copy-Item (Join-Path $unpacked "*") $Path -Recurse -Force
-    Remove-Item $zip -Force
-    Say "downloaded $Branch into $Path" "Green"
+
+    if (Get-Command git -ErrorAction SilentlyContinue) {
+        git clone --depth 1 --branch $Branch $Repo $Path
+        Say "cloned $Branch into $Path" "Green"
+    } else {
+        # No git is normal on a fresh Windows machine, and installing it to
+        # fetch one zip is not a reasonable ask.
+        $zip = Join-Path $env:TEMP "thursday.zip"
+        try {
+            Invoke-WebRequest "$Repo/archive/refs/heads/$Branch.zip" -OutFile $zip
+        } catch {
+            Die "could not download branch '$Branch' from $Repo."
+        }
+        Expand-Archive $zip -DestinationPath $env:TEMP -Force
+        # GitHub names the folder after the branch with every / turned into a
+        # -, so a branch like feature/thing unpacks as Repo-feature-thing.
+        $unpacked = Join-Path $env:TEMP ("Thursday-" + ($Branch -replace "/", "-"))
+        New-Item -ItemType Directory -Force -Path $Path | Out-Null
+        Copy-Item (Join-Path $unpacked "*") $Path -Recurse -Force
+        Remove-Item $zip -Force
+        Say "downloaded $Branch into $Path" "Green"
+    }
 }
 
 Set-Location $Path
