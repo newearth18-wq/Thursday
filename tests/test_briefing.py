@@ -97,7 +97,8 @@ def test_only_your_own_reminders_are_in_your_brief(agent):
 
     items = gather(agent, person="supakit").section("Reminders").items
 
-    assert items == ["your standup (Sun 06:26)"] or "standup" in items[0]
+    assert len(items) == 1
+    assert "standup" in items[0]
     assert not any("dentist" in item for item in items)
 
 
@@ -186,9 +187,7 @@ def test_one_broken_source_does_not_sink_the_brief(agent, monkeypatch):
     brief = gather(agent)
 
     assert brief.section("Calendar").note.startswith("could not be read")
-    assert brief.section("Reminders").items == ["still here (Sun 06:26)"] or brief.section(
-        "Reminders"
-    ).items
+    assert any("still here" in item for item in brief.section("Reminders").items)
 
 
 def test_a_slow_source_is_given_up_on(agent, monkeypatch):

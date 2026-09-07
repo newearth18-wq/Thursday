@@ -4,7 +4,8 @@ from __future__ import annotations
 
 import asyncio
 import threading
-from datetime import datetime, timedelta
+from datetime import date, datetime, timedelta
+from datetime import time as dtime
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
 import pytest
@@ -16,21 +17,34 @@ from thursday.tools import ToolContext, ToolError, build_registry
 from thursday.tools.calendar import Event, parse_ics, within
 from thursday.tools.mail import Mailbox, decode, strip_html
 
-ICS = """BEGIN:VCALENDAR
+# Dates are relative to today rather than written out, because whats_on only
+# reports what is still ahead: a fixture pinned to a real date passes until
+# that date arrives and then fails every day afterwards, which is what
+# happened.
+FIRST = date.today() + timedelta(days=1)
+SECOND = FIRST + timedelta(days=1)
+THIRD = FIRST + timedelta(days=2)
+
+
+def _day(when: date) -> str:
+    return when.strftime("%Y%m%d")
+
+
+ICS = f"""BEGIN:VCALENDAR
 BEGIN:VEVENT
 SUMMARY:Standup
-DTSTART;TZID=Asia/Bangkok:20260906T090000
-DTEND;TZID=Asia/Bangkok:20260906T091500
+DTSTART;TZID=Asia/Bangkok:{_day(FIRST)}T090000
+DTEND;TZID=Asia/Bangkok:{_day(FIRST)}T091500
 LOCATION:Zoom
 END:VEVENT
 BEGIN:VEVENT
 SUMMARY:Dentist\\, second floor
-DTSTART:20260907T140000Z
+DTSTART:{_day(SECOND)}T140000Z
 DESCRIPTION:Bring the referral\\nand the card
 END:VEVENT
 BEGIN:VEVENT
 SUMMARY:Public holiday
-DTSTART;VALUE=DATE:20260908
+DTSTART;VALUE=DATE:{_day(THIRD)}
 END:VEVENT
 END:VCALENDAR"""
 
@@ -64,13 +78,16 @@ def test_timed_events_show_a_range():
 
 def test_folded_lines_are_joined():
     """ICS wraps long lines with a leading space."""
-    folded = "BEGIN:VCALENDAR\nBEGIN:VEVENT\nSUMMARY:A very long title that got\n  wrapped\nDTSTART:20260906T090000Z\nEND:VEVENT\nEND:VCALENDAR"
+    folded = (
+        "BEGIN:VCALENDAR\nBEGIN:VEVENT\nSUMMARY:A very long title that got\n"
+        f"  wrapped\nDTSTART:{_day(FIRST)}T090000Z\nEND:VEVENT\nEND:VCALENDAR"
+    )
     assert parse_ics(folded)[0].summary == "A very long title that got wrapped"
 
 
 def test_a_window_filters_and_sorts():
     events = parse_ics(ICS)
-    start = datetime(2026, 9, 6).astimezone()
+    start = datetime.combine(FIRST, dtime(0, 0)).astimezone()
 
     assert len(within(events, start, start + timedelta(days=3))) == 3
     assert len(within(events, start, start + timedelta(hours=12))) == 1
