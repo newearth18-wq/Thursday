@@ -1,0 +1,21 @@
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+*.egg-info/
+build/
+dist/
+.env
+.pytest_cache/
+data/
+# Your own copies; the .example files are the ones tracked.
+permissions.json
+mcp.json
+profiles.json
+pricing.json
+*.db
+*.sqlite3
+models/
+
+# Drawn by setup/make_icon.py when the installer is built.
+setup/thursday.ico

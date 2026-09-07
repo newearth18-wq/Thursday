@@ -1,0 +1,36 @@
+{
+  "_comment": [
+    "Copy to permissions.json to change what Thursday may do to this machine.",
+    "The built-in protected paths (.env, .ssh, credentials, Thursday's own",
+    "settings and database) are always added to deny_paths - a typo here",
+    "cannot expose them. Everything else is yours to set.",
+    "Run `thursday permissions` to see what is in force."
+  ],
+
+  "_deny_paths": "Extra paths never read or written. Globs, matched on the resolved path.",
+  "deny_paths": [
+    "**/Documents/tax/**",
+    "**/*.kdbx"
+  ],
+
+  "_read_paths": "Directories readable beyond the workspace.",
+  "read_paths": ["~/Documents", "~/Downloads"],
+
+  "_write_paths": "Directories writable beyond the workspace.",
+  "write_paths": ["~/Downloads/thursday"],
+
+  "_tools": "allow (just do it), confirm (ask first), deny (never).",
+  "tools": {
+    "run_shell": "confirm",
+    "write_file": "confirm",
+    "take_screenshot": "confirm",
+    "browse": "confirm",
+    "lock_screen": "deny"
+  },
+
+  "_denied_tools": "Switched off entirely, whatever else says.",
+  "denied_tools": [],
+
+  "_denied_commands": "Extra shell patterns to refuse, on top of the built-ins.",
+  "denied_commands": ["git push --force", "npm publish"]
+}

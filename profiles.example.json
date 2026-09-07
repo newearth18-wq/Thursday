@@ -1,0 +1,39 @@
+{
+  "_comment": [
+    "Copy to profiles.json to override the built-ins or add your own.",
+    "A name matching a built-in patches it; anything else defines a new profile.",
+    "Omit a field to inherit: provider follows THURSDAY_PROVIDER, effort follows",
+    "THURSDAY_EFFORT, and an empty model means the provider's default."
+  ],
+
+  "quick": {
+    "provider": "groq",
+    "model": "llama-3.3-70b-versatile",
+    "description": "Snappy factual answers, on a fast hosted model."
+  },
+
+  "private": {
+    "provider": "ollama",
+    "model": "qwen2.5:14b",
+    "description": "Anything that must not leave this machine."
+  },
+
+  "translator": {
+    "description": "Translate between Thai and English, and explain word choices.",
+    "provider": "anthropic",
+    "model": "claude-opus-5",
+    "effort": "low",
+    "tools": ["remember_fact", "recall_facts"],
+    "web_search": false,
+    "style": "Give the translation first, then a short note on anything ambiguous.",
+    "triggers": ["translate", "แปล", "in english", "เป็นภาษาอังกฤษ"]
+  },
+
+  "reader": {
+    "description": "Reading and summarising long documents and web pages.",
+    "effort": "high",
+    "tools": ["read_file", "list_files", "search_files", "fetch_url", "add_note"],
+    "style": "Summarise faithfully. Quote rather than paraphrase when precision matters.",
+    "triggers": ["summarise", "summarize", "สรุป", "read this"]
+  }
+}

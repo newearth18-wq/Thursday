@@ -1,0 +1,54 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "thursday"
+version = "0.1.0"
+description = "Thursday - a Jarvis-like assistant with voice, terminal and web interfaces"
+readme = "README.md"
+requires-python = ">=3.10"
+license = { text = "MIT" }
+dependencies = [
+    "anthropic>=0.70",
+    "httpx",
+    "psutil",
+    # Windows ships no IANA timezone database, so zoneinfo cannot resolve the
+    # TZID an .ics file names without this. Pure data, a couple of hundred KB.
+    "tzdata; sys_platform == 'win32'",
+]
+
+[project.optional-dependencies]
+# qrcode is in `web` rather than its own extra: pairing a phone is only
+# useful once there is a page for it to open, and it is a pure-Python module
+# of a few dozen kilobytes.
+web = ["fastapi>=0.110", "uvicorn[standard]>=0.27", "qrcode>=7.4"]
+vision = ["pillow>=10"]
+mcp = ["mcp>=2"]
+documents = ["pypdf>=4", "python-docx>=1"]
+browser = ["playwright>=1.40"]
+# Face and voice recognition. Heavy: face_recognition needs dlib compiled.
+identity = ["face_recognition>=1.3", "resemblyzer>=0.1", "pillow>=10", "numpy>=1.24"]
+voice = [
+    "sounddevice>=0.4.6",
+    "numpy>=1.24",
+    "faster-whisper>=1.0",
+    "piper-tts>=1.2; sys_platform == 'linux'",
+    # Windows has no speech synthesis Thursday can reach without this; it
+    # drives the SAPI voices that are already on the machine.
+    "pyttsx3>=2.90; sys_platform == 'win32'",
+]
+dev = ["pytest>=8", "pytest-asyncio>=0.23", "pyflakes>=3"]
+all = ["thursday[web,voice,vision,mcp,documents,browser,dev]"]
+
+[project.scripts]
+thursday = "thursday.__main__:main"
+
+[tool.setuptools.packages.find]
+include = ["thursday*"]
+
+[tool.setuptools.package-data]
+thursday = ["web/*.html"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]

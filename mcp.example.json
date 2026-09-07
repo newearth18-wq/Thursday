@@ -1,0 +1,31 @@
+{
+  "_comment": [
+    "Copy to mcp.json. Tools arrive named <server>_<tool>, so they can never",
+    "collide with a built-in and it stays obvious where each one came from.",
+    "Needs the mcp package: pip install 'thursday[mcp]'",
+    "Set \"enabled\": false to keep an entry without starting it, or list",
+    "\"tools\" to expose only some of what a server offers."
+  ],
+
+  "servers": {
+    "filesystem": {
+      "command": "npx",
+      "args": ["-y", "@modelcontextprotocol/server-filesystem", "/home/me/Documents"]
+    },
+    "github": {
+      "command": "npx",
+      "args": ["-y", "@modelcontextprotocol/server-github"],
+      "env": { "GITHUB_PERSONAL_ACCESS_TOKEN": "ghp_..." },
+      "enabled": false
+    },
+    "sqlite": {
+      "command": "uvx",
+      "args": ["mcp-server-sqlite", "--db-path", "/home/me/data.db"],
+      "enabled": false
+    },
+    "remote-example": {
+      "url": "https://example.com/mcp",
+      "enabled": false
+    }
+  }
+}
