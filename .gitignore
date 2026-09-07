@@ -16,3 +16,6 @@ pricing.json
 *.db
 *.sqlite3
 models/
+
+# Drawn by setup/make_icon.py when the installer is built.
+setup/thursday.ico

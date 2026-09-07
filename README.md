@@ -15,6 +15,29 @@
 
 ## ติดตั้ง (Install)
 
+### Windows — ดับเบิลคลิก
+
+โหลดไฟล์เดียว แล้วดับเบิลคลิก ไม่ต้องเปิด PowerShell ไม่ต้องพิมพ์อะไรเลย
+
+**[⬇ Thursday-Setup.exe](https://github.com/newearth18-wq/Thursday/releases/download/setup/Thursday-Setup.exe)**
+
+Windows จะขึ้น **"Windows protected your PC"** เพราะไฟล์นี้ไม่ได้เซ็นใบรับรอง
+(ใบรับรองราคาหลายพันบาทต่อปี) — กด **More info** แล้วกด **Run anyway**
+นี่คือข้อแลกเปลี่ยนข้อเดียวของวิธีนี้: แลก "พิมพ์คำสั่ง" กับ "กดผ่านคำเตือนหนึ่งครั้ง"
+ถ้าไม่อยากกดผ่านคำเตือน ใช้วิธีคำสั่งเดียวข้างล่างแทนได้ ผลลัพธ์เหมือนกันทุกอย่าง
+
+มันจะ:
+1. หา Python ที่ใช้ได้ ถ้าไม่มีก็โหลดจาก python.org มาลงให้ (ไม่ต้องเป็น Administrator)
+2. ดาวน์โหลดโค้ด สร้าง venv ลงแพ็กเกจ
+3. ถาม API key กับที่อยู่ vault ของ Obsidian
+4. วางช็อตคัตบน Start menu
+
+หน้าต่างจะไม่ปิดเองจนกว่าจะกด Enter และทุกบรรทัดที่ขึ้นบนจอถูกเก็บไว้ที่
+`%LOCALAPPDATA%\Thursday\install.log` — ถ้าพัง ส่งไฟล์นี้มาก็พอ
+
+ตัวติดตั้งไม่ได้แบก Thursday ไว้ข้างใน มันแบกแค่ตัวติดตั้ง โปรแกรมจริงลงบน Python
+ปกติของเครื่อง เพราะแบบนั้นถึงจะ `pip install` ของเพิ่ม เขียนปลั๊กอิน และอัปเดตได้
+
 ### Windows — คำสั่งเดียว
 
 เปิด PowerShell ธรรมดา (ไม่ต้อง Administrator) แล้ววางบรรทัดนี้:
@@ -969,6 +992,7 @@ thursday/
   server.py       FastAPI + WebSocket
   web/index.html  HUD + หุ่นยนต์ (ไฟล์เดียว ไม่พึ่งอะไรภายนอก)
 install.ps1       ติดตั้งบน Windows ด้วยคำสั่งเดียว
+setup/            ที่มาของ Thursday-Setup.exe (bootstrap.py + ไอคอน)
 plugins/          วางไฟล์ tool ของคุณที่นี่
 tests/            pytest, ไม่แตะ network
 ```

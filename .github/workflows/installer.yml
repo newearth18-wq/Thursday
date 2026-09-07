@@ -1,0 +1,106 @@
+# Builds Thursday-Setup.exe and puts it where a person can download it.
+#
+# The exe has to be built on Windows - PyInstaller freezes the interpreter
+# it is run with, so there is no cross-compiling - which is the whole reason
+# this is a workflow rather than something to run by hand.
+name: installer
+
+on:
+  push:
+    branches: ["**"]
+    paths:
+      - "setup/**"
+      - ".github/workflows/installer.yml"
+  workflow_dispatch:
+
+# Only for the release step. Everything else here reads.
+permissions:
+  contents: write
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    runs-on: windows-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          # The installer bundles whichever Python builds it, so this is the
+          # one that ends up inside the exe. Kept a release behind the newest
+          # for the same reason the installer itself prefers one.
+          python-version: "3.12"
+          cache: pip
+
+      - run: pip install pyinstaller
+
+      - name: Draw the icon
+        run: python setup/make_icon.py setup/thursday.ico
+
+      - name: Build
+        # --onefile because "an installer" means one thing to download, and
+        # this one is small enough (no third-party imports at all) that the
+        # usual objection to it does not apply.
+        run: >
+          pyinstaller --onefile --console --clean --noconfirm
+          --name Thursday-Setup
+          --icon setup/thursday.ico
+          --version-file setup/version_info.txt
+          setup/bootstrap.py
+
+      - name: Check it runs
+        # The point of building on a real Windows machine is to find out
+        # whether the thing starts, finds a Python and can reach the
+        # repository - before anyone downloads it and finds out for us.
+        run: .\dist\Thursday-Setup.exe --check
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: Thursday-Setup
+          path: dist/Thursday-Setup.exe
+          if-no-files-found: error
+
+      - name: Publish
+        if: >
+          github.ref == 'refs/heads/main' ||
+          github.ref == 'refs/heads/claude/jarvis-assistant-mhfwe6'
+        # bash rather than the runner's default PowerShell: this step is
+        # mostly a block of prose, and a heredoc needs no escaping while a
+        # PowerShell here-string inside a YAML block scalar needs two layers.
+        shell: bash
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          cat > notes.md <<'NOTES'
+          Download **Thursday-Setup.exe** below and double-click it.
+
+          Windows will say **"Windows protected your PC"**, because this file
+          is not signed with a code-signing certificate. Click **More info**,
+          then **Run anyway**. That warning is the whole price of not having
+          to type anything; `install.ps1` avoids it if you would rather paste
+          a line.
+
+          It finds a Python and installs one if the machine has none, fetches
+          Thursday, asks for an API key and an Obsidian vault, and puts
+          Thursday on the Start menu. No administrator rights needed, and
+          nothing it does needs a C++ compiler.
+
+          If it fails, everything it printed is in
+          `%LOCALAPPDATA%\Thursday\install.log`.
+          NOTES
+
+          # Replaced rather than added to, so the download link always points
+          # at the current build and there is only ever one file to choose.
+          if gh release view setup >/dev/null 2>&1; then
+            gh release delete setup --yes --cleanup-tag
+          fi
+
+          gh release create setup dist/Thursday-Setup.exe \
+            --prerelease \
+            --target "$GITHUB_SHA" \
+            --title "Thursday Setup (Windows)" \
+            --notes-file notes.md

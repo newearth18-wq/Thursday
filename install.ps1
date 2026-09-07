@@ -20,6 +20,12 @@
 
         .\install.ps1
 
+    There is also Thursday-Setup.exe, built from setup/bootstrap.py, for
+    anyone who would rather double-click a file than paste a line. It does
+    the same things in the same order; the two are kept in step by tests in
+    tests/test_bootstrap.py, which fail if they disagree about the branch,
+    the extras or the Python they prefer.
+
     It installs Python if it is missing, makes a virtual environment beside
     the code, installs Thursday with the extras that actually work on
     Windows, writes a .env, and puts a shortcut on the Start menu.

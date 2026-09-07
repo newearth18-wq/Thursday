@@ -48,4 +48,4 @@ jobs:
           cache: pip
       - run: pip install pyflakes
       - name: Unused imports and undefined names
-        run: pyflakes thursday/ tests/ plugins/
+        run: pyflakes thursday/ tests/ plugins/ setup/
