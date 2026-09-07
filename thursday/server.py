@@ -193,6 +193,13 @@ def create_app(settings: Settings | None = None) -> Any:
 
     @app.get("/api/settings")
     async def read_settings(request: Request) -> Any:
+        # The token first, and only then the question of where you are.
+        # Secrets are masked below, but what is left is still the shape of
+        # someone's life: which calendars they subscribe to (a Google feed
+        # URL is itself a bearer token), their mail server and username,
+        # which chat ids may talk to the assistant, where their vault lives.
+        if not guard(request):
+            return JSONResponse({"error": "not authorised"}, status_code=401)
         local = is_local(request.client.host if request.client else None)
         return JSONResponse(
             {
@@ -205,6 +212,12 @@ def create_app(settings: Settings | None = None) -> Any:
 
     @app.post("/api/settings")
     async def write_settings(request: Request) -> Any:
+        # Two gates, not one. Being on this machine is not the same as being
+        # allowed: THURSDAY_AUTH=always means the token is needed even
+        # locally, and writing settings is how someone would change the
+        # provider, the workspace, or the permissions file itself.
+        if not guard(request):
+            return JSONResponse({"error": "not authorised"}, status_code=401)
         if not is_local(request.client.host if request.client else None):
             return JSONResponse(
                 {"error": "settings can only be changed from this machine"}, status_code=403
@@ -228,6 +241,10 @@ def create_app(settings: Settings | None = None) -> Any:
     @app.post("/api/settings/test")
     async def test_provider(request: Request) -> Any:
         """Check whether a backend is reachable with what is configured now."""
+        # This spends the configured API key to find out, and reports back
+        # which models the account can see.
+        if not guard(request):
+            return JSONResponse({"error": "not authorised"}, status_code=401)
         try:
             body = await request.json()
         except Exception:
@@ -599,7 +616,11 @@ def create_app(settings: Settings | None = None) -> Any:
         return JSONResponse(brief.as_dict())
 
     @app.get("/api/status")
-    async def status() -> Any:
+    async def status(request: Request) -> Any:
+        # An inventory of every tool this machine will run for whoever is
+        # asking, which is reconnaissance if the answer went to a stranger.
+        if not guard(request):
+            return JSONResponse({"error": "not authorised"}, status_code=401)
         agent = Agent(settings=current())
         default = agent.profiles[agent.router.default_name]
         return JSONResponse(

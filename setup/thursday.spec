@@ -51,8 +51,10 @@ hiddenimports = []
 #   faster_whisper   carries the voice-activity model as an .onnx file
 #   mcp, anthropic   no data worth mentioning, but harmless to ask, and
 #                    listing them says they were considered
+#   tzdata           the IANA timezone database, which Windows does not ship
+#                    and a calendar's TZID is written in
 for package in ("certifi", "playwright", "sounddevice", "faster_whisper",
-                "mcp", "anthropic", "PIL"):
+                "mcp", "anthropic", "PIL", "tzdata"):
     datas += collect_data_files(package)
     binaries += collect_dynamic_libs(package)
 

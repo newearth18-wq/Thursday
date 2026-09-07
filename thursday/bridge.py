@@ -38,18 +38,16 @@ import re
 from dataclasses import dataclass, field
 from typing import Any
 
+#: What a chat session may not do, whatever the profile says. Imported
+#: rather than written out again: this was a second copy that nothing
+#: read, so the promise in the docstring above rested entirely on the
+#: built-in "chat" profile happening to list the same tools.
+from .profiles import CHAT_DENIED
+
 log = logging.getLogger(__name__)
 
 #: The platforms understood.
 PLATFORMS = ("line", "telegram")
-
-#: What a chat session may not do, whatever the profile says. Anything that
-#: would need a confirmation is pointless over chat - there is nobody at the
-#: keyboard to answer it, so the request would simply hang.
-CHAT_DENIED = (
-    "run_shell", "write_file", "take_screenshot", "browse", "browser_act",
-    "browser_screenshot", "open_app", "lock_screen", "send_draft",
-)
 
 #: Chat apps get unhappy above a few thousand characters, and nobody reads a
 #: wall of text on a phone anyway.
@@ -233,9 +231,23 @@ class Bridge:
 
     # -------------------------------------------------------------- working
 
+    def restrain(self, agent: Any) -> None:
+        """Take the dangerous tools off the table, whatever profile is chosen.
+
+        The profile is a preference, not a guarantee: THURSDAY_CHAT_PROFILE
+        can name any profile at all, and a name that matches nothing falls
+        back to letting the router choose - which could be the everyday one,
+        shell and all. This is the floor underneath that choice, and it is
+        the third of the three gates the module docstring promises.
+        """
+        policy = getattr(agent, "policy", None)
+        if policy is not None:
+            policy.deny_always(CHAT_DENIED)
+
     async def answer(self, message: Incoming) -> str:
         """Run one message through the assistant."""
         agent = self.agent_factory()
+        self.restrain(agent)
         # One session per chat, so a conversation on the phone has a memory
         # of itself without being tangled up with the one at the desk.
         session = f"chat-{self.channel.platform}-{message.chat_id}"

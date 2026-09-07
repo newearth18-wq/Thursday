@@ -13,6 +13,9 @@ dependencies = [
     "anthropic>=0.70",
     "httpx",
     "psutil",
+    # Windows ships no IANA timezone database, so zoneinfo cannot resolve the
+    # TZID an .ics file names without this. Pure data, a couple of hundred KB.
+    "tzdata; sys_platform == 'win32'",
 ]
 
 [project.optional-dependencies]

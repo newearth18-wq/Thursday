@@ -222,6 +222,33 @@ def test_both_policy_needs_both_checks(enrolled):
     assert doorman.admits([face])[0] is False
 
 
+def test_both_policy_refuses_when_the_checks_name_different_people(enrolled):
+    """Two checks that both said yes about two different people is not a
+    stronger answer than one - it is a contradiction. Admitting on it let
+    whichever modality came first put its name to the turn."""
+    from thursday.identity import Match
+
+    doorman = Doorman(policy="both", enrolment=enrolled)
+    face = Match(modality="face", name="supakit", distance=0.1, threshold=0.5)
+    voice = Match(modality="voice", name="nok", distance=0.1, threshold=0.5)
+
+    assert doorman.admits([face, voice]) == (False, "")
+    assert doorman.admits([voice, face]) == (False, "")
+
+
+def test_both_policy_names_the_person_the_checks_agree_on(enrolled):
+    from thursday.identity import Match
+
+    doorman = Doorman(policy="both", enrolment=enrolled)
+    face = Match(modality="face", name="Supakit", distance=0.1, threshold=0.5)
+    voice = Match(modality="voice", name="supakit ", distance=0.1, threshold=0.5)
+
+    admitted, who = doorman.admits([face, voice])
+
+    assert admitted is True
+    assert who.strip().lower() == "supakit"
+
+
 def test_either_policy_needs_only_one(enrolled):
     doorman = Doorman(policy="either", enrolment=enrolled)
     face = enrolled.identify([0.0, 0.0, 1.0], "face")

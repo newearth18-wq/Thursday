@@ -289,6 +289,13 @@ class VoiceLoop:
                     self.speaker.wait()
                     continue
 
+                # Knowing it is a voice we know is only half of it: the other
+                # half is whose. Said every turn, including when nobody was
+                # identified, so a guest's restrictions do not linger over the
+                # owner's next sentence - or the owner's freedom over a
+                # guest's. The web UI does the same after a face check.
+                self.agent.speaking_to(who or None)
+
                 self.on_transcript("you", command)
                 self.speaker.stop()  # barge-in: drop whatever we were saying
                 await self._answer(command)

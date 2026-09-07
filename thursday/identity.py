@@ -313,9 +313,21 @@ class Doorman:
         found = {match.modality: match for match in matches if match.recognised}
         if self.policy == "both":
             needed = [m for m in self.required if self.enrolment.knows_anyone(m)]
-            if all(modality in found for modality in needed):
-                return True, next(iter(found.values())).name
-            return False, ""
+            if not all(modality in found for modality in needed):
+                return False, ""
+
+            # And that they agree about who. Two checks that both said yes
+            # about two different people is not a stronger answer than one -
+            # it is a contradiction, and admitting on it let whichever
+            # modality happened to be listed first put its name to the turn.
+            names = {found[modality].name.strip().lower() for modality in needed}
+            if len(names) > 1:
+                log.warning(
+                    "the identity checks disagree about who is here: %s",
+                    ", ".join(sorted(found[m].name for m in needed)),
+                )
+                return False, ""
+            return True, found[needed[0]].name
 
         if found:
             return True, next(iter(found.values())).name

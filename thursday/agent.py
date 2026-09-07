@@ -51,6 +51,20 @@ def server_tools(settings: Settings, profile: Profile | None = None) -> list[dic
     ]
 
 
+def describe_call(arguments: dict[str, Any], limit: int = 200) -> str:
+    """A tool call's arguments, short enough to fit in a confirmation prompt.
+
+    Someone being asked to approve something needs to see what it would do
+    to, not just that something would happen.
+    """
+    parts = []
+    for key, value in arguments.items():
+        text = str(value)
+        parts.append(f"{key}={text[:80]}…" if len(text) > 80 else f"{key}={text}")
+    joined = ", ".join(parts)
+    return joined[:limit] + "…" if len(joined) > limit else joined
+
+
 def _start_of_day() -> float:
     """Midnight local time, as a timestamp."""
     now = datetime.now().astimezone()
@@ -560,6 +574,33 @@ class Agent:
                     }
                 )
                 continue
+
+            # A rule of "confirm" has to actually confirm. The dangerous
+            # tools ask for themselves - the shell, file writes, the browser -
+            # because only they know what to put in the question. Everything
+            # else the policy marks "confirm" had nobody asking on its
+            # behalf, so it sailed straight through: open_app and lock_screen
+            # are marked "confirm" by default and ran without a word.
+            if decision.needs_asking and not self._is_dangerous(name):
+                approved = await self.context.request_confirmation(
+                    f"Run {name}", describe_call(arguments)
+                )
+                if not approved:
+                    message = f"the user declined to run {name}"
+                    self.memory.record_access(
+                        name, arguments, "denied", "declined",
+                        self.context.state.get("session_id", ""),
+                    )
+                    await emit(Event("tool_error", tool=name, result=message))
+                    results.append(
+                        {
+                            "type": "tool_result",
+                            "tool_use_id": block_id,
+                            "content": f"refused: {message}",
+                            "is_error": True,
+                        }
+                    )
+                    continue
 
             # A model may name a tool the active profile withholds.
             if not profile.allows(name):

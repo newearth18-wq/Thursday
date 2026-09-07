@@ -30,6 +30,34 @@ def _day(when: date) -> str:
     return when.strftime("%Y%m%d")
 
 
+def in_zone(zone):
+    """Run the parser as if this machine's clock were set to `zone`."""
+    import os
+    import time
+
+    def run(ics):
+        was = os.environ.get("TZ")
+        os.environ["TZ"] = zone
+        time.tzset()
+        try:
+            return parse_ics(ics)
+        finally:
+            if was is None:
+                os.environ.pop("TZ", None)
+            else:
+                os.environ["TZ"] = was
+            time.tzset()
+
+    return run
+
+
+def one_event(line):
+    return (
+        "BEGIN:VCALENDAR\r\nBEGIN:VEVENT\r\nSUMMARY:Standup\r\n"
+        f"{line}\r\nEND:VEVENT\r\nEND:VCALENDAR\r\n"
+    )
+
+
 ICS = f"""BEGIN:VCALENDAR
 BEGIN:VEVENT
 SUMMARY:Standup
@@ -73,7 +101,10 @@ def test_all_day_events_are_recognised():
 
 
 def test_timed_events_show_a_range():
-    assert "09:00–09:15" in parse_ics(ICS)[0].as_dict()["when"]
+    """Read in the zone the fixture is written in. Elsewhere the same event
+    reads as a different wall-clock time, which is the whole point of it
+    carrying a TZID."""
+    assert "09:00–09:15" in in_zone("Asia/Bangkok")(ICS)[0].as_dict()["when"]
 
 
 def test_folded_lines_are_joined():
@@ -91,6 +122,73 @@ def test_a_window_filters_and_sorts():
 
     assert len(within(events, start, start + timedelta(days=3))) == 3
     assert len(within(events, start, start + timedelta(hours=12))) == 1
+
+
+# --------------------------------------------------------------- timezones
+
+
+def test_a_utc_time_is_converted_rather_than_relabelled():
+    """Stamping local tzinfo onto a UTC reading keeps the digits and changes
+    the moment: 08:30 UTC became "08:30 in Bangkok", seven hours out and
+    looking perfectly reasonable."""
+    event = in_zone("Asia/Bangkok")(one_event("DTSTART:20260906T083000Z"))[0]
+
+    assert event.start.hour == 15
+    assert event.start.utcoffset().total_seconds() == 7 * 3600
+
+
+def test_the_timezone_an_event_declares_is_not_thrown_away():
+    """DTSTART;TZID=Europe/London:20260906T090000 is 09:00 in London, which
+    is 15:00 in Bangkok - not 09:00 wherever the machine happens to be."""
+    event = in_zone("Asia/Bangkok")(
+        one_event("DTSTART;TZID=Europe/London:20260906T090000")
+    )[0]
+
+    assert event.start.hour == 15
+
+
+def test_a_quoted_timezone_is_read_too():
+    event = in_zone("Asia/Bangkok")(
+        one_event('DTSTART;TZID="Europe/London":20260906T090000')
+    )[0]
+
+    assert event.start.hour == 15
+
+
+def test_a_time_with_no_zone_is_read_as_the_clock_on_the_wall():
+    """The spec calls it a floating time: whatever the local clock says."""
+    event = in_zone("Asia/Bangkok")(one_event("DTSTART:20260906T090000"))[0]
+
+    assert event.start.hour == 9
+
+
+def test_a_zone_this_machine_cannot_look_up_still_yields_an_event():
+    """Better an event an hour out than a meeting that vanished."""
+    event = in_zone("Asia/Bangkok")(
+        one_event("DTSTART;TZID=Mars/Olympus_Mons:20260906T090000")
+    )[0]
+
+    assert event.start is not None and event.start.hour == 9
+
+
+def test_start_and_end_can_be_in_different_zones():
+    ics = (
+        "BEGIN:VCALENDAR\r\nBEGIN:VEVENT\r\nSUMMARY:Flight\r\n"
+        "DTSTART;TZID=Europe/London:20260906T090000\r\n"
+        "DTEND;TZID=Asia/Bangkok:20260906T230000\r\n"
+        "END:VEVENT\r\nEND:VCALENDAR\r\n"
+    )
+
+    event = in_zone("Asia/Bangkok")(ics)[0]
+
+    assert event.start.hour == 15
+    assert event.end.hour == 23
+
+
+def test_an_all_day_date_is_still_a_plain_date():
+    event = in_zone("Asia/Bangkok")(one_event("DTSTART;VALUE=DATE:20260906"))[0]
+
+    assert event.all_day is True
 
 
 def test_an_event_with_no_start_is_skipped():

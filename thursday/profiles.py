@@ -16,6 +16,20 @@ from typing import Any, Iterable
 
 log = logging.getLogger(__name__)
 
+#: What the guest role may not do. One list, so the role and the
+#: profile cannot drift apart.
+from .people import ROLE_DENIED
+
+GUEST_DENIED = ROLE_DENIED["guest"]
+
+#: What a chat session may not do, whatever profile it happens to run under.
+#: Anything that would need a confirmation is pointless over chat - there is
+#: nobody at the keyboard to answer it, so the request would simply hang.
+CHAT_DENIED: tuple[str, ...] = (
+    "run_shell", "write_file", "delete_file", "take_screenshot", "browse",
+    "browser_act", "browser_screenshot", "open_app", "lock_screen", "send_draft",
+)
+
 
 @dataclass(frozen=True)
 class Profile:
@@ -127,10 +141,7 @@ BUILTIN_PROFILES: tuple[Profile, ...] = (
         # Nothing that would need a confirmation: there is nobody at the
         # keyboard to answer one, so the request would simply hang until it
         # timed out - and a bus is not where you approve `rm`.
-        deny_tools=(
-            "run_shell", "write_file", "take_screenshot", "browse", "browser_act",
-            "browser_screenshot", "open_app", "lock_screen", "send_draft",
-        ),
+        deny_tools=CHAT_DENIED,
         style=(
             "You are being read on a phone, in a chat app. Keep it to a few "
             "lines. No markdown tables or code blocks. Nobody is at the keyboard "
@@ -144,17 +155,10 @@ BUILTIN_PROFILES: tuple[Profile, ...] = (
         description="Someone the assistant does not work for.",
         max_tokens=4000,
         # A guest gets warmth and general knowledge, and none of the owner's
-        # notes, files, mail or documents.
-        deny_tools=(
-            "run_shell", "write_file", "read_file", "list_files", "search_files",
-            "open_app", "lock_screen", "take_screenshot",
-            "browse", "browser_act", "browser_screenshot",
-            "send_draft", "draft_email", "draft_event",
-            "remember_fact", "forget_fact", "add_note", "delete_note",
-            "search_notes", "search_history", "search_documents", "list_documents",
-            "index_documents", "forget_document", "check_mail", "read_mail",
-            "watch_for", "stop_watching", "start_job", "cancel_job",
-        ),
+        # notes, files, mail or documents. Taken from people.py rather than
+        # written out again: two copies of one list is how the vault ended up
+        # readable by someone who could not read a file.
+        deny_tools=GUEST_DENIED,
         style=(
             "You are speaking to a guest of the house, not your owner. Be warm "
             "and useful about general questions, but you have no access to the "

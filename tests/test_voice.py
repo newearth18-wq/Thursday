@@ -92,3 +92,89 @@ def test_speaker_falls_back_when_nothing_is_installed():
         tts_rate = 175
 
     assert isinstance(build_speaker(VoiceSettings()), PrintSpeaker)
+
+
+# ------------------------------------------------------- who is speaking
+
+
+def test_the_voice_loop_tells_the_agent_who_it_is_talking_to(tmp_path, monkeypatch):
+    """Recognising the voice is only half of it. The other half is whose:
+    without this, a member or guest whose voice passed the check was still
+    served as the owner, with every tool the owner has."""
+    import asyncio
+
+    from thursday.voice import loop as loop_module
+    from thursday.voice.loop import VoiceLoop
+
+    # The microphone wants a sound stack this machine has no reason to have.
+    monkeypatch.setattr(loop_module, "Microphone", lambda *a, **k: None)
+
+    class FakeAgent:
+        def __init__(self):
+            from thursday.config import Settings
+
+            self.settings = Settings(
+                workspace=tmp_path, data_dir=tmp_path / "data", plugin_dirs=()
+            )
+            self.told = []
+
+        def set_confirm_handler(self, handler):
+            pass
+
+        def speaking_to(self, name):
+            self.told.append(name)
+
+        async def start(self):
+            pass
+
+        async def close(self):
+            pass
+
+        async def run(self, text, session_id="", on_event=None):
+            self._running = False
+            return "ok"
+
+    class Silent:
+        def say(self, text):
+            pass
+
+        def wait(self):
+            pass
+
+        def stop(self):
+            pass
+
+    agent = FakeAgent()
+    loop = VoiceLoop(agent, transcriber=None, speaker=Silent())
+
+    heard = iter(["thursday, what time is it", ""])
+
+    async def listen(start_timeout=0.0):
+        try:
+            return next(heard)
+        except StopIteration:
+            loop._running = False
+            return ""
+
+    async def allowed():
+        return True, "Nok"
+
+    loop._listen = listen
+    loop._speaker_allowed = allowed
+    loop._answer = lambda command: asyncio.sleep(0)
+    loop._build_proactive = lambda: type(
+        "P", (), {"start": lambda self: type("T", (), {"cancel": lambda self: None})()}
+    )()
+
+    asyncio.run(loop.run())
+
+    assert agent.told == ["Nok"]
+
+
+def test_nobody_recognised_resets_to_the_default(tmp_path):
+    """Otherwise a guest's restrictions would linger over whoever spoke next."""
+    from thursday.voice.loop import VoiceLoop
+
+    source = __import__("inspect").getsource(VoiceLoop.run)
+
+    assert "self.agent.speaking_to(who or None)" in source

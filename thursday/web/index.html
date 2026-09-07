@@ -1696,6 +1696,9 @@ let pendingEdits = {};   // edits made in groups that are not on screen
 async function loadConfig() {
   const response = await fetch("/api/settings");
   const payload = await response.json();
+  // A refusal comes back as a perfectly good JSON body with no fields in it,
+  // so without this the panel would draw an empty form and say nothing.
+  if (!response.ok) throw new Error(payload.error || "could not load settings");
   configFields = payload.fields || [];
   configEditable = payload.editable !== false;
   $("configWhere").textContent = payload.path || "";

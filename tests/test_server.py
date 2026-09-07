@@ -292,3 +292,65 @@ def test_drafts_reach_the_page_and_can_be_approved_there(plain_client, tmp_path)
 
 def test_an_unknown_draft_decision_is_refused(plain_client):
     assert plain_client.post("/api/drafts/abc/delete").status_code == 400
+
+
+# ------------------------------------------------------- the settings gate
+
+
+@pytest.fixture()
+def locked(tmp_path, monkeypatch):
+    """A server that wants the token from everyone, this machine included."""
+    monkeypatch.setenv("THURSDAY_ACCESS_TOKEN", "letmein")
+    settings = Settings(
+        workspace=tmp_path, data_dir=tmp_path / "data", plugin_dirs=(), auth="always"
+    )
+    return fastapi_testclient.TestClient(server_module.create_app(settings))
+
+
+def test_reading_the_settings_needs_the_token(locked):
+    """Secrets are masked, but what is left is still the shape of someone's
+    life: which calendars they subscribe to - a Google feed URL is itself a
+    bearer token - their mail server and username, which chat ids may talk to
+    the assistant, where their vault lives."""
+    response = locked.get("/api/settings")
+
+    assert response.status_code == 401
+    assert "fields" not in response.json()
+
+
+def test_changing_the_settings_needs_the_token_as_well_as_the_machine(locked):
+    """Being on this machine is not the same as being allowed. Settings are
+    where the provider, the workspace and the permissions file are chosen."""
+    response = locked.post("/api/settings", json={"THURSDAY_NAME": "Intruder"})
+
+    assert response.status_code == 401
+
+
+def test_testing_a_provider_needs_the_token(locked):
+    """It spends the configured key to find out, and reports back which
+    models the account can see."""
+    assert locked.post("/api/settings/test", json={"provider": "ollama"}).status_code == 401
+
+
+def test_the_status_inventory_needs_the_token(locked):
+    """A list of every tool this machine will run is reconnaissance."""
+    response = locked.get("/api/status")
+
+    assert response.status_code == 401
+    assert "tools" not in response.json()
+
+
+def test_the_lock_screen_can_still_be_answered(locked):
+    """The page has to be able to ask whether it needs a token, and to hand
+    one over, or there would be no way in at all."""
+    assert locked.get("/api/auth").status_code == 200
+    assert locked.post("/api/login", json={"token": "letmein"}).status_code == 200
+
+
+def test_the_settings_open_up_once_the_token_is_accepted(locked):
+    locked.post("/api/login", json={"token": "letmein"})
+
+    payload = locked.get("/api/settings").json()
+
+    assert payload["fields"]
+    assert locked.get("/api/status").status_code == 200

@@ -322,3 +322,85 @@ def test_the_webhook_says_nothing_about_why_it_refused(tmp_path):
     # a real delivery gets.
     assert good.status_code == 200 and good.json() == {"ok": True}
     assert unknown.status_code == 404
+
+
+# ------------------------------------------------ the floor under the profile
+
+
+class PolicyStub:
+    def __init__(self):
+        self.denied_tools = ()
+        self.base_denied_tools = ()
+
+    def deny_always(self, names):
+        wanted = tuple(names)
+        self.base_denied_tools = tuple(dict.fromkeys((*self.base_denied_tools, *wanted)))
+        self.denied_tools = tuple(dict.fromkeys((*self.denied_tools, *wanted)))
+
+
+class AgentStub:
+    def __init__(self, profiles=None):
+        from thursday.permissions import Policy
+
+        self.policy = Policy()
+        self.profiles = profiles if profiles is not None else {}
+
+    async def run(self, text, session_id="", profile=None):
+        self.ran = (text, session_id, profile)
+        return "answered"
+
+
+def test_the_shell_is_off_over_chat_whatever_profile_is_chosen(monkeypatch):
+    """The profile is a preference, not a guarantee: THURSDAY_CHAT_PROFILE can
+    name any profile at all, and a name matching nothing lets the router
+    choose - possibly the everyday one, shell and all."""
+    from thursday.bridge import CHAT_DENIED, Bridge, Channel
+
+    monkeypatch.setenv("THURSDAY_CHAT_PROFILE", "coder")
+    agent = AgentStub(profiles={"coder": object()})
+    bridge = Bridge(channel=Channel(platform="telegram"), agent_factory=lambda: agent)
+
+    asyncio.run(bridge.answer(Incoming(chat_id="1", text="rm -rf ~")))
+
+    for name in ("run_shell", "write_file", "delete_file", "browse", "send_draft"):
+        assert name in agent.policy.denied_tools, name
+    assert set(CHAT_DENIED) <= set(agent.policy.denied_tools)
+
+
+def test_the_restriction_survives_being_told_who_is_speaking():
+    """speaking_to() rebuilds denied_tools from base_denied_tools, so a
+    restriction added only to the working list would be handed straight back
+    at the next turn."""
+    from thursday.bridge import CHAT_DENIED, Bridge, Channel
+    from thursday.people import Person
+
+    agent = AgentStub()
+    bridge = Bridge(channel=Channel(platform="line"), agent_factory=lambda: agent)
+    bridge.restrain(agent)
+
+    # What speaking_to does to the policy, without needing a whole Agent.
+    person = Person(name="Nok", role="owner")
+    agent.policy.denied_tools = tuple(
+        dict.fromkeys((*agent.policy.base_denied_tools, *person.denied()))
+    )
+
+    assert set(CHAT_DENIED) <= set(agent.policy.denied_tools)
+
+
+def test_the_chat_profile_and_the_chat_floor_are_the_same_list():
+    """Two copies of one list is how this became a promise nothing kept."""
+    from thursday.bridge import CHAT_DENIED
+    from thursday.profiles import builtin_map
+
+    assert set(builtin_map()["chat"].deny_tools) == set(CHAT_DENIED)
+
+
+def test_nothing_that_needs_a_confirmation_is_left_on_the_table():
+    """There is nobody at the keyboard to answer a prompt, so a tool that
+    asks would hang until it timed out."""
+    from thursday.bridge import CHAT_DENIED
+    from thursday.permissions import DEFAULT_TOOL_RULES
+
+    asking = {name for name, rule in DEFAULT_TOOL_RULES.items() if rule == "confirm"}
+
+    assert asking <= set(CHAT_DENIED)

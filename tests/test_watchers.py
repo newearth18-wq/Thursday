@@ -379,3 +379,79 @@ def test_visible_text_is_split_into_lines_by_block(monkeypatch):
     )
 
     assert lines == ["Price: 100", "Ad: buy a hat"]
+
+
+# ------------------------------------------------------ what may be watched
+
+
+@pytest.fixture()
+def guarded(tmp_path, watch):
+    """A context carrying the machine-access policy, as the agent supplies."""
+    from thursday.permissions import Policy
+
+    settings = Settings(workspace=tmp_path, data_dir=tmp_path / "data", plugin_dirs=())
+    context = ToolContext(settings=settings, memory=watch.memory)
+    context.state["policy"] = Policy.from_settings(settings)
+    return context
+
+
+def test_a_protected_folder_cannot_be_watched(guarded, tmp_path):
+    """A folder watcher reports the names of the files that appear in it,
+    which is reading a directory on a timer. It was the one filesystem tool
+    doing that without asking the policy first."""
+    registry = build_registry(guarded.settings)
+    secrets = tmp_path / ".ssh"
+    secrets.mkdir()
+
+    with pytest.raises(ToolError, match="protected"):
+        call(registry, "watch_for",
+             {"name": "keys", "kind": "folder", "target": str(secrets)}, guarded)
+
+    assert Watch(guarded.memory).all() == []
+
+
+def test_thursdays_own_data_folder_cannot_be_watched(guarded, tmp_path):
+    """It holds the settings file, and the settings file holds the API keys."""
+    registry = build_registry(guarded.settings)
+    (tmp_path / "data").mkdir(exist_ok=True)
+
+    with pytest.raises(ToolError, match="protected"):
+        call(registry, "watch_for",
+             {"name": "peek", "kind": "folder", "target": str(tmp_path / "data")}, guarded)
+
+
+def test_a_relative_name_is_resolved_before_it_is_judged(guarded, tmp_path):
+    """`watch_for("x", "folder", "data")` and the absolute path are the same
+    act, so they get the same answer."""
+    registry = build_registry(guarded.settings)
+    (tmp_path / "data").mkdir(exist_ok=True)
+
+    with pytest.raises(ToolError, match="protected"):
+        call(registry, "watch_for",
+             {"name": "peek", "kind": "folder", "target": "data"}, guarded)
+
+
+def test_an_ordinary_folder_outside_the_workspace_is_still_fine(guarded, tmp_path):
+    """"Tell me when the report lands in Downloads" is the headline use of
+    this, and Downloads is not in the workspace. The deny list is the rule
+    here, not workspace containment."""
+    registry = build_registry(guarded.settings)
+    downloads = tmp_path.parent / "elsewhere-downloads"
+    downloads.mkdir(exist_ok=True)
+
+    call(registry, "watch_for",
+         {"name": "downloads", "kind": "folder", "target": str(downloads)}, guarded)
+
+    assert Watch(guarded.memory).get("downloads")["target"] == str(downloads)
+
+
+def test_the_other_kinds_are_not_paths_and_are_left_alone(guarded, monkeypatch):
+    """A URL is not a folder; running it through the path rules would only
+    find new ways to be wrong."""
+    registry = build_registry(guarded.settings)
+    monkeypatch.setattr("thursday.watchers.PageWatcher.look", lambda self, state: (state, []))
+
+    call(registry, "watch_for",
+         {"name": "prices", "kind": "page", "target": "https://example.com/.ssh"}, guarded)
+
+    assert Watch(guarded.memory).get("prices")["kind"] == "page"

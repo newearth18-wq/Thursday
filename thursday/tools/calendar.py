@@ -12,7 +12,7 @@ import logging
 import os
 import re
 from dataclasses import dataclass
-from datetime import date, datetime, timedelta
+from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any, Iterable
 
@@ -64,16 +64,46 @@ def _unfold(raw: str) -> list[str]:
     return _FOLD.sub("", raw).splitlines()
 
 
-def _parse_moment(value: str) -> datetime | date | None:
-    """ICS times: 20260906T083000Z, 20260906T083000, or 20260906 for all-day."""
+def _zone(tzid: str) -> Any:
+    """The zone a TZID names, or None if this machine cannot look it up.
+
+    Windows ships no IANA database, so ZoneInfo("Asia/Bangkok") raises there
+    unless the tzdata package is installed - which it is, as a dependency, but
+    a missing zone must degrade to "assume local" rather than lose the event.
+    """
+    if not tzid:
+        return None
+    try:
+        from zoneinfo import ZoneInfo
+
+        return ZoneInfo(tzid)
+    except Exception:
+        log.debug("unknown calendar timezone %r; reading it as local time", tzid)
+        return None
+
+
+def _parse_moment(value: str, tzid: str = "") -> datetime | date | None:
+    """ICS times: 20260906T083000Z, 20260906T083000, or 20260906 for all-day.
+
+    Everything comes back in this machine's own timezone, converted rather
+    than relabelled. Stamping local tzinfo onto a UTC reading keeps the digits
+    and changes the moment, which is how an 08:30 UTC meeting used to show up
+    as 08:30 in Bangkok - seven hours out, and looking perfectly reasonable.
+    """
     value = value.strip()
     try:
         if value.endswith("Z"):
-            return datetime.strptime(value, "%Y%m%dT%H%M%SZ").replace(
-                tzinfo=datetime.now().astimezone().tzinfo
+            return (
+                datetime.strptime(value, "%Y%m%dT%H%M%SZ")
+                .replace(tzinfo=timezone.utc)
+                .astimezone()
             )
         if "T" in value:
-            return datetime.strptime(value, "%Y%m%dT%H%M%S").astimezone()
+            moment = datetime.strptime(value, "%Y%m%dT%H%M%S")
+            zone = _zone(tzid)
+            # No TZID is a "floating" time in the spec: whatever the clock on
+            # the wall says, wherever you are. astimezone() reads it that way.
+            return moment.replace(tzinfo=zone).astimezone() if zone else moment.astimezone()
         if len(value) == 8:
             return datetime.strptime(value, "%Y%m%d").date()
     except ValueError:
@@ -101,8 +131,12 @@ def parse_ics(raw: str) -> list[Event]:
                 events.append(
                     Event(
                         summary=_unescape(current.get("SUMMARY", "(untitled)")),
-                        start=_parse_moment(current.get("DTSTART", "")),
-                        end=_parse_moment(current.get("DTEND", "")),
+                        start=_parse_moment(
+                            current.get("DTSTART", ""), current.get("DTSTART.TZID", "")
+                        ),
+                        end=_parse_moment(
+                            current.get("DTEND", ""), current.get("DTEND.TZID", "")
+                        ),
                         location=_unescape(current.get("LOCATION", "")),
                         description=_unescape(current.get("DESCRIPTION", "")),
                     )
@@ -112,10 +146,18 @@ def parse_ics(raw: str) -> list[Event]:
         if current is None or ":" not in line:
             continue
         name, _, value = line.partition(":")
-        # Strip parameters: DTSTART;TZID=Europe/London:20260906T090000
-        key = name.split(";")[0].upper()
+        # DTSTART;TZID=Europe/London:20260906T090000 - the parameters carry
+        # the timezone, so they are read rather than thrown away. Dropping
+        # the TZID left 09:00 London to be read as 09:00 wherever the machine
+        # happened to be.
+        parameters = name.split(";")
+        key = parameters[0].upper()
         if key in {"SUMMARY", "DTSTART", "DTEND", "LOCATION", "DESCRIPTION"}:
             current[key] = value
+            for parameter in parameters[1:]:
+                label, _, setting = parameter.partition("=")
+                if label.strip().upper() == "TZID":
+                    current[f"{key}.TZID"] = setting.strip().strip('"')
 
     return events
 

@@ -364,3 +364,84 @@ def test_a_broken_file_does_not_lock_the_owner_out(tmp_path):
 def test_once_roles_exist_an_unlisted_name_is_a_guest(household):
     assert household.anyone is True
     assert household.get("Someone New").role == "guest"
+
+
+# ----------------------------------------------- the gaps in the deny lists
+
+
+def test_a_guest_who_cannot_write_a_file_cannot_delete_one_either():
+    """delete_file was allowed to a guest who could not read, write, list or
+    search a single file - only the tool's own confirmation prompt stood in
+    the way, and that prompt does not say the request came from a guest."""
+    from thursday.people import ROLE_DENIED
+
+    for role in ("member", "guest"):
+        assert "delete_file" in ROLE_DENIED[role]
+        assert "undo_change" in ROLE_DENIED[role]
+
+
+def test_the_vault_is_notes_and_is_treated_as_notes():
+    """The guest style prompt says "no access to the owner's notes". The
+    vault is the owner's notes, and all of it was readable and writable."""
+    from thursday.people import ROLE_DENIED
+
+    for tool_name in ("vault_read", "vault_search", "vault_write", "vault_map"):
+        assert tool_name in ROLE_DENIED["guest"], tool_name
+    # A member lives here and may read it, but not rewrite it, exactly as
+    # they may read a file but not write one.
+    assert "vault_write" in ROLE_DENIED["member"]
+    assert "vault_read" not in ROLE_DENIED["member"]
+
+
+def test_a_guest_cannot_read_what_the_owner_last_copied():
+    """A clipboard holds whatever was copied last, which is regularly a
+    password or an address someone is about to paste."""
+    from thursday.people import ROLE_DENIED
+
+    assert "read_clipboard" in ROLE_DENIED["guest"]
+    assert "write_clipboard" in ROLE_DENIED["guest"]
+
+
+def test_a_guest_cannot_read_the_owners_calendar_or_drafts():
+    from thursday.people import ROLE_DENIED
+
+    for tool_name in ("whats_on", "daily_brief", "list_drafts", "read_draft"):
+        assert tool_name in ROLE_DENIED["guest"], tool_name
+
+
+def test_denying_one_of_a_pair_denies_the_other(tmp_path):
+    """The bug this list keeps having is a tool that does the same thing as a
+    denied one under a different name. Adding a tool to SAME_ACT is what stops
+    it happening again, so the wiring is checked rather than trusted."""
+    from thursday.people import ROLE_DENIED, SAME_ACT
+
+    for role, denied in ROLE_DENIED.items():
+        if role == "owner":
+            continue
+        for name in denied:
+            for twin in SAME_ACT.get(name, ()):
+                assert twin in denied, f"{role} is denied {name} but allowed {twin}"
+
+
+def test_every_tool_named_in_the_pairs_actually_exists(tmp_path):
+    """A typo in this list is a rule that silently does nothing."""
+    from thursday.config import Settings
+    from thursday.people import SAME_ACT
+    from thursday.tools import build_registry
+
+    registry = build_registry(Settings(workspace=tmp_path, plugin_dirs=()))
+    known = {found.name for found in registry}
+
+    for name, twins in SAME_ACT.items():
+        assert name in known, name
+        for twin in twins:
+            assert twin in known, twin
+
+
+def test_the_guest_profile_and_the_guest_role_cannot_drift_apart():
+    """Two copies of one list is how the vault ended up readable by someone
+    who could not read a file."""
+    from thursday.people import ROLE_DENIED
+    from thursday.profiles import builtin_map
+
+    assert set(builtin_map()["guest"].deny_tools) == set(ROLE_DENIED["guest"])

@@ -31,24 +31,57 @@ import os
 import re
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any
+from typing import Any, Iterable
 
 log = logging.getLogger(__name__)
 
 #: Who someone is to this machine.
 ROLES = ("owner", "member", "guest")
 
+#: Tools that do the same kind of thing, so a role that is denied one and
+#: allowed another is a gap rather than a decision. Kept as data because that
+#: is the mistake this list keeps making: delete_file was allowed to a guest
+#: who could not read, write, list or search a single file, and the whole
+#: Obsidian vault was readable and writable by someone the style prompt tells
+#: Thursday has "no access to the owner's notes".
+SAME_ACT: dict[str, tuple[str, ...]] = {
+    # Changing what is on disk.
+    "write_file": ("delete_file", "undo_change", "vault_write", "vault_connect",
+                   "vault_journal", "write_clipboard"),
+    # Reading what is on disk, or what stands in for it.
+    "read_file": ("vault_read", "vault_search", "vault_map", "vault_related",
+                  "read_clipboard"),
+    # Reading the owner's correspondence and calendar.
+    "read_mail": ("whats_on", "daily_brief", "list_drafts", "read_draft",
+                  "revise_draft", "discard_draft", "mail_setup"),
+    # Looking over the owner's shoulder at what the machine is doing.
+    "search_history": ("show_changes", "check_jobs", "job_result", "list_watches",
+                       "check_watches_now", "list_processes", "system_status",
+                       "list_routines", "list_schedules"),
+    # Stored instructions that run later, with whatever rights the runner has.
+    "start_job": ("save_routine", "delete_routine", "run_routine", "schedule_routine"),
+}
+
+
+def _with_equivalents(names: Iterable[str]) -> tuple[str, ...]:
+    """A deny list, plus everything that amounts to the same act."""
+    out = list(names)
+    for name in list(names):
+        out.extend(SAME_ACT.get(name, ()))
+    return tuple(dict.fromkeys(out))
+
+
 #: What each role may not do. The owner's list is empty on purpose: it is
 #: their machine, and the permissions policy already guards the dangerous
 #: parts of it.
 ROLE_DENIED: dict[str, tuple[str, ...]] = {
     "owner": (),
-    "member": (
+    "member": _with_equivalents((
         "run_shell", "write_file", "open_app", "lock_screen",
         "browse", "browser_act", "browser_screenshot",
         "send_draft", "forget_fact", "delete_note", "forget_document",
-    ),
-    "guest": (
+    )),
+    "guest": _with_equivalents((
         "run_shell", "write_file", "read_file", "list_files", "search_files",
         "open_app", "lock_screen", "take_screenshot",
         "browse", "browser_act", "browser_screenshot",
@@ -57,7 +90,7 @@ ROLE_DENIED: dict[str, tuple[str, ...]] = {
         "search_notes", "search_history", "search_documents", "list_documents",
         "index_documents", "forget_document", "check_mail", "read_mail",
         "watch_for", "stop_watching", "start_job", "cancel_job",
-    ),
+    )),
 }
 
 #: The profile each role's turns run under, when the profile exists.

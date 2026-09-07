@@ -381,3 +381,103 @@ def test_image_tool_results_are_stored_without_their_payload(tmp_path):
     replayed = json.dumps(agent.client.requests[2]["messages"])
     assert "BBBBB" not in replayed
     assert "[image omitted from history]" in replayed
+
+
+# ------------------------------------------------- "confirm" has to confirm
+
+
+def confirming_agent(tmp_path, answer, dangerous=False):
+    """An agent whose policy marks open_app "confirm", with a stub standing
+    in for it, so the question is only whether anyone asks."""
+    registry = ToolRegistry()
+    ran = []
+
+    @tool(registry=registry, dangerous=dangerous)
+    def open_app(target: str = "") -> str:
+        """Open an application."""
+        ran.append(target)
+        return f"opened {target}"
+
+    asked = []
+
+    async def confirm(title, detail):
+        asked.append((title, detail))
+        return answer
+
+    replies = [
+        Reply([Block("tool_use", id="t1", name="open_app", input={"target": "calc.exe"})],
+              "tool_use"),
+        Reply([Block("text", "done")]),
+    ]
+    agent = build_agent(replies, tmp_path, registry=registry)
+    agent.set_confirm_handler(confirm)
+    return agent, ran, asked
+
+
+def test_a_tool_the_policy_says_to_confirm_is_actually_confirmed(tmp_path):
+    """open_app and lock_screen are marked "confirm" by default and have no
+    confirmation of their own, so nothing was asking on their behalf and they
+    ran on the model's say-so alone."""
+    agent, ran, asked = confirming_agent(tmp_path, answer=False)
+    assert agent.policy.tool_rules["open_app"] == "confirm"
+
+    collect(agent, "open the calculator")
+
+    assert ran == [], "it ran anyway"
+    assert asked, "nobody was asked"
+    assert "calc.exe" in asked[0][1], "the prompt did not say what it would open"
+
+
+def test_saying_yes_lets_it_through(tmp_path):
+    agent, ran, _ = confirming_agent(tmp_path, answer=True)
+
+    collect(agent, "open the calculator")
+
+    assert ran == ["calc.exe"]
+
+
+def test_declining_tells_the_model_rather_than_failing_silently(tmp_path):
+    agent, _, _ = confirming_agent(tmp_path, answer=False)
+
+    events = collect(agent, "open the calculator")[1]
+
+    refusals = [e for e in events if e.type == "tool_error"]
+    assert refusals and "declined" in refusals[0].result
+    assert agent.memory.access_log(limit=5)[0]["outcome"] == "denied"
+
+
+def test_a_tool_that_asks_for_itself_is_not_asked_about_twice(tmp_path):
+    """The dangerous tools run their own prompt, because only they know what
+    to put in the question. Asking again would be two prompts for one act."""
+    agent, ran, asked = confirming_agent(tmp_path, answer=True, dangerous=True)
+
+    collect(agent, "do the thing")
+
+    assert ran == ["calc.exe"]
+    assert asked == [], "the agent asked on top of the tool's own prompt"
+
+
+def test_every_dangerous_tool_really_does_ask_for_itself(tmp_path):
+    """The agent stands back for dangerous tools on the understanding that
+    they confirm themselves. One that did not would be the same hole again,
+    so the understanding is checked rather than assumed."""
+    import inspect
+
+    from thursday.tools import build_registry
+
+    registry = build_registry(Settings(workspace=tmp_path, plugin_dirs=()))
+    dangerous = [t for t in registry if t.dangerous]
+    assert dangerous
+
+    for found in dangerous:
+        source = inspect.getsource(found.func)
+        # _approve is the browser tools' shared wrapper around it.
+        assert "request_confirmation" in source or "_approve" in source, found.name
+
+
+def test_the_arguments_are_summarised_short_enough_to_read():
+    from thursday.agent import describe_call
+
+    assert describe_call({"path": "notes.txt"}) == "path=notes.txt"
+    assert describe_call({"content": "x" * 500}).endswith("\u2026")
+    assert len(describe_call({f"k{i}": "v" * 50 for i in range(20)})) <= 201

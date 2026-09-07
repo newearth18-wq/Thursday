@@ -141,6 +141,18 @@ class Policy:
         policy.base_denied_tools = policy.denied_tools
         return policy
 
+    def deny_always(self, names: Iterable[str]) -> None:
+        """Switch tools off for good, whatever happens to this policy later.
+
+        Added to the configured list as well as the working one, because
+        speaking_to() rebuilds denied_tools from base_denied_tools every time
+        it is told who is here - so anything added only to the working list
+        would be handed back at the next turn.
+        """
+        wanted = tuple(names)
+        self.base_denied_tools = tuple(dict.fromkeys((*self.base_denied_tools, *wanted)))
+        self.denied_tools = tuple(dict.fromkeys((*self.denied_tools, *wanted)))
+
     @classmethod
     def load(cls, paths: Iterable[Path] = ()) -> "Policy":
         """Read permissions.json, if there is one."""

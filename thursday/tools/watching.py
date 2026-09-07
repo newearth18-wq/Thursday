@@ -14,6 +14,28 @@ def _watch(ctx: ToolContext) -> Watch:
     return Watch(ctx.memory)
 
 
+def _folder_allowed(ctx: ToolContext, target: str) -> None:
+    """Refuse a folder the permissions policy protects.
+
+    A folder watcher reports the names of files that appear, which is reading
+    a directory on a timer - and it was the one filesystem tool doing that
+    without asking the policy first. `watch_for("x", "folder", "~/.ssh")` was
+    accepted, and so was Thursday's own data folder, the one holding the API
+    keys.
+
+    Deliberately the deny list rather than the full workspace containment
+    read_file applies: "tell me when the report lands in Downloads" is the
+    headline use of this and Downloads is not in the workspace. What cannot
+    be argued with is the protected-path list, and that is what is checked.
+    """
+    policy = ctx.state.get("policy") if ctx else None
+    if policy is None:
+        return
+    resolved = policy.resolve(target)
+    if not policy.may_read(resolved):
+        raise ToolError(f"{resolved} is protected, so I cannot watch it")
+
+
 @tool
 def watch_for(
     name: str,
@@ -47,6 +69,9 @@ def watch_for(
         minutes: For a calendar, how long before an event to speak up.
         contains: For a page, only care about lines containing this.
     """
+    if kind.strip().lower() == "folder":
+        _folder_allowed(ctx, target)
+
     options: dict[str, Any] = {}
     if from_sender:
         options["from"] = from_sender
