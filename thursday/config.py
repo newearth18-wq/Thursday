@@ -15,9 +15,13 @@ import os
 from dataclasses import dataclass, field
 from pathlib import Path
 
+from .home import home
 from .settings_store import apply_overlay, overlay_path
 
-PROJECT_ROOT = Path(__file__).resolve().parent.parent
+#: Where everything the person owns lives. The source tree when run
+#: from one, and %LOCALAPPDATA%\\Thursday when run from Thursday.exe,
+#: which has no source tree to keep anything beside.
+PROJECT_ROOT = home()
 
 
 def load_dotenv(path: Path | None = None) -> None:

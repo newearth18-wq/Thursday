@@ -1,8 +1,11 @@
-# Builds Thursday-Setup.exe and puts it where a person can download it.
+# Builds the two Windows downloads and publishes them together.
 #
-# The exe has to be built on Windows - PyInstaller freezes the interpreter
-# it is run with, so there is no cross-compiling - which is the whole reason
-# this is a workflow rather than something to run by hand.
+#   Thursday.exe        everything in one file: no Python, no pip, no network
+#   Thursday-Setup.exe  a small installer that puts Thursday on a real Python
+#
+# Both have to be built on Windows - PyInstaller freezes the interpreter it
+# is run with, so there is no cross-compiling - which is why this is a
+# workflow and not something to run by hand.
 name: installer
 
 on:
@@ -10,10 +13,11 @@ on:
     branches: ["**"]
     paths:
       - "setup/**"
+      - "thursday/**"
+      - "pyproject.toml"
       - ".github/workflows/installer.yml"
   workflow_dispatch:
 
-# Only for the release step. Everything else here reads.
 permissions:
   contents: write
 
@@ -22,17 +26,87 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  build:
+  app:
+    name: Thursday.exe
     runs-on: windows-latest
-
     steps:
       - uses: actions/checkout@v4
 
       - uses: actions/setup-python@v5
         with:
-          # The installer bundles whichever Python builds it, so this is the
-          # one that ends up inside the exe. Kept a release behind the newest
-          # for the same reason the installer itself prefers one.
+          # Whichever Python builds this is the one inside the exe, so it is
+          # the one everybody ends up running. Kept a release behind the
+          # newest, where the wheels are.
+          python-version: "3.12"
+          cache: pip
+
+      - name: Install everything that goes in the box
+        # Not identity: face_recognition needs dlib built against a C++
+        # toolchain, and there are no wheels. It is the one thing left out,
+        # and the app says so when asked.
+        run: |
+          python -m pip install --upgrade pip
+          pip install pyinstaller
+          pip install -e ".[web,documents,browser,mcp,voice]"
+
+      - name: Draw the icon
+        run: python setup/make_icon.py setup/thursday.ico
+
+      - name: Build
+        run: pyinstaller --noconfirm --clean setup/thursday.spec
+
+      - name: What came out
+        run: |
+          $exe = Get-Item dist\Thursday.exe
+          "{0:N0} MB" -f ($exe.Length / 1MB)
+
+      - name: Check the bundle carries what it claims
+        # A frozen app cannot install anything later, so a missing package is
+        # not a first-use inconvenience - it is a feature that will never
+        # work. Better to find out here.
+        env:
+          THURSDAY_HOME: ${{ runner.temp }}\thursday-home
+        run: .\dist\Thursday.exe selftest
+
+      - name: Check it actually serves the page
+        # The one test that exercises the whole stack at once: uvicorn comes
+        # up inside the bundle, fastapi routes, and the page is really in
+        # there. Everything else is an import.
+        env:
+          THURSDAY_HOME: ${{ runner.temp }}\thursday-home
+          THURSDAY_AUTH: "off"
+        run: |
+          $app = Start-Process .\dist\Thursday.exe -ArgumentList "serve" -PassThru -NoNewWindow
+          try {
+            $page = $null
+            foreach ($try in 1..60) {
+              try {
+                $page = Invoke-WebRequest http://127.0.0.1:8765/ -UseBasicParsing -TimeoutSec 5
+                break
+              } catch { Start-Sleep -Seconds 2 }
+            }
+            if (-not $page) { throw "the server never answered" }
+            if ($page.StatusCode -ne 200) { throw "the page came back $($page.StatusCode)" }
+            if ($page.Content -notmatch "reactor") { throw "that is not Thursday's page" }
+            "served $($page.Content.Length) bytes"
+          } finally {
+            taskkill /T /F /PID $app.Id 2>$null | Out-Null
+          }
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: Thursday
+          path: dist/Thursday.exe
+          if-no-files-found: error
+
+  setup:
+    name: Thursday-Setup.exe
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
           python-version: "3.12"
           cache: pip
 
@@ -42,9 +116,8 @@ jobs:
         run: python setup/make_icon.py setup/thursday.ico
 
       - name: Build
-        # --onefile because "an installer" means one thing to download, and
-        # this one is small enough (no third-party imports at all) that the
-        # usual objection to it does not apply.
+        # The installer imports nothing outside the standard library, so it
+        # needs no spec file and comes out small.
         run: >
           pyinstaller --onefile --console --clean --noconfirm
           --name Thursday-Setup
@@ -53,9 +126,6 @@ jobs:
           setup/bootstrap.py
 
       - name: Check it runs
-        # The point of building on a real Windows machine is to find out
-        # whether the thing starts, finds a Python and can reach the
-        # repository - before anyone downloads it and finds out for us.
         run: .\dist\Thursday-Setup.exe --check
 
       - uses: actions/upload-artifact@v4
@@ -64,43 +134,68 @@ jobs:
           path: dist/Thursday-Setup.exe
           if-no-files-found: error
 
+  publish:
+    # One job puts both files in one release, so there is no race between
+    # two builds finishing and no half-updated download page.
+    needs: [app, setup]
+    if: >
+      github.ref == 'refs/heads/main' ||
+      github.ref == 'refs/heads/claude/jarvis-assistant-mhfwe6'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: downloads
+          merge-multiple: true
+
       - name: Publish
-        if: >
-          github.ref == 'refs/heads/main' ||
-          github.ref == 'refs/heads/claude/jarvis-assistant-mhfwe6'
-        # bash rather than the runner's default PowerShell: this step is
-        # mostly a block of prose, and a heredoc needs no escaping while a
-        # PowerShell here-string inside a YAML block scalar needs two layers.
-        shell: bash
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          REPO: ${{ github.repository }}
         run: |
+          ls -lh downloads
+
           cat > notes.md <<'NOTES'
-          Download **Thursday-Setup.exe** below and double-click it.
+          ## Two ways in
 
-          Windows will say **"Windows protected your PC"**, because this file
-          is not signed with a code-signing certificate. Click **More info**,
-          then **Run anyway**. That warning is the whole price of not having
-          to type anything; `install.ps1` avoids it if you would rather paste
-          a line.
+          **[Thursday.exe](../../releases/download/setup/Thursday.exe)** — everything
+          in one file. No Python, no pip, nothing downloaded. Double-click it and
+          Thursday is running; set your API key on the page it opens.
 
-          It finds a Python and installs one if the machine has none, fetches
-          Thursday, asks for an API key and an Obsidian vault, and puts
-          Thursday on the Start menu. No administrator rights needed, and
-          nothing it does needs a C++ compiler.
+          **[Thursday-Setup.exe](../../releases/download/setup/Thursday-Setup.exe)** —
+          a small installer that puts Thursday on a real Python instead, which is
+          what you want if you will add packages, write plugins that need them, or
+          update with `git pull`.
 
-          If it fails, everything it printed is in
-          `%LOCALAPPDATA%\Thursday\install.log`.
+          Either way Windows will say **"Windows protected your PC"**, because
+          neither file is signed with a code-signing certificate. Click
+          **More info**, then **Run anyway**. `install.ps1` avoids that warning
+          if you would rather paste a line.
+
+          ## What is in Thursday.exe
+
+          The assistant, the web UI, the Claude client, PDF and Word reading, the
+          MCP server, browser control and the microphone support. Your settings,
+          database, `.env` and plugins live in `%LOCALAPPDATA%\Thursday`, so
+          replacing the exe with a newer one keeps all of it.
+
+          Not in it: face recognition, which needs dlib built against a C++
+          compiler, and the speech-recognition models, which are hundreds of
+          megabytes and are fetched on first use. Run `Thursday.exe selftest`
+          to see exactly what your copy carries.
           NOTES
 
-          # Replaced rather than added to, so the download link always points
-          # at the current build and there is only ever one file to choose.
-          if gh release view setup >/dev/null 2>&1; then
-            gh release delete setup --yes --cleanup-tag
+          # Replaced rather than added to, so the download links always point at
+          # the current build and there is only ever one file of each to choose.
+          if gh release view setup --repo "$REPO" >/dev/null 2>&1; then
+            gh release delete setup --repo "$REPO" --yes --cleanup-tag
           fi
 
-          gh release create setup dist/Thursday-Setup.exe \
+          gh release create setup \
+            downloads/Thursday.exe \
+            downloads/Thursday-Setup.exe \
+            --repo "$REPO" \
             --prerelease \
             --target "$GITHUB_SHA" \
-            --title "Thursday Setup (Windows)" \
+            --title "Thursday for Windows" \
             --notes-file notes.md

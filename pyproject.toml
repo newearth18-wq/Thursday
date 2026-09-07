@@ -31,6 +31,9 @@ voice = [
     "numpy>=1.24",
     "faster-whisper>=1.0",
     "piper-tts>=1.2; sys_platform == 'linux'",
+    # Windows has no speech synthesis Thursday can reach without this; it
+    # drives the SAPI voices that are already on the machine.
+    "pyttsx3>=2.90; sys_platform == 'win32'",
 ]
 dev = ["pytest>=8", "pytest-asyncio>=0.23", "pyflakes>=3"]
 all = ["thursday[web,voice,vision,mcp,documents,browser,dev]"]

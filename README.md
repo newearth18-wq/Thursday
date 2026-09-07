@@ -15,16 +15,40 @@
 
 ## ติดตั้ง (Install)
 
-### Windows — ดับเบิลคลิก
+### Windows — ดับเบิลคลิก (ทุกอย่างอยู่ในไฟล์เดียว)
 
-โหลดไฟล์เดียว แล้วดับเบิลคลิก ไม่ต้องเปิด PowerShell ไม่ต้องพิมพ์อะไรเลย
+**[⬇ Thursday.exe](https://github.com/newearth18-wq/Thursday/releases/download/setup/Thursday.exe)**
+
+ไม่ต้องมี Python ไม่ต้อง pip ไม่โหลดอะไรเพิ่ม ไม่ต้องเปิด PowerShell
+ดับเบิลคลิก → Thursday เปิดหน้าเว็บให้เอง → ใส่ API key ที่หน้านั้นได้เลย
+
+Windows จะขึ้น **"Windows protected your PC"** เพราะไฟล์ไม่ได้เซ็นใบรับรอง
+(ใบละหลายพันบาทต่อปี) — กด **More info** แล้วกด **Run anyway**
+
+**ในไฟล์มี** ตัวผู้ช่วย, หน้าเว็บ, ตัวคุย Claude, อ่าน PDF/Word, MCP server,
+คุมเบราว์เซอร์, ไมโครโฟน, เสียงพูดของ Windows
+
+**ไม่มี** จดจำใบหน้า (dlib ต้องใช้ C++ compiler ไม่มี wheel) และโมเดลถอดเสียง
+(หนักหลายร้อยเมกะไบต์ โหลดตอนใช้ครั้งแรก) — สั่ง `Thursday.exe selftest`
+ดูได้ว่าไฟล์ที่โหลดมามีอะไรบ้าง
+
+**ของคุณอยู่ที่** `%LOCALAPPDATA%\Thursday` — ตั้งค่า, ฐานข้อมูล, `.env`, ปลั๊กอิน
+เอา exe ตัวใหม่มาทับ ของเดิมอยู่ครบ ปลั๊กอินยังใช้ได้ (อ่านเป็นซอร์ส) ตราบใดที่
+ไม่ import ของที่ไม่ได้อยู่ในไฟล์
+
+**ข้อแลกเปลี่ยน** อัปเดต = โหลดไฟล์ใหม่มาทับ และเพิ่มแพ็กเกจทีหลังไม่ได้
+เพราะข้างในไม่มี pip — ถ้าต้องการเพิ่มของได้ ใช้วิธีถัดไป
+
+จากเทอร์มินัลก็สั่งได้เหมือน `thursday` ทุกอย่าง: `Thursday.exe chat`,
+`Thursday.exe pair`, `Thursday.exe vault`
+
+### Windows — ตัวติดตั้ง (ลงบน Python จริง)
 
 **[⬇ Thursday-Setup.exe](https://github.com/newearth18-wq/Thursday/releases/download/setup/Thursday-Setup.exe)**
 
-Windows จะขึ้น **"Windows protected your PC"** เพราะไฟล์นี้ไม่ได้เซ็นใบรับรอง
-(ใบรับรองราคาหลายพันบาทต่อปี) — กด **More info** แล้วกด **Run anyway**
-นี่คือข้อแลกเปลี่ยนข้อเดียวของวิธีนี้: แลก "พิมพ์คำสั่ง" กับ "กดผ่านคำเตือนหนึ่งครั้ง"
-ถ้าไม่อยากกดผ่านคำเตือน ใช้วิธีคำสั่งเดียวข้างล่างแทนได้ ผลลัพธ์เหมือนกันทุกอย่าง
+ตัวเล็ก (~10 MB) แบกแค่ตัวติดตั้ง แล้วลง Thursday บน Python ปกติของเครื่อง
+เอาไว้ใช้เมื่ออยาก `pip install` ของเพิ่ม เขียนปลั๊กอินที่มี dependency ของตัวเอง
+หรืออัปเดตด้วย `git pull`
 
 มันจะ:
 1. หา Python ที่ใช้ได้ ถ้าไม่มีก็โหลดจาก python.org มาลงให้ (ไม่ต้องเป็น Administrator)
@@ -34,9 +58,6 @@ Windows จะขึ้น **"Windows protected your PC"** เพราะไฟ
 
 หน้าต่างจะไม่ปิดเองจนกว่าจะกด Enter และทุกบรรทัดที่ขึ้นบนจอถูกเก็บไว้ที่
 `%LOCALAPPDATA%\Thursday\install.log` — ถ้าพัง ส่งไฟล์นี้มาก็พอ
-
-ตัวติดตั้งไม่ได้แบก Thursday ไว้ข้างใน มันแบกแค่ตัวติดตั้ง โปรแกรมจริงลงบน Python
-ปกติของเครื่อง เพราะแบบนั้นถึงจะ `pip install` ของเพิ่ม เขียนปลั๊กอิน และอัปเดตได้
 
 ### Windows — คำสั่งเดียว
 
@@ -992,7 +1013,11 @@ thursday/
   server.py       FastAPI + WebSocket
   web/index.html  HUD + หุ่นยนต์ (ไฟล์เดียว ไม่พึ่งอะไรภายนอก)
 install.ps1       ติดตั้งบน Windows ด้วยคำสั่งเดียว
-setup/            ที่มาของ Thursday-Setup.exe (bootstrap.py + ไอคอน)
+setup/            ที่มาของสองไฟล์ .exe
+  app.py          จุดเริ่มของ Thursday.exe (ทุกอย่างในไฟล์เดียว)
+  thursday.spec   สูตรประกอบ Thursday.exe
+  bootstrap.py    ตัวติดตั้ง Thursday-Setup.exe
+  make_icon.py    วาดไอคอน
 plugins/          วางไฟล์ tool ของคุณที่นี่
 tests/            pytest, ไม่แตะ network
 ```

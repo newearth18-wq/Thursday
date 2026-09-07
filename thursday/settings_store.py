@@ -20,9 +20,14 @@ from dataclasses import asdict, dataclass
 from pathlib import Path
 from typing import Any, Iterable
 
+from .home import home
+
 log = logging.getLogger(__name__)
 
-PROJECT_ROOT = Path(__file__).resolve().parent.parent
+#: Where everything the person owns lives. The source tree when run
+#: from one, and %LOCALAPPDATA%\\Thursday when run from Thursday.exe,
+#: which has no source tree to keep anything beside.
+PROJECT_ROOT = home()
 
 #: Anything whose value must never be sent back to the browser.
 SECRET_SUFFIXES = ("_API_KEY", "_AUTH_TOKEN", "_TOKEN")
