@@ -1,12 +1,18 @@
 import { createServer } from 'node:http'
 
 /**
- * A local OpenAI-compatible endpoint plus two static web pages, used by the
- * acceptance suite.
+ * A local OpenAI-compatible endpoint, two static web pages and a downloadable
+ * file, used by the acceptance suite.
  *
  * It exercises Thursday's real provider adapter, real HTTP and real SSE
  * parsing. It is NOT a substitute for testing against a vendor API — it proves
  * Thursday's side of the contract, nothing about OpenAI's servers.
+ *
+ * The model's behaviour is *scripted*, not intelligent: the suite puts a
+ * directive in the prompt and the mock obeys it. That is deliberate. A real
+ * model chooses whether to call a tool, so it can never be asserted on
+ * reliably; scripting the decision makes the test about the thing actually
+ * under test — Thursday's handling of a tool call once one arrives.
  */
 
 const MODELS = [
@@ -43,32 +49,125 @@ export function startMockProvider() {
             return
           }
 
-          const last = [...(request.messages ?? [])].reverse().find((m) => m.role === 'user')
-          const reply = `Echo from ${request.model}: ${last?.content ?? '(nothing)'}`
-          const words = reply.split(' ')
-
           res.writeHead(200, {
             'content-type': 'text/event-stream',
             'cache-control': 'no-cache',
             connection: 'keep-alive'
           })
 
-          // Emit one SSE event per word so the client genuinely streams.
+          const send = (payload) => res.write(`data: ${JSON.stringify(payload)}\n\n`)
+          const finish = (reason) => {
+            send({ choices: [{ delta: {}, finish_reason: reason }] })
+            res.write('data: [DONE]\n\n')
+            res.end()
+          }
+
+          const messages = request.messages ?? []
+          const last = [...messages].reverse().find((m) => m.role === 'user')
+          const prompt = last?.content ?? ''
+          const system = messages.find((m) => m.role === 'system')?.content ?? ''
+
+          /* --- scripted tool call --------------------------------------- */
+          // The suite writes [[call:<tool> <json>]] into the prompt when it
+          // wants the model to request a tool. Anything else is a plain reply,
+          // which is how the second round of a tool conversation ends.
+          const directive = /\[\[call:([\w.\-]+)\s*(\{.*?\})?\]\]/s.exec(prompt)
+          if (directive && Array.isArray(request.tools) && request.tools.length > 0) {
+            const name = directive[1]
+            const args = directive[2] ?? '{}'
+            // Fragmented exactly as OpenAI streams them, so the client's
+            // reassembly-by-index path is the one under test.
+            send({
+              choices: [
+                {
+                  delta: {
+                    tool_calls: [
+                      { index: 0, id: 'call_mock_1', function: { name, arguments: '' } }
+                    ]
+                  }
+                }
+              ]
+            })
+            const halfway = Math.ceil(args.length / 2)
+            send({
+              choices: [
+                { delta: { tool_calls: [{ index: 0, function: { arguments: args.slice(0, halfway) } }] } }
+              ]
+            })
+            send({
+              choices: [
+                { delta: { tool_calls: [{ index: 0, function: { arguments: args.slice(halfway) } }] } }
+              ]
+            })
+            finish('tool_calls')
+            return
+          }
+
+          /* --- scripted plan -------------------------------------------- */
+          // planMission() identifies itself in the system prompt and lists the
+          // registered skills as "- <id>: ...". The mock reads that list back,
+          // so the plan it returns can only ever name skills that really exist.
+          if (/planning component/i.test(system)) {
+            const ids = [...prompt.matchAll(/^- ([\w.\-]+):/gm)].map((m) => m[1])
+
+            // [[badplan]] in the goal makes the model name a skill that does
+            // not exist, so the planner's validation can be tested directly.
+            if (prompt.includes('[[badplan]]')) {
+              const bad = JSON.stringify({
+                steps: [{ title: 'Impossible step', skillId: 'ghost-plugin.no_such_skill', input: {} }]
+              })
+              send({ choices: [{ delta: { content: bad } }] })
+              finish('stop')
+              return
+            }
+
+            const plan = {
+              steps: ids.slice(0, 2).map((id, index) => ({
+                title: `Scripted step ${index + 1}`,
+                skillId: id,
+                input: id.endsWith('echo_text') ? { text: 'planned by the model' } : {},
+                requiresApproval: false
+              }))
+            }
+            if (plan.steps.length === 0) {
+              plan.steps = [{ title: 'Scripted checkpoint', skillId: null, input: {}, requiresApproval: false }]
+            }
+            // Wrapped in a code fence on purpose: real models do this, and the
+            // parser is supposed to cope.
+            const text = '```json\n' + JSON.stringify(plan) + '\n```'
+            for (const piece of text.match(/.{1,20}/gs) ?? []) {
+              send({ choices: [{ delta: { content: piece } }] })
+            }
+            finish('stop')
+            return
+          }
+
+          /* --- plain echo ------------------------------------------------ */
+          const reply = `Echo from ${request.model}: ${prompt || '(nothing)'}`
+          const words = reply.split(' ')
           let index = 0
           const tick = setInterval(() => {
             if (index >= words.length) {
               clearInterval(tick)
-              res.write(
-                `data: ${JSON.stringify({ choices: [{ delta: {}, finish_reason: 'stop' }] })}\n\n`
-              )
-              res.write('data: [DONE]\n\n')
-              res.end()
+              finish('stop')
               return
             }
             const text = (index === 0 ? '' : ' ') + words[index++]
-            res.write(`data: ${JSON.stringify({ choices: [{ delta: { content: text } }] })}\n\n`)
+            send({ choices: [{ delta: { content: text } }] })
           }, 12)
         })
+        return
+      }
+
+      // A real attachment, so Electron's download pipeline actually engages.
+      if (url.pathname === '/download/sample.txt') {
+        const body = 'downloaded by the acceptance suite\n'
+        res.writeHead(200, {
+          'content-type': 'text/plain',
+          'content-disposition': 'attachment; filename="sample.txt"',
+          'content-length': Buffer.byteLength(body)
+        })
+        res.end(body)
         return
       }
 

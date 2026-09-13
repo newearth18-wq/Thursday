@@ -13,13 +13,15 @@ gain new abilities through plugins without the core changing.
 
 ## Status
 
-Alpha. All 24 required acceptance tests pass, plus 8 additional checks written
+Alpha. All 24 required acceptance tests pass, plus 13 additional checks written
 to verify the core principles (plugin isolation, permission enforcement,
-browser independence, approval gates, IPC validation).
+browser independence, approval gates, IPC validation) and the paths the
+required 24 do not reach (tool calling, mission planning, every workflow node
+type, downloads).
 
 ```
 Required acceptance tests : 24/24 passed
-Core principle checks     : 8/8 passed
+Core principle checks     : 13/13 passed
 ```
 
 Run them yourself with `npm run test:acceptance`. CI runs the same suite, plus
