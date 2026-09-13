@@ -1,0 +1,28 @@
+appId: dev.thursday.browser
+productName: Thursday Browser
+directories:
+  output: dist
+  buildResources: build
+files:
+  - out/**/*
+  - package.json
+# Plugin packages ship beside the app so the engine can discover them at
+# process.resourcesPath/plugins. Only the manifest and the built entry file
+# are needed at runtime.
+extraResources:
+  - from: plugins
+    to: plugins
+    filter:
+      - '**/manifest.json'
+      - '**/index.js'
+linux:
+  target:
+    - AppImage
+  category: Network
+win:
+  target:
+    - nsis
+mac:
+  target:
+    - dmg
+  category: public.app-category.productivity

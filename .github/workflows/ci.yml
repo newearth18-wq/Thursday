@@ -1,0 +1,58 @@
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+# A newer push to the same branch makes the in-flight run pointless.
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build-and-test:
+    name: Build and acceptance suite
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    env:
+      # The suite drives Electron directly, so Playwright's own browser
+      # downloads are never used and only cost install time.
+      PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD: '1'
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Install the system libraries Chromium needs
+        # Electron bundles Chromium, which needs the same shared libraries
+        # Playwright installs for it. xvfb supplies the display the real
+        # browser window requires on a headless runner.
+        run: |
+          npx playwright install-deps chromium
+          sudo apt-get install -y --no-install-recommends xvfb
+
+      - name: Typecheck, build plugins, build app
+        run: npm run build
+
+      - name: Acceptance suite
+        # Launches the real application. The suite passes --no-sandbox itself,
+        # which CI requires: Ubuntu restricts the unprivileged user namespaces
+        # Chromium's sandbox depends on.
+        run: xvfb-run -a npm run test:acceptance
+
+      - name: Package check
+        # Proves the app still packages and that plugins land in resources,
+        # which a source-tree test cannot catch.
+        run: |
+          npx electron-builder --dir --linux
+          test -f dist/linux-unpacked/resources/plugins/demo-tools/manifest.json
+          test -f dist/linux-unpacked/resources/plugins/demo-tools/index.js
+          echo "Packaged build contains the demo-tools plugin."

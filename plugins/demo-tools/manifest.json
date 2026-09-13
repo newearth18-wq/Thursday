@@ -1,0 +1,9 @@
+{
+  "id": "demo-tools",
+  "name": "Demo Tools",
+  "version": "1.0.0",
+  "description": "Reference plugin proving the Plugin + Skill system end to end.",
+  "main": "index.js",
+  "permissions": ["filesystem.write", "filesystem.read"],
+  "skills": ["echo_text", "get_current_time", "save_note"]
+}
