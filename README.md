@@ -22,7 +22,8 @@ Required acceptance tests : 24/24 passed
 Core principle checks     : 8/8 passed
 ```
 
-Run them yourself with `npm run test:acceptance`. See
+Run them yourself with `npm run test:acceptance`. CI runs the same suite, plus
+a packaging check, on every pull request — see `.github/workflows/ci.yml`. See
 [docs/ACCEPTANCE.md](docs/ACCEPTANCE.md) for what each test proves — and for an
 explicit list of what is **not** covered.
 

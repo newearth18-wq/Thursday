@@ -5,6 +5,10 @@
   "main": "./out/main/index.js",
   "author": "Thursday Project",
   "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/newearth18-wq/Thursday.git"
+  },
   "private": true,
   "type": "module",
   "engines": {
