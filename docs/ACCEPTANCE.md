@@ -71,11 +71,16 @@ Run on Linux, Electron 38.8.6 / Chromium 140.0.7339.249 / Node 22.22.0:
   29. PASS  Browser Core works with AI and plugins disabled
   31. PASS  Mission approval gate blocks, then approves and rejects
   32. PASS  Workflow wait, file, browser and approval nodes all execute
+  33. PASS  A model tool call reaches a skill and the result returns to the model
+  34. PASS  A model writes a mission plan and it runs
+  35. PASS  The planner rejects a plan naming an unregistered skill
+  36. PASS  An AI workflow node runs the model and passes its output on
+  37. PASS  A download completes and the file lands on disk
   30. PASS  Invalid IPC input is rejected, not executed
 
   Required acceptance tests : 24/24 passed
-  Core principle checks     : 8/8 passed
-  Duration                  : 5.0s
+  Core principle checks     : 13/13 passed
+  Duration                  : 5.9s
 ```
 
 ---
@@ -143,6 +148,29 @@ asserts the run genuinely blocks at the gate — checking that the browser node
 before it had already run — before approving and confirming the file round trip
 survived into the run context.
 
+**33, tool calling end to end.** The scripted model emits an OpenAI-style
+`tool_calls` delta **split across three SSE events**, which is how the real API
+streams them. The test asserts the fragments were reassembled into
+`{"text":"called by the model"}`, that the named skill actually ran, and that
+its result came back in the persisted transcript — the full loop from model
+output through the registry and back into the conversation.
+
+**34 and 35, mission planning.** 34 has the model write a plan from the *live*
+skill catalogue, then asserts every `skillId` it named is really registered and
+runs the resulting mission to `COMPLETED`. 35 is the negative case: the model is
+told to name `ghost-plugin.no_such_skill`, and the planner must refuse, name the
+offending skill, list the ones that do exist, and leave no half-built mission
+behind.
+
+**36, the `ai` workflow node.** Asserts the model's reply lands in the run
+context under the configured `outputKey` and then flows through `{{answer}}`
+into a downstream node.
+
+**37, downloads.** Points a tab at a real `Content-Disposition: attachment`
+response, waits for Electron's download pipeline to report `completed`, then
+**reads the file off disk** and checks both its contents and that it landed
+inside the configured download directory.
+
 ---
 
 ## What these tests do NOT cover
@@ -169,24 +197,16 @@ format and share the tested HTTP/SSE plumbing, but "written correctly" is not
 "verified running". Add a provider with a real key and press **Test connection**
 to check one.
 
-**Tool calling through a real model is not tested end to end.** The mock
-provider does not emit tool calls, so the path from a model's `tool_call` chunk
-through the registry and back into the conversation is exercised only by the
-mission and workflow tests, which invoke skills directly. The chat-driven tool
-loop needs a real model to verify.
+**No model actually *decides* anything.** Tests 33-36 use a scripted model: the
+suite writes a directive into the prompt and the mock obeys it. That is
+deliberate — a real model chooses whether to call a tool, so it can never be
+asserted on reliably — but it means these tests prove Thursday's *handling* of a
+tool call, a plan or an `ai` node result, never that a given model will produce
+one. Whether GPT-4 or Claude decides to call `demo-tools.echo_text` for a
+particular prompt is untested and untestable here.
 
-**Downloads are not tested.** The code is wired to Electron's `will-download`
-and logs each transition, but no test drives a download.
-
-**The `ai` workflow node is not tested.** Tests 28 and 32 cover `skill`,
-`condition`, `output`, `wait`, `file`, `browser` and `human_approval` — seven of
-the eight node types. The `ai` node is the exception, for the same reason as
-above: it needs a real model.
-
-**Mission planning with a model is not tested.** `missions:plan` asks a real
-model for a JSON plan. The mock provider only echoes, so the planner's happy
-path is unverified; its validation path (rejecting a plan that names an
-unregistered skill) is implemented but also untested.
+**All eight workflow node types now run in tests** (28, 32, 36), and downloads
+are covered by 37. Nothing in the node set or the download path is unexercised.
 
 **Platform coverage is Linux only.** The suite has not been run on macOS or
 Windows. Nothing in the code is platform-specific beyond Electron's own

@@ -1,4 +1,4 @@
-import { mkdtemp, rm, mkdir, writeFile } from 'node:fs/promises'
+import { mkdtemp, rm, mkdir, readFile, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { _electron as electron } from 'playwright'
@@ -641,6 +641,194 @@ async function main() {
       assert(executed.includes(nodeId), `node "${nodeId}" never executed`)
     }
     return `all 6 node types executed; blocked at the approval gate until approved`
+  })
+
+  await check(33, 'A model tool call reaches a skill and the result returns to the model', async () => {
+    const conversation = await ipc('chat:createConversation', { title: 'Tool calling' })
+    await win.evaluate(() => {
+      window.__toolChunks = []
+      window.thursday.on('chat:chunk', (payload) => window.__toolChunks.push(payload))
+    })
+
+    // The scripted model asks for demo-tools.echo_text; everything after that
+    // — parsing the fragmented call, invoking through the registry, feeding
+    // the result back and running a second round — is Thursday's own code.
+    await ipc('chat:send', {
+      conversationId: conversation.id,
+      providerId,
+      model: 'mock-large',
+      content: 'please [[call:demo-tools.echo_text {"text":"called by the model"}]]',
+      useSkills: true
+    })
+
+    await waitFor('the tool conversation to finish', async () =>
+      win.evaluate(() => window.__toolChunks.some((c) => c.chunk.type === 'done'))
+    , 30000)
+
+    const chunks = await win.evaluate(() => window.__toolChunks)
+    const errors = chunks.filter((c) => c.chunk.type === 'error')
+    assert(errors.length === 0, `stream errored: ${errors.map((e) => e.chunk.message).join('; ')}`)
+
+    const toolCalls = chunks.filter((c) => c.chunk.type === 'tool_call')
+    assert(toolCalls.length === 1, `expected 1 tool call, got ${toolCalls.length}`)
+    assert(
+      toolCalls[0].chunk.name === 'demo-tools.echo_text',
+      `called the wrong skill: ${toolCalls[0].chunk.name}`
+    )
+    // Proves the fragmented arguments were reassembled, not just passed through.
+    assert(
+      toolCalls[0].chunk.arguments.text === 'called by the model',
+      `arguments were not reassembled: ${JSON.stringify(toolCalls[0].chunk.arguments)}`
+    )
+
+    const persisted = await ipc('chat:messages', { conversationId: conversation.id })
+    const assistant = persisted.filter((m) => m.role === 'assistant')
+    assert(assistant.length === 1, `expected 1 assistant message, got ${assistant.length}`)
+    assert(
+      assistant[0].content.includes('called by the model'),
+      `the skill result never reached the transcript: ${assistant[0].content}`
+    )
+    return `tool call reassembled from 3 fragments, skill ran, result in the transcript`
+  })
+
+  await check(34, 'A model writes a mission plan and it runs', async () => {
+    const mission = await ipc('missions:plan', {
+      title: 'Planned mission',
+      goal: 'Let the model choose the steps',
+      providerId,
+      model: 'mock-large'
+    })
+    assert(mission.steps.length > 0, 'the plan produced no steps')
+
+    // Every step the planner emitted must name a skill that really exists.
+    const registered = (await ipc('skills:list')).map((skill) => skill.id)
+    for (const step of mission.steps) {
+      if (step.skillId !== null) {
+        assert(registered.includes(step.skillId), `plan named unregistered skill "${step.skillId}"`)
+      }
+    }
+
+    await ipc('missions:start', { id: mission.id })
+    const finished = await waitFor('the planned mission to finish', async () => {
+      const current = await ipc('missions:get', { id: mission.id })
+      return ['COMPLETED', 'FAILED', 'CANCELLED'].includes(current.status) ? current : null
+    }, 40000)
+    assert(finished.status === 'COMPLETED', `ended as ${finished.status}: ${finished.errors.join('; ')}`)
+    return `model planned ${mission.steps.length} step(s) from the live skill list; all ran to completion`
+  })
+
+  await check(35, 'The planner rejects a plan naming an unregistered skill', async () => {
+    // A plan is only as trustworthy as its validation. The scripted model is
+    // told to name a skill that does not exist; planMission must refuse it
+    // rather than create a mission whose steps can never run.
+    const outcome = await win.evaluate(
+      async ([id]) => {
+        try {
+          const mission = await window.thursday['missions:plan']({
+            title: 'Bad plan',
+            goal: 'produce something impossible [[badplan]]',
+            providerId: id,
+            model: 'mock-large'
+          })
+          return { threw: false, message: '', missionId: mission.id }
+        } catch (err) {
+          return { threw: true, message: err.message, missionId: null }
+        }
+      },
+      [providerId]
+    )
+
+    assert(outcome.threw, 'a plan naming an unregistered skill was accepted')
+    assert(
+      /ghost-plugin\.no_such_skill/.test(outcome.message),
+      `the error did not name the offending skill: ${outcome.message}`
+    )
+    assert(
+      /not registered/i.test(outcome.message),
+      `the error did not say why it was refused: ${outcome.message}`
+    )
+
+    // The refusal must also say what *would* have been acceptable.
+    const registered = (await ipc('skills:list')).map((skill) => skill.id)
+    for (const id of registered) {
+      assert(
+        outcome.message.includes(id),
+        `the error did not list the registered skill "${id}": ${outcome.message}`
+      )
+    }
+
+    // And no half-built mission was left behind.
+    const missions = await ipc('missions:list')
+    assert(
+      !missions.some((mission) => mission.title === 'Bad plan'),
+      'a mission was created from the rejected plan'
+    )
+    return `refused, naming the bad skill and listing the ${registered.length} real ones`
+  })
+
+  await check(36, 'An AI workflow node runs the model and passes its output on', async () => {
+    const workflow = await ipc('workflows:save', {
+      name: 'AI node workflow',
+      description: 'ai -> output',
+      nodes: [
+        {
+          id: 'ask',
+          type: 'ai',
+          label: 'Ask the model',
+          config: { providerId, model: 'mock-large', prompt: 'say something', outputKey: 'answer' }
+        },
+        { id: 'report', type: 'output', label: 'Report', config: { value: '{{answer}}' } }
+      ]
+    })
+    const started = await ipc('workflows:run', { workflowId: workflow.id })
+    const run = await waitFor('the AI workflow to finish', async () => {
+      const runs = await ipc('workflows:runs', { workflowId: workflow.id })
+      const current = runs.find((entry) => entry.id === started.id)
+      return current && ['completed', 'failed', 'cancelled'].includes(current.status) ? current : null
+    }, 40000)
+
+    assert(run.status === 'completed', `run ended as ${run.status}: ${run.error}`)
+    assert(
+      typeof run.context.answer === 'string' && run.context.answer.includes('say something'),
+      `the ai node produced no usable output: ${JSON.stringify(run.context.answer)}`
+    )
+    assert(
+      run.context.__output === run.context.answer,
+      'the ai node output did not reach the output node'
+    )
+    return `model replied through the ai node and the value flowed into {{answer}}`
+  })
+
+  await check(37, 'A download completes and the file lands on disk', async () => {
+    const downloadDir = join(userDataDir, 'downloads')
+    await mkdir(downloadDir, { recursive: true })
+    await ipc('settings:set', { downloadDir })
+
+    const before = (await ipc('browser:getDownloads')).length
+    const tab = await ipc('browser:newTab', {})
+    // Navigating at an attachment is what a user clicking a link does.
+    await ipc('browser:navigate', { id: tab.id, url: `${mock.origin}/download/sample.txt` })
+
+    const item = await waitFor('the download to complete', async () => {
+      const items = await ipc('browser:getDownloads')
+      const found = items.find((entry) => entry.filename === 'sample.txt')
+      return found && found.state !== 'progressing' ? found : null
+    }, 30000)
+
+    assert(item.state === 'completed', `download ended as "${item.state}"`)
+    assert((await ipc('browser:getDownloads')).length > before, 'the download was not recorded')
+
+    const contents = await readFile(item.savePath, 'utf8')
+    assert(
+      contents.includes('downloaded by the acceptance suite'),
+      `the file on disk has the wrong contents: ${contents.slice(0, 60)}`
+    )
+    assert(
+      item.savePath.startsWith(downloadDir),
+      `saved outside the configured directory: ${item.savePath}`
+    )
+    await ipc('browser:closeTab', { id: tab.id })
+    return `sample.txt (${item.receivedBytes} bytes) written to the configured download directory`
   })
 
   await check(30, 'Invalid IPC input is rejected, not executed', async () => {
