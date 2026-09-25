@@ -1,8 +1,11 @@
 # SET 2 — Product shell, design system and accessible interface
 
-- Status: **all 10 acceptance tests pass** locally on Linux, with a clean
-  `npm ci` and `npm run verify` (13/13 steps). See §12. CI on the SET 2
-  commit: see §7.
+- Status: **all 10 acceptance tests pass** locally on Linux, after a clean
+  `npm ci` and `npm run verify` (13/13 steps), and in CI on Linux and Windows
+  (commit `ea0a9b4`, run 36144417257). See §7 and §12.
+- Checkpoint tag: `jupiter-set-02-product-shell` on `ea0a9b4`. It was created
+  in the development environment, which can push branches only, so publishing
+  it is left to the repository owner.
 - SET 1 re-checked before SET 2 started: `1721a09` green in CI (run
   36136124624). The docs-only follow-up `bf3fe90` then failed CI on two SET 1
   tests that had passed on the same code before. Both were root-caused and
@@ -162,8 +165,17 @@ Layout cases in the final run (`test-results/set-02/layout-cases.json`): all six
 used a real window (1366×768 at 100%, text 200% and 200% scaling; 720×480 at
 200%; 3840×2160 physical at 200% and at 100%).
 
-CI on the pushed SET 2 commit: pending at the time of writing; the result is
-recorded on the pull request.
+### CI evidence (commit `ea0a9b4`, run 36144417257)
+
+| Job                                                                                                                                                                                                                                                                                                                                              | Result  |
+| ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ | ------- |
+| Linux — format, lint, typecheck, unit, build, integration + E2E (Xvfb 4096×2304), secret scan, dev smoke, Windows and Linux package validation, packaged launch                                                                                                                                                                                  | success |
+| Windows — unit 185/185; integration 73 passed + 4 skipped (the 3 packaged tests, run in their own step, and one POSIX-only permission test), including **all 18 SET 2 E2E tests on Windows** and the SET 1 E2E suite; NSIS installer `Jupiter-Setup-0.1.0-alpha.0-x64.exe` (106.5 MB) built and validated 7/7; packaged `Jupiter.exe` launch 3/3 | success |
+| Legacy Thursday — build and 24 + 8 acceptance checks                                                                                                                                                                                                                                                                                             | success |
+
+The Windows job's `layout-cases.json` records, for each layout case, whether a
+real window or viewport emulation was used there. It is uploaded with the
+`jupiter-windows-installer` artifact.
 
 ## 8. Manual tests
 
