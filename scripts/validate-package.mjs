@@ -24,7 +24,7 @@ import {
   statSync,
   writeFileSync
 } from 'node:fs'
-import { join } from 'node:path'
+import { join, sep } from 'node:path'
 import { fileURLToPath, pathToFileURL } from 'node:url'
 import { extractFile, listPackage } from '@electron/asar'
 
@@ -46,6 +46,11 @@ const unpacked = join(appDir, 'dist', platform === 'win' ? 'win-unpacked' : 'lin
 const executable = join(unpacked, platform === 'win' ? `${pkg.productName}.exe` : 'jupiter')
 const asarPath = join(unpacked, 'resources', 'app.asar')
 const results = []
+
+/** @electron/asar splits lookup paths on path.sep, so archive paths must use native separators. */
+function inArchive(entry) {
+  return entry.replace(/^\//, '').split('/').join(sep)
+}
 
 function check(label, fn) {
   try {
@@ -156,10 +161,10 @@ check('app.asar contains only the self-contained bundles', () => {
 })
 
 check('packaged version matches the source and the build metadata', () => {
-  const packaged = JSON.parse(extractFile(asarPath, 'package.json').toString('utf8'))
+  const packaged = JSON.parse(extractFile(asarPath, inArchive('package.json')).toString('utf8'))
   assert(packaged.version === pkg.version, `packaged version ${packaged.version} != ${pkg.version}`)
   assert(packaged.main === './out/main/index.js', `unexpected main entry ${packaged.main}`)
-  const main = extractFile(asarPath, 'out/main/index.js').toString('utf8')
+  const main = extractFile(asarPath, inArchive('out/main/index.js')).toString('utf8')
   const literal = /define_JUPITER_BUILD_METADATA_default = (\{[^;]*\});/.exec(main)?.[1]
   assert(literal, 'build metadata is not embedded in the main bundle')
   const metadata = JSON.parse(literal.replace(/([{,]\s*)(\w+):/g, '$1"$2":'))
@@ -172,7 +177,7 @@ check('no credentials inside the packaged application', () => {
   const findings = []
   for (const entry of entries) {
     if (!/\.(js|cjs|mjs|json|html|css|txt)$/.test(entry)) continue
-    const text = extractFile(asarPath, entry.slice(1)).toString('utf8')
+    const text = extractFile(asarPath, inArchive(entry)).toString('utf8')
     scanned++
     for (const finding of findSecrets(text))
       findings.push(`${entry}:${finding.line} ${finding.patternId}`)
