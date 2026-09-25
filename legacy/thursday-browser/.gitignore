@@ -1,0 +1,11 @@
+node_modules/
+out/
+dist/
+.vite/
+*.log
+
+# Plugin entry files are generated from plugins/*/src by `npm run build:plugins`.
+plugins/*/index.js
+
+# TypeScript incremental build info
+*.tsbuildinfo

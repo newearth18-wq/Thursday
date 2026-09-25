@@ -1,284 +1,131 @@
-# Architecture
+# Jupiter architecture — SET 0 foundation
 
-## The one rule
+This document describes what exists after SET 0. Later SETs extend it; each
+section says what is deliberately not here yet.
 
-Layers depend downward, never upward.
+## Monorepo
 
-```
-            ┌──────────────────────────────────────────┐
-            │  Renderer (React)                        │
-            │  Browser · Command Center · Workflows    │
-            │  Plugins · Settings · Diagnostics        │
-            └───────────────────┬──────────────────────┘
-                                │  window.thursday  (context bridge)
-            ┌───────────────────┴──────────────────────┐
-            │  Preload — sandboxed, contextIsolation   │
-            └───────────────────┬──────────────────────┘
-                                │  typed IPC, zod-validated
-┌───────────────────────────────┴───────────────────────────────────────┐
-│  Main process                                                         │
-│                                                                       │
-│   Missions ──▶ Supervisor ──┐                                         │
-│   Workflows ──▶ Engine ─────┼──▶ Skill Registry ──▶ Plugin Engine     │
-│   AI Core ──▶ Model Router ─┘                            │            │
-│                                                          │ fork()     │
-│   Browser Core   Diagnostics   Logger   Settings   DB    ▼            │
-│                                                  ┌──────────────────┐ │
-│                                                  │ Plugin host      │ │
-│                                                  │ (its own process)│ │
-│                                                  └──────────────────┘ │
-└───────────────────────────────────────────────────────────────────────┘
+npm workspaces, one lockfile, strict TypeScript everywhere.
+
+```text
+apps/desktop          ── depends on ──▶ contracts, core, security, ui   (bundled, nothing external at runtime)
+packages/core         ── depends on ──▶ contracts, security
+packages/security     ── no dependencies (patterns file is dependency-free on purpose)
+packages/contracts    ── depends on ──▶ zod
+packages/ui           ── depends on ──▶ @fontsource fonts (React is a peer)
+packages/testing      ── depends on ──▶ playwright            (tests only)
+packages/database, services/*, plugins/   placeholders: no code, labelled Coming later
+legacy/thursday-browser                   separate npm project, own lockfile, not a workspace
 ```
 
-The Browser Core sits at the bottom and imports nothing from the AI core, the
-plugin engine, missions or workflows. Turn every one of those off and it still
-works — the acceptance suite has a test that proves it.
+Workspace packages are consumed as TypeScript source (`exports` point at
+`src/*.ts`). electron-vite bundles them into the main, preload and renderer
+outputs, so a packaged Jupiter ships **no `node_modules`** — the package
+validator checks this.
 
----
-
-## Shared contract
-
-`src/shared/` is the only code all three processes agree on.
-
-`schemas.ts` holds zod schemas, and every domain type is inferred from one.
-There is no second place where a `Mission` or a `ProviderConfig` is described,
-so a schema change is a compile error everywhere it matters.
-
-`ipc.ts` maps each channel to its input schema and its return type. The main
-process validates every call against that schema before a handler runs, so a
-handler can trust its input completely.
-
-`channels.ts` is a deliberate split. The preload script runs sandboxed and
-cannot `require` from `node_modules`, so it cannot import zod. The plain string
-lists live here, and `ipc.ts` carries a compile-time assertion that the two
-descriptions of the channel set are identical:
-
-```ts
-type ChannelDrift = Exclude<IpcChannel, ChannelName> | Exclude<ChannelName, IpcChannel>
-export type _ChannelsInSync = AssertNever<ChannelDrift>
-```
-
-Add a channel to one and forget the other and the build fails, rather than
-producing a channel that is bridged but unvalidated.
-
----
+Domain code (`contracts`, `core`, `security`) does not import Electron or React.
+Node-specific code in `core` lives behind the `@jupiter/core/node` subpath so it
+can never be bundled into the renderer (lint enforces this too).
 
 ## Process model
 
-**Main** owns everything stateful: the database, the tab views, provider
-adapters, the plugin engine, the supervisor.
-
-**Renderer** owns no state of its own beyond view state. It reads through IPC
-and follows events.
-
-**Plugin hosts** are separate OS processes, one per enabled plugin, forked with
-`ELECTRON_RUN_AS_NODE=1`. This is the mechanism behind core principle #4:
-in-process plugins can take the app down, out-of-process plugins cannot.
-
-**Web pages** are `WebContentsView`s with `nodeIntegration: false`,
-`contextIsolation: true`, `sandbox: true` and no preload script. Popups are
-turned into tabs; permission requests from pages are denied.
-
----
-
-## Browser Core
-
-`src/main/browser/tab-manager.ts`.
-
-Tabs are `WebContentsView`s added to the window's content view, which places
-them above the React document. Only the active tab is visible.
-
-The renderer measures the hole in its layout and reports the rectangle through
-`browser:setViewport`. That call also carries `visible`, which is how
-full-screen panels work: leaving the Browser tab sends `visible: false` and
-every page view is hidden, so nothing punches through Settings or the Command
-Center.
-
-`normaliseUrl()` is the single entry point for turning user text into a URL. It
-adds a scheme, falls back to a search when the text is not host-shaped, and
-rejects anything that is not `http:` or `https:` — so `file:` and `javascript:`
-never reach a tab.
-
----
-
-## Model Router
-
-Every provider implements one interface:
-
-```ts
-interface ModelProvider {
-  readonly id: string
-  readonly kind: string
-  readonly requiresApiKey: boolean
-  testConnection(signal?: AbortSignal): Promise<ConnectionResult>
-  listModels(signal?: AbortSignal): Promise<ModelInfo[]>
-  chat(request: ChatRequest, tools: ToolSpec[], signal?: AbortSignal): AsyncIterable<ChatChunk>
-}
+```text
+┌───────────────────────────────────────────┐
+│ Renderer (React 19)                       │  sandboxed, contextIsolation, no Node.js,
+│ Home · Diagnostics · Settings             │  strict CSP, validates every reply
+└──────────────────┬────────────────────────┘
+                   │ window.jupiter — 5 frozen functions
+┌──────────────────┴────────────────────────┐
+│ Preload (sandboxed, CommonJS, ~1 kB)      │  fixed channel names only
+└──────────────────┬────────────────────────┘
+                   │ ipcRenderer.invoke / on   (jupiter:v0:* channels)
+┌──────────────────┴────────────────────────┐
+│ Main process                              │
+│  environment → logging → security →       │
+│  IPC gateway → window → ServiceSupervisor │
+│   ├─ build-metadata   (real check)        │
+│   ├─ environment      (real check)        │
+│   ├─ storage          (write probe)       │
+│   ├─ logging          (opens log file)    │
+│   └─ database, agent-, browser-, plugin-runtime: COMING_LATER │
+└───────────────────────────────────────────┘
 ```
 
-Adding a provider means writing one adapter and adding one line to the factory.
-Nothing above the router changes.
+## Startup sequence (crash-safe)
 
-Three wire formats are covered: OpenAI Chat Completions (shared by
-`openai`, `openai-compat` and `lmstudio`), Anthropic Messages, Gemini
-`streamGenerateContent`, and Ollama's newline-delimited JSON.
+1. **Before `ready`** — resolve the environment (`development`, `test`,
+   `production`), give it its own data folder, create the logger (console +
+   buffered rotating file sink), take the single-instance lock, enable the
+   sandbox, install web-contents hardening and process-level error handlers.
+   Any exception here shows a native error box with the real reason and the log
+   folder, then exits with code 1.
+2. **On `ready`** — harden the session (deny permissions and downloads),
+   register services and the IPC gateway, create the window (shown on
+   `ready-to-show`), then start services one by one.
+3. **Each service** reports the outcome of a real check. A thrown error becomes
+   a FAILED service with an `ErrorEnvelope` (code, category, message, next
+   step, reference) and startup continues. The UI receives every status change
+   as an event and shows a recovery notice with a working **Retry**.
+4. **Renderer failures** — a React error boundary shows the real error, logs
+   it through IPC and offers Reload. If the renderer process dies it is
+   reloaded automatically up to twice a minute; after that the person is asked.
+   A failed page load shows the real Chromium error with Try again / Quit.
 
-**Errors name the problem.** `explainNetworkError` turns `ECONNREFUSED` into
-*"Connection refused by 127.0.0.1:11434 — nothing is listening on that
-address"*. HTTP failures carry the provider's own error body. There is no
-"something went wrong" anywhere in the codebase.
+## IPC (SET 0 surface)
 
-**Timeouts guard the handshake, not the stream.** `fetch` settles when response
-headers arrive, and the timer is cleared at that point — so a slow streaming
-body is never cut off, while a dead host still fails fast. The caller's abort
-signal stays attached for the whole request, which is what makes **Stop** work
-mid-stream.
+| Channel                                     | Input                 | Output              |
+| ------------------------------------------- | --------------------- | ------------------- |
+| `jupiter:v0:app:get-info`                   | none                  | `AppInfo`           |
+| `jupiter:v0:runtime:get-status`             | none                  | `RuntimeStatus`     |
+| `jupiter:v0:runtime:retry-service`          | `{ serviceId }`       | `RuntimeStatus`     |
+| `jupiter:v0:renderer:report-error`          | `RendererErrorReport` | `{ correlationId }` |
+| `jupiter:v0:runtime:status-changed` (event) | —                     | `RuntimeStatus`     |
 
----
+Every reply is `{ ok: true, correlationId, data }` or
+`{ ok: false, correlationId, error: ErrorEnvelope }`. The gateway checks the
+sender, validates the input, runs the handler, validates the output (an invalid
+output is never sent) and logs the request with its correlation ID. SET 1
+replaces this minimal surface with the full versioned command/event contract.
 
-## Plugin Engine and isolation
+## Environments
 
-A plugin package is a directory with `manifest.json` and a JavaScript entry
-file. Manifests are validated with zod on every load; an invalid one is skipped
-with a specific reason and the other plugins still load.
+|                 | development                                           | test                       | production                             |
+| --------------- | ----------------------------------------------------- | -------------------------- | -------------------------------------- |
+| Chosen when     | unpackaged + dev server, or `JUPITER_ENV=development` | `JUPITER_ENV=test`         | packaged or previewed builds (default) |
+| Data folder     | `Jupiter (Development)`                               | explicit `--user-data-dir` | `Jupiter`                              |
+| Log level       | debug                                                 | debug                      | info                                   |
+| Console format  | readable                                              | JSON                       | JSON                                   |
+| DevTools        | allowed                                               | no                         | no                                     |
+| Renderer source | loopback dev server                                   | built files                | built files                            |
 
-Starting a plugin forks `out/main/plugin-host.js`. The engine sends `init` with
-the entry path, the plugin's data directory and **only the granted
-permissions**. The host imports the entry module, collects its skills and
-replies `ready` with their descriptors, which the engine registers in the Skill
-Registry.
+A packaged build refuses `JUPITER_ENV=development`, and never loads a dev
+server URL; the Environment service reports any ignored setting as DEGRADED.
 
-Failure handling:
+## Build metadata
 
-| What happens | What Thursday does |
-|---|---|
-| Entry module throws on import | health `error`, reason recorded, skills withdrawn |
-| Does not become ready in 15s | health `error`, host killed |
-| Process exits unexpectedly | health `crashed`, skills withdrawn, restarted up to twice |
-| Restart budget exhausted | stays `crashed` with a message saying so |
-| A skill call exceeds 30s | that call returns `TIMEOUT`; the plugin keeps running |
-| Deliberate stop (disable/reload) | `stopping` flag set, so the exit is not logged as a crash |
-
-In every one of those rows, the browser core and all other plugins are
-untouched.
-
-### The permission gate
-
-Plugins reach host services through a request/response bridge. Every method is
-gated in the parent process, which is the side the plugin cannot modify:
-
-```
-plugin calls context.host.writeFile(...)
-  → host process sends { type: 'bridge', method: 'writeFile' }
-  → engine checks granted permissions          ← the gate
-  → engine confines the path to plugin-data/<id>/   ← and the sandbox
-  → reply
-```
-
-Two independent protections: the permission must be granted, *and* the resolved
-path must stay inside the plugin's own directory. `..` and absolute paths are
-rejected.
-
-`grantPermissions` refuses anything the manifest did not declare, and a
-previously granted permission that disappears from the manifest is dropped on
-the next load.
-
----
-
-## Skill Registry
-
-Skills are namespaced `<pluginId>.<skillId>`, so two plugins can both expose
-`echo` without colliding.
-
-The registry does not know what a plugin is. An owner registers descriptors
-plus an `invoke` function and an `availability()` callback, and can withdraw
-them at any time. That is why a crashed plugin's skills vanish from the AI
-core's tool list within the same tick.
-
-Every invocation is validated against the skill's declared JSON Schema first, so
-a plugin never receives input shaped differently from what it published.
-
----
-
-## Missions and the Supervisor
-
-One supervisor, not a swarm.
-
-```
-steps in order
-  ├─ requiresApproval? ─▶ WAITING_APPROVAL, block until approve/reject
-  ├─ no skillId?       ─▶ checkpoint: completes, records that it did no work
-  └─ skillId           ─▶ invoke, retry recoverable failures with backoff
-                          (TIMEOUT / PLUGIN_UNHEALTHY / EXECUTION_ERROR)
-                          INVALID_INPUT and SKILL_NOT_FOUND fail immediately —
-                          they would fail identically on every retry
-VERIFYING ─▶ re-check every step really finished ─▶ COMPLETED or FAILED
-```
-
-The verify pass matters: a mission is only ever reported COMPLETED after the
-supervisor has confirmed each step ended in `completed` or `skipped`.
-
-A step with no skill is a **checkpoint**. It completes immediately and records
-`{ type: 'checkpoint' }` — it never claims to have performed work it did not do.
-
-Planning (`missions:plan`) asks the configured model to emit JSON referencing
-live skill ids, and rejects a plan that names a skill that is not registered.
-There is no offline fallback that invents plausible-looking steps: with no
-working provider, planning fails and says why.
-
----
-
-## Workflow Engine
-
-Nodes execute one at a time. Branching is explicit — `next` on a node,
-`onTrue`/`onFalse` on a condition — rather than a general graph, and a visit
-counter stops a looping definition after 100 nodes.
-
-Condition nodes compare two interpolated strings with a named operator. There is
-no expression evaluation anywhere, so a workflow definition can never execute
-arbitrary code. `{{nodeId}}` interpolation pulls earlier results out of the run
-context. `file` nodes are confined to a workflow files directory the same way
-plugin writes are confined.
-
----
-
-## Command Center and the brain
-
-`src/main/core/app-state.ts` holds the live state; `Brain.tsx` renders it.
-
-The brain's palette, signal launch rate, signal speed, glow and jitter are all
-read from a per-state profile. A running mission's phase always wins over the
-ambient state, so the visual cannot disagree with the mission badge next to it.
-Idle is slow and dim on purpose: an animation that looks busy while nothing is
-happening would be a lie about system state, which is the thing the whole panel
-exists to prevent.
-
----
-
-## Persistence
-
-`node:sqlite`, which ships inside Electron's Node runtime. No native module, no
-rebuild step, no ABI mismatch — the most common way an Electron app fails to
-install on a new machine simply does not apply.
-
-Migrations are a numbered list applied in a transaction; a failure rolls back
-and reports which migration and which database file.
-
-Secrets live in a separate table, encrypted with `safeStorage` and flagged with
-whether encryption was actually available. Diagnostics reports the truth either
-way.
-
----
+`apps/desktop/scripts/build-metadata.ts` runs at build time: version from
+`apps/desktop/package.json`, channel from `JUPITER_BUILD_CHANNEL` or the
+version's pre-release tag (`dev` for the dev server), commit from `GITHUB_SHA`
+or git, `builtAt` from `SOURCE_DATE_EPOCH` or now, and a build ID. The result
+is validated against `BuildMetadata` and injected into the **main** bundle only.
+At runtime the build-metadata service validates it again and checks it against
+`app.getVersion()`; the renderer receives it only through `get-info`.
 
 ## Logging
 
-One structured call per important action:
+- JSON Lines, one `LogEntry` per line: `ts`, `level`, `event`, `message`,
+  `component`, `sessionId` (one per run), `correlationId` (one per unit of
+  work — each IPC request, each service start), optional redacted `data`.
+- Redaction before any sink: values under credential-named keys, and
+  credential formats anywhere in text (API keys, tokens, JWTs, bearer
+  credentials, private keys, URL credentials).
+- Rotation: 5 MB per file, 5 files, synchronous writes, owner-only permissions.
+- Entries logged before the file opens (or while it is broken) are buffered
+  (bounded), written on recovery, and any loss is reported with a count.
 
-```ts
-log.info('SKILL', `Invoking ${skillId}`, { input })
-```
+## Not in SET 0
 
-Categories are `CORE`, `BROWSER`, `DB`, `MODEL`, `PLUGIN`, `SKILL`, `WORKFLOW`,
-`MISSION`, `PERMISSION`, `ERROR`. Every entry goes to the console, to SQLite and
-live to the renderer. Entries logged before the database opens are buffered and
-flushed, so boot-time failures are not lost.
+Database, event bus, capability dispatcher, versioned command contract (SET 1);
+full design system, navigation state, language switch (SET 2); providers and
+credentials (SET 3); everything after that. None of these appear as working in
+the app.

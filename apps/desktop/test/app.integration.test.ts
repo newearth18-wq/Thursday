@@ -1,0 +1,359 @@
+import { readFileSync, rmSync, writeFileSync } from 'node:fs'
+import { join } from 'node:path'
+import { LogEntry } from '@jupiter/contracts'
+import { createTempDir, launchJupiter, removeDir, type LaunchedJupiter } from '@jupiter/testing'
+import { fakeCredentials } from '@jupiter/testing/fake-credentials'
+import { afterAll, beforeAll, describe, expect, it } from 'vitest'
+import { appDirectory, assertBuilt, headCommit, packageJson, settledOverallStatus } from './helpers'
+
+/**
+ * End-to-end tests against the real application: real Electron, real main
+ * process, real sandboxed preload and real React renderer, each run with its
+ * own temporary profile. Nothing inside Jupiter is stubbed.
+ */
+
+const FOUNDATION = ['build-metadata', 'environment', 'storage', 'logging'] as const
+const PLANNED = ['database', 'agent-runtime', 'browser-runtime', 'plugin-runtime'] as const
+
+function readLog(userDataDir: string): { text: string; entries: LogEntry[] } {
+  const text = readFileSync(join(userDataDir, 'logs', 'jupiter.log'), 'utf8')
+  const entries = text
+    .split('\n')
+    .filter(Boolean)
+    .map((line) => LogEntry.parse(JSON.parse(line)))
+  return { text, entries }
+}
+
+beforeAll(() => {
+  assertBuilt()
+})
+
+describe('Jupiter desktop shell — healthy start', () => {
+  let jupiter: LaunchedJupiter
+  let userDataDir: string
+
+  beforeAll(async () => {
+    userDataDir = await createTempDir('jupiter-e2e')
+    jupiter = await launchJupiter({ appDirectory, userDataDir, lang: 'en-US' })
+  })
+
+  afterAll(async () => {
+    await jupiter.close()
+    await removeDir(userDataDir)
+  })
+
+  it('opens a real window with the Jupiter name, the build version and the actual runtime status', async () => {
+    const { window: page } = jupiter
+    expect(await settledOverallStatus(page)).toBe('HEALTHY')
+    expect(await page.title()).toBe('Jupiter')
+    expect(await page.getByTestId('app-name').textContent()).toBe('Jupiter')
+    expect(await page.getByTestId('app-version').textContent()).toBe(packageJson.version)
+    expect(await page.getByTestId('app-channel').textContent()).toBe('alpha')
+    expect(await page.getByTestId('app-environment').textContent()).toBe('Test')
+    for (const id of FOUNDATION) {
+      expect(await page.getByTestId(`service-${id}`).getAttribute('data-status'), id).toBe(
+        'HEALTHY'
+      )
+    }
+    for (const id of PLANNED) {
+      expect(await page.getByTestId(`service-${id}`).getAttribute('data-status'), id).toBe(
+        'COMING_LATER'
+      )
+    }
+  })
+
+  it('takes the version from build metadata supplied by the main process', async () => {
+    const mainVersion = await jupiter.app.evaluate(({ app }) => app.getVersion())
+    expect(mainVersion).toBe(packageJson.version)
+    const reply = (await jupiter.window.evaluate(() => window.jupiter?.getAppInfo())) as {
+      ok: boolean
+      data: { build: { version: string; commit: string; channel: string; productName: string } }
+    }
+    expect(reply.ok).toBe(true)
+    expect(reply.data.build).toMatchObject({
+      version: packageJson.version,
+      productName: packageJson.productName,
+      channel: 'alpha',
+      commit: headCommit()
+    })
+  })
+
+  it('links to Diagnostics and Settings, which show real values, and labels unbuilt features', async () => {
+    const { window: page } = jupiter
+    await page.getByTestId('open-diagnostics').click()
+    await page.getByTestId('view-diagnostics').waitFor()
+    expect(await page.getByTestId('diag-version').textContent()).toBe(packageJson.version)
+    expect(await page.getByTestId('diag-commit').textContent()).toContain(headCommit())
+    const electron = await jupiter.app.evaluate(() => process.versions.electron)
+    expect(await page.getByTestId('diag-electron').textContent()).toBe(electron)
+    expect(await page.getByTestId('diag-logs').textContent()).toBe(join(userDataDir, 'logs'))
+    expect(await page.getByTestId('diag-service-logging').textContent()).toContain('Healthy')
+
+    await page.getByTestId('nav-settings').click()
+    await page.getByTestId('settings-read-only').waitFor()
+
+    const planned = page.getByTestId('nav-planned')
+    expect(await planned.count()).toBe(8)
+    for (let i = 0; i < 8; i++) {
+      const item = planned.nth(i)
+      expect(await item.getAttribute('aria-disabled')).toBe('true')
+      expect(await item.textContent()).toContain('Coming later')
+      expect(await item.locator('button, a, input').count()).toBe(0)
+    }
+
+    await page.getByTestId('nav-home').click()
+    await page.getByTestId('view-home').waitFor()
+  })
+
+  it('gives the renderer no Node.js integration and only the five-method bridge', async () => {
+    const { window: page, app } = jupiter
+    const globals = await page.evaluate(() => {
+      const scope = globalThis as Record<string, unknown>
+      return {
+        require: typeof scope.require,
+        process: typeof scope.process,
+        module: typeof scope.module,
+        buffer: typeof scope.Buffer,
+        global: typeof scope.global,
+        bridge: Object.keys(window.jupiter ?? {}).sort(),
+        frozen: Object.isFrozen(window.jupiter)
+      }
+    })
+    expect(globals).toEqual({
+      require: 'undefined',
+      process: 'undefined',
+      module: 'undefined',
+      buffer: 'undefined',
+      global: 'undefined',
+      bridge: [
+        'getAppInfo',
+        'getRuntimeStatus',
+        'onRuntimeStatusChanged',
+        'reportRendererError',
+        'retryService'
+      ],
+      frozen: true
+    })
+
+    const preferences = await app.evaluate(({ BrowserWindow }) => {
+      // Electron keeps the effective preferences behind an accessor that is not in
+      // its public typings; reading it verifies what the window was really created with.
+      const contents = BrowserWindow.getAllWindows()[0]?.webContents as unknown as
+        { getLastWebPreferences?: () => Electron.WebPreferences | null } | undefined
+      const prefs = contents?.getLastWebPreferences?.()
+      if (!prefs) return null
+      return {
+        contextIsolation: prefs.contextIsolation,
+        nodeIntegration: prefs.nodeIntegration,
+        nodeIntegrationInWorker: prefs.nodeIntegrationInWorker,
+        nodeIntegrationInSubFrames: prefs.nodeIntegrationInSubFrames,
+        sandbox: prefs.sandbox,
+        webviewTag: prefs.webviewTag,
+        webSecurity: prefs.webSecurity
+      }
+    })
+    expect(preferences).toEqual({
+      contextIsolation: true,
+      nodeIntegration: false,
+      nodeIntegrationInWorker: false,
+      nodeIntegrationInSubFrames: false,
+      sandbox: true,
+      webviewTag: false,
+      webSecurity: true
+    })
+
+    const csp = await page.evaluate(() =>
+      document.querySelector('meta[http-equiv="Content-Security-Policy"]')?.getAttribute('content')
+    )
+    expect(csp).toContain("default-src 'none'")
+    expect(csp).not.toContain('unsafe-inline')
+    expect(csp).not.toContain('unsafe-eval')
+    // An injected inline script must be refused by the policy, not executed.
+    const inline = await page.evaluate(
+      () =>
+        new Promise<{ executed: boolean; violated: string | null }>((resolve) => {
+          const scope = globalThis as Record<string, unknown>
+          let violated: string | null = null
+          document.addEventListener('securitypolicyviolation', (event) => {
+            violated = event.effectiveDirective
+          })
+          const script = document.createElement('script')
+          script.textContent = 'globalThis.__jupiterInlineRan = true'
+          document.head.append(script)
+          setTimeout(() => {
+            resolve({ executed: scope.__jupiterInlineRan === true, violated })
+          }, 200)
+        })
+    )
+    expect(inline).toEqual({ executed: false, violated: 'script-src-elem' })
+  })
+
+  it('blocks navigation away from the interface and refuses new windows', async () => {
+    const { window: page, app } = jupiter
+    const before = page.url()
+    const opened = await page.evaluate(() => window.open('https://example.com/') === null)
+    expect(opened).toBe(true)
+    await page.evaluate(() => {
+      window.location.href = 'https://example.com/'
+    })
+    await page.waitForTimeout(500)
+    expect(page.url()).toBe(before)
+    expect(await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows().length)).toBe(1)
+    const { entries } = readLog(userDataDir)
+    expect(entries.some((entry) => entry.event === 'security.navigation.blocked')).toBe(true)
+    expect(entries.some((entry) => entry.event === 'security.window-open.blocked')).toBe(true)
+  })
+
+  it('rejects malformed and unknown IPC requests with typed errors', async () => {
+    const replies = await jupiter.window.evaluate(async () => {
+      const bridge = window.jupiter
+      if (!bridge) throw new Error('bridge missing')
+      return {
+        wrongType: await bridge.retryService(42 as unknown as string),
+        unknownService: await bridge.retryService('no-such-service'),
+        planned: await bridge.retryService('plugin-runtime'),
+        badReport: await bridge.reportRendererError({ source: 'hacker', message: 'x' })
+      }
+    })
+    expect(replies.wrongType).toMatchObject({
+      ok: false,
+      error: { code: 'IPC_INVALID_INPUT', category: 'validation' }
+    })
+    expect(replies.unknownService).toMatchObject({
+      ok: false,
+      error: { code: 'SERVICE_NOT_FOUND', category: 'validation' }
+    })
+    expect(replies.planned).toMatchObject({
+      ok: false,
+      error: { code: 'SERVICE_NOT_AVAILABLE', category: 'unsupported' }
+    })
+    expect(replies.badReport).toMatchObject({ ok: false, error: { code: 'IPC_INVALID_INPUT' } })
+  })
+
+  it('writes structured JSON logs with correlation IDs and no secrets', async () => {
+    const secrets = fakeCredentials().map((credential) => credential.value)
+    const reply = (await jupiter.window.evaluate(
+      (message) =>
+        window.jupiter?.reportRendererError({
+          source: 'window-error',
+          message,
+          stack: null,
+          componentStack: null
+        }),
+      `boom while calling provider with ${secrets.join(' and ')}`
+    )) as { ok: boolean; correlationId: string }
+    expect(reply.ok).toBe(true)
+
+    const { text, entries } = readLog(userDataDir)
+    for (const secret of secrets) expect(text).not.toContain(secret)
+    expect(text).toContain('[REDACTED:')
+    expect(new Set(entries.map((entry) => entry.sessionId)).size).toBe(1)
+    const reported = entries.find((entry) => entry.event === 'renderer.error')
+    expect(reported?.correlationId).toBe(reply.correlationId)
+    expect(reported?.message).toContain('boom while calling provider')
+    expect(entries.map((entry) => entry.event)).toEqual(
+      expect.arrayContaining(['app.starting', 'service.start.succeeded', 'app.ready'])
+    )
+  })
+})
+
+describe('Jupiter desktop shell — service startup failure', () => {
+  let jupiter: LaunchedJupiter
+  let userDataDir: string
+
+  beforeAll(async () => {
+    userDataDir = await createTempDir('jupiter-e2e-failure')
+    // A real fault: a plain file sits where the log folder must be created.
+    writeFileSync(join(userDataDir, 'logs'), 'this file blocks the log directory\n')
+    jupiter = await launchJupiter({ appDirectory, userDataDir, lang: 'en-US' })
+  })
+
+  afterAll(async () => {
+    await jupiter.close()
+    await removeDir(userDataDir)
+  })
+
+  it('reports the real failure with a recovery step, keeps running, and recovers on Retry', async () => {
+    const { window: page } = jupiter
+    expect(await settledOverallStatus(page)).toBe('DEGRADED')
+    expect(await page.getByTestId('service-logging').getAttribute('data-status')).toBe('FAILED')
+    for (const id of ['build-metadata', 'environment', 'storage']) {
+      expect(await page.getByTestId(`service-${id}`).getAttribute('data-status'), id).toBe(
+        'HEALTHY'
+      )
+    }
+
+    const notice = page.getByTestId('recovery-logging')
+    expect(await notice.getAttribute('role')).toBe('alert')
+    expect(await notice.getByTestId('recovery-code').textContent()).toBe(
+      'LOG_DIRECTORY_UNAVAILABLE'
+    )
+    const message = (await notice.getByTestId('recovery-message').textContent()) ?? ''
+    expect(message).toMatch(/Jupiter cannot write its log files: (EEXIST|ENOTDIR)/)
+    expect(await notice.getByTestId('recovery-action').textContent()).toContain(
+      join(userDataDir, 'logs')
+    )
+
+    // The rest of the shell still works while the service is down.
+    await page.getByTestId('open-diagnostics').click()
+    expect(await page.getByTestId('diag-service-logging').textContent()).toContain(
+      'LOG_DIRECTORY_UNAVAILABLE'
+    )
+    await page.getByTestId('nav-home').click()
+
+    // Retrying without fixing the cause fails again, truthfully.
+    await page.getByTestId('retry-logging').click()
+    await page.waitForFunction(() => {
+      const button = document.querySelector('[data-testid="retry-logging"]')
+      return button instanceof HTMLButtonElement && !button.disabled
+    })
+    expect(await page.getByTestId('service-logging').getAttribute('data-status')).toBe('FAILED')
+
+    // Fix the cause, retry, and the service really recovers.
+    rmSync(join(userDataDir, 'logs'))
+    await page.getByTestId('retry-logging').click()
+    await page.waitForFunction(
+      () =>
+        document.querySelector('[data-testid="service-logging"]')?.getAttribute('data-status') ===
+        'HEALTHY'
+    )
+    expect(await settledOverallStatus(page)).toBe('HEALTHY')
+    expect(await page.getByTestId('recovery-logging').count()).toBe(0)
+
+    // Entries logged while the folder was blocked were kept and written on recovery.
+    const { entries } = readLog(userDataDir)
+    const events = entries.map((entry) => entry.event)
+    expect(events[0]).toBe('app.starting')
+    const failures = entries.filter(
+      (entry) => entry.event === 'service.start.failed' && entry.data?.serviceId === 'logging'
+    )
+    expect(failures).toHaveLength(2)
+    expect(events).toContain('log.file.opened')
+  })
+})
+
+describe('Jupiter desktop shell — Thai', () => {
+  let jupiter: LaunchedJupiter
+  let userDataDir: string
+
+  beforeAll(async () => {
+    userDataDir = await createTempDir('jupiter-e2e-th')
+    jupiter = await launchJupiter({ appDirectory, userDataDir, lang: 'th' })
+  })
+
+  afterAll(async () => {
+    await jupiter.close()
+    await removeDir(userDataDir)
+  })
+
+  it('shows Thai interface copy when the system language is Thai', async () => {
+    const { window: page } = jupiter
+    expect(await settledOverallStatus(page)).toBe('HEALTHY')
+    expect(await page.evaluate(() => document.documentElement.lang)).toBe('th')
+    expect(await page.getByTestId('nav-home').textContent()).toBe('หน้าหลัก')
+    expect(await page.getByTestId('overall-status').textContent()).toContain(
+      'บริการพื้นฐานทั้งหมดทำงานปกติ'
+    )
+    expect(await page.getByTestId('nav-planned').first().textContent()).toContain('จะมาในภายหลัง')
+  })
+})

@@ -1,0 +1,11 @@
+{
+  "name": "@jupiter/database",
+  "version": "0.0.0",
+  "private": true,
+  "description": "Coming later (SET 1): SQLite persistence with migrations, transactions, foreign keys, WAL mode, backup hooks and repository interfaces.",
+  "license": "MIT",
+  "jupiter": {
+    "status": "COMING_LATER",
+    "plannedSet": 1
+  }
+}

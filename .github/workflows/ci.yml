@@ -10,16 +10,141 @@ concurrency:
   group: ci-${{ github.ref }}
   cancel-in-progress: true
 
+permissions:
+  contents: read
+
 jobs:
-  build-and-test:
-    name: Build and acceptance suite
+  jupiter-linux:
+    name: Jupiter — quality gates, tests and package validation (Linux)
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    env:
+      PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD: '1'
+      # Ubuntu restricts the unprivileged user namespaces Chromium's OS sandbox
+      # needs, so E2E runs pass --no-sandbox. Renderer isolation is still verified.
+      JUPITER_E2E_NO_SANDBOX: '1'
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: .nvmrc
+          cache: npm
+
+      - name: Install dependencies from the lockfile
+        run: npm ci
+
+      - name: Install the system libraries Electron needs, and xvfb
+        run: |
+          npx playwright install-deps chromium
+          sudo apt-get install -y --no-install-recommends xvfb
+
+      - name: Formatting
+        run: npm run format:check
+
+      - name: Lint
+        run: npm run lint
+
+      - name: Strict typecheck
+        run: npm run typecheck
+
+      - name: Unit tests
+        run: npm run test:unit
+
+      - name: Production build
+        run: npm run build
+
+      - name: Integration and Electron E2E tests
+        run: xvfb-run -a npx vitest run --project integration
+
+      - name: Secret scan (sources and build output)
+        run: node scripts/check-secrets.mjs --include-build
+
+      - name: Development mode launches the app
+        run: xvfb-run -a node scripts/dev-smoke.mjs
+
+      - name: Windows unpacked build and validation
+        run: |
+          npm run package:windows:dir
+          node scripts/validate-package.mjs --platform win
+
+      - name: Linux unpacked build, validation and packaged launch
+        run: |
+          npm run package:linux:dir
+          node scripts/validate-package.mjs --platform linux
+          xvfb-run -a npx vitest run --project integration apps/desktop/test/packaged.integration.test.ts
+        env:
+          JUPITER_PACKAGED_EXECUTABLE: apps/desktop/dist/linux-unpacked/jupiter
+
+      - name: Upload validation evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: jupiter-linux-evidence
+          path: test-results/
+          if-no-files-found: ignore
+          retention-days: 14
+
+  jupiter-windows:
+    name: Jupiter — Windows installer, E2E and packaged launch
+    runs-on: windows-latest
+    timeout-minutes: 45
+    env:
+      PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD: '1'
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: .nvmrc
+          cache: npm
+
+      - name: Install dependencies from the lockfile
+        run: npm ci
+
+      - name: Strict typecheck
+        run: npm run typecheck
+
+      - name: Unit tests
+        run: npm run test:unit
+
+      - name: Production build
+        run: npm run build
+
+      - name: Integration and Electron E2E tests on Windows
+        run: npx vitest run --project integration
+
+      - name: Build the NSIS installer
+        run: npm run package:windows
+
+      - name: Validate the Windows package
+        run: node scripts/validate-package.mjs --platform win
+
+      - name: Launch the packaged Windows app
+        run: npx vitest run --project integration apps/desktop/test/packaged.integration.test.ts
+        env:
+          JUPITER_PACKAGED_EXECUTABLE: apps/desktop/dist/win-unpacked/Jupiter.exe
+
+      - name: Upload the installer and validation evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: jupiter-windows-installer
+          path: |
+            apps/desktop/dist/Jupiter-Setup-*.exe
+            test-results/
+          if-no-files-found: warn
+          retention-days: 14
+
+  legacy-thursday:
+    name: Legacy Thursday Browser — build and acceptance suite
     runs-on: ubuntu-latest
     timeout-minutes: 25
     env:
-      # The suite drives Electron directly, so Playwright's own browser
-      # downloads are never used and only cost install time.
       PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD: '1'
-
+    defaults:
+      run:
+        working-directory: legacy/thursday-browser
     steps:
       - uses: actions/checkout@v4
 
@@ -27,14 +152,12 @@ jobs:
         with:
           node-version: '22'
           cache: npm
+          cache-dependency-path: legacy/thursday-browser/package-lock.json
 
       - name: Install dependencies
         run: npm ci
 
       - name: Install the system libraries Chromium needs
-        # Electron bundles Chromium, which needs the same shared libraries
-        # Playwright installs for it. xvfb supplies the display the real
-        # browser window requires on a headless runner.
         run: |
           npx playwright install-deps chromium
           sudo apt-get install -y --no-install-recommends xvfb
@@ -43,14 +166,9 @@ jobs:
         run: npm run build
 
       - name: Acceptance suite
-        # Launches the real application. The suite passes --no-sandbox itself,
-        # which CI requires: Ubuntu restricts the unprivileged user namespaces
-        # Chromium's sandbox depends on.
         run: xvfb-run -a npm run test:acceptance
 
       - name: Package check
-        # Proves the app still packages and that plugins land in resources,
-        # which a source-tree test cannot catch.
         run: |
           npx electron-builder --dir --linux
           test -f dist/linux-unpacked/resources/plugins/demo-tools/manifest.json

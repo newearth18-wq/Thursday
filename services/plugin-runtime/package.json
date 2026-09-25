@@ -1,0 +1,11 @@
+{
+  "name": "@jupiter/plugin-runtime",
+  "version": "0.0.0",
+  "private": true,
+  "description": "Coming later (SET 15): isolated runtime that executes third-party plugins outside the Electron main process, with capability-scoped RPC.",
+  "license": "MIT",
+  "jupiter": {
+    "status": "COMING_LATER",
+    "plannedSet": 15
+  }
+}

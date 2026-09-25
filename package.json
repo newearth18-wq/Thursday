@@ -1,44 +1,54 @@
 {
-  "name": "thursday-browser",
-  "version": "0.1.0-alpha",
-  "description": "Thursday Browser - an AI-first Chromium desktop browser with a modular Plugin/Skill architecture",
-  "main": "./out/main/index.js",
-  "author": "Thursday Project",
+  "name": "jupiter-monorepo",
+  "version": "0.1.0-alpha.0",
+  "private": true,
+  "description": "Jupiter \u2014 a Windows desktop AI agent. Monorepo root.",
   "license": "MIT",
+  "type": "module",
   "repository": {
     "type": "git",
     "url": "git+https://github.com/newearth18-wq/Thursday.git"
   },
-  "private": true,
-  "type": "module",
   "engines": {
-    "node": ">=20.11.0"
+    "node": ">=22.12.0",
+    "npm": ">=10"
   },
+  "workspaces": [
+    "apps/*",
+    "packages/*",
+    "services/*"
+  ],
   "scripts": {
-    "dev": "npm run build:plugins && electron-vite dev",
-    "build": "npm run typecheck && npm run build:plugins && electron-vite build",
-    "build:plugins": "node scripts/build-plugins.mjs",
-    "start": "electron-vite preview",
-    "typecheck": "tsc --noEmit -p tsconfig.node.json && tsc --noEmit -p tsconfig.web.json",
-    "test:acceptance": "node scripts/run-acceptance.mjs",
-    "dist": "npm run build && electron-builder"
-  },
-  "dependencies": {
-    "zod": "^3.23.8"
+    "dev": "npm run dev -w @jupiter/desktop",
+    "build": "npm run build -w @jupiter/desktop",
+    "start": "npm run start -w @jupiter/desktop",
+    "test": "npm run test:unit && npm run test:integration",
+    "test:unit": "vitest run --project unit",
+    "test:integration": "npm run build && node scripts/with-display.mjs vitest run --project integration",
+    "test:dev-smoke": "node scripts/with-display.mjs node scripts/dev-smoke.mjs",
+    "lint": "eslint . --max-warnings 0",
+    "typecheck": "npm run typecheck --workspaces --if-present && tsc -p tsconfig.json",
+    "format": "prettier --write .",
+    "format:check": "prettier --check .",
+    "check:secrets": "node scripts/check-secrets.mjs",
+    "package:windows": "npm run package:windows -w @jupiter/desktop",
+    "package:windows:dir": "npm run package:windows:dir -w @jupiter/desktop",
+    "package:validate": "node scripts/validate-package.mjs --platform win",
+    "verify": "node scripts/verify.mjs",
+    "package:linux:dir": "npm run package:linux:dir -w @jupiter/desktop"
   },
   "devDependencies": {
-    "@types/node": "^22.10.2",
-    "@types/react": "^18.3.17",
-    "@types/react-dom": "^18.3.5",
-    "@vitejs/plugin-react": "^4.3.4",
-    "electron": "^38.2.0",
-    "electron-builder": "^26.15.3",
-    "electron-vite": "^2.3.0",
-    "esbuild": "^0.28.2",
+    "@electron/asar": "^4.3.0",
+    "@eslint/js": "^10.0.1",
+    "@types/node": "^24.13.6",
+    "eslint": "^10.11.0",
+    "eslint-plugin-react-hooks": "^7.1.1",
+    "globals": "^17.12.0",
+    "jsdom": "^30.1.1",
     "playwright": "^1.63.0",
-    "react": "^18.3.1",
-    "react-dom": "^18.3.1",
-    "typescript": "^5.7.2",
-    "vite": "^5.4.11"
+    "prettier": "^3.9.9",
+    "typescript": "~6.0.3",
+    "typescript-eslint": "^8.70.1",
+    "vitest": "^5.0.2"
   }
 }

@@ -1,0 +1,40 @@
+/* Jupiter Visual Design Lock v1 — values must match src/tokens.ts (unit-tested). */
+:root {
+  --jp-color-graphite-black: #090d14;
+  --jp-color-midnight-blue: #0d1626;
+  --jp-color-deep-panel: #111c2e;
+  --jp-color-electric-cyan: #48d9ff;
+  --jp-color-ice-blue: #a7edff;
+  --jp-color-violet-accent: #8b7cff;
+  --jp-color-success: #57e3a1;
+  --jp-color-warning: #f1b85b;
+  --jp-color-error: #ff6b78;
+  --jp-color-text-primary: #edf7ff;
+  --jp-color-text-secondary: #9db1c7;
+
+  --jp-font-family: 'Noto Sans Thai', 'Inter', 'Segoe UI', system-ui, sans-serif;
+  --jp-line-height-body: 1.6;
+  --jp-line-height-heading: 1.35;
+
+  --jp-space-xs: 4px;
+  --jp-space-sm: 8px;
+  --jp-space-md: 12px;
+  --jp-space-lg: 16px;
+  --jp-space-xl: 24px;
+  --jp-space-xxl: 32px;
+
+  --jp-radius-sm: 6px;
+  --jp-radius-md: 10px;
+  --jp-radius-lg: 16px;
+  --jp-radius-pill: 999px;
+
+  --jp-motion-fast: 120ms;
+  --jp-motion-standard: 200ms;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  :root {
+    --jp-motion-fast: 0ms;
+    --jp-motion-standard: 0ms;
+  }
+}

@@ -1,0 +1,21 @@
+{
+  "name": "@jupiter/contracts",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Versioned, schema-validated data contracts shared by every Jupiter process.",
+  "license": "MIT",
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts",
+    "./channels": "./src/channels.ts"
+  },
+  "scripts": {
+    "typecheck": "tsc -p tsconfig.json"
+  },
+  "dependencies": {
+    "zod": "^4.6.5"
+  },
+  "devDependencies": {
+    "@jupiter/testing": "0.1.0"
+  }
+}

@@ -1,0 +1,17 @@
+{
+  "name": "@jupiter/security",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Secret detection and redaction used by logging, error reporting and the repository secret scan.",
+  "license": "MIT",
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "scripts": {
+    "typecheck": "tsc -p tsconfig.json"
+  },
+  "devDependencies": {
+    "@jupiter/testing": "0.1.0"
+  }
+}

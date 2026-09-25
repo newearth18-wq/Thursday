@@ -1,0 +1,11 @@
+{
+  "name": "@jupiter/browser-runtime",
+  "version": "0.0.0",
+  "private": true,
+  "description": "Coming later (SET 9): isolated Playwright-based Browser Agent process; all web content treated as untrusted.",
+  "license": "MIT",
+  "jupiter": {
+    "status": "COMING_LATER",
+    "plannedSet": 9
+  }
+}

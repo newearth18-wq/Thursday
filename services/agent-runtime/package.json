@@ -1,0 +1,11 @@
+{
+  "name": "@jupiter/agent-runtime",
+  "version": "0.0.0",
+  "private": true,
+  "description": "Coming later (SET 8): isolated process that runs agents such as the Windows Computer Agent behind a narrow, typed RPC contract.",
+  "license": "MIT",
+  "jupiter": {
+    "status": "COMING_LATER",
+    "plannedSet": 8
+  }
+}
