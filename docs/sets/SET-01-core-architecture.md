@@ -1,10 +1,12 @@
 # SET 1 — Core architecture, IPC, events and database
 
-- Status: **all 10 acceptance tests pass locally** (Linux x64 container, Xvfb).
-  CI (Linux and Windows) runs on the pull request.
+- Status: **all 10 acceptance tests pass**, locally on Linux and in CI on Linux
+  and Windows (commit `1721a09`, run 36136124624).
 - SET 0 re-checked: green in CI before SET 1 started, and its 10 acceptance
   tests pass again on the SET 1 code (§12).
-- Checkpoint tag once accepted: `jupiter-set-01-core-architecture`
+- Checkpoint tag: `jupiter-set-01-core-architecture` on `1721a09` — created in
+  the development environment; publishing it is left to the repository owner
+  (that environment can push branches only).
 - Environment of the recorded run: Node.js 22.22.2, npm 10.9.7, Electron 44.4.5
   (Chromium 152.0.7977.130, Node 24.21.0, SQLite 3.53.4).
 
@@ -145,6 +147,19 @@ integration tests on real SQLite files (including two that SIGKILL a writer
 process), unit tests for the gateway (9), Core process supervision (11), host
 capabilities (3), event bus, dispatcher and contracts.
 
+### CI evidence (commit `1721a09`, run 36136124624)
+
+| Job                                                                                                                                                                                                                                                                                                                 | Result  |
+| ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------- |
+| Linux — format, lint, typecheck, unit, build, integration + E2E, secret scan, dev smoke, Windows and Linux package validation, packaged launch                                                                                                                                                                      | success |
+| Windows — unit 156/156; integration 55 passed + 4 skipped (the 3 packaged tests, run in their own step, and one POSIX-only permission test), including all 8 SET 1 E2E tests on Windows; NSIS installer `Jupiter-Setup-0.1.0-alpha.0-x64.exe` (106.4 MB) built and validated 7/7; packaged `Jupiter.exe` launch 3/3 | success |
+| Legacy Thursday — build and 24 + 8 acceptance checks                                                                                                                                                                                                                                                                | success |
+
+The database integration tests run in the test runner's Node.js 22, which
+prints an `ExperimentalWarning` for `node:sqlite`; the application itself uses
+`node:sqlite` from Electron's Node.js 24 (covered by the E2E and packaged
+tests).
+
 ## 8. Manual tests
 
 Screenshots of the built app under Xvfb at 1366×768:
@@ -172,7 +187,7 @@ position, so after scrolling Diagnostics the crash notice on Home was off-screen
 - The NSIS installer is built and launched by the Windows CI job, not locally
   (electron-builder needs Wine on Linux).
 - The checkpoint tags could not be pushed from the development environment
-  (branch pushes only); see the final report.
+  (branch pushes only).
 
 ## 10. How to run
 
