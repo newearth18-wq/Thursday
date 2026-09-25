@@ -90,8 +90,34 @@ export const DiagnosticsSnapshot = z
   .strict()
 export type DiagnosticsSnapshot = z.infer<typeof DiagnosticsSnapshot>
 
+/**
+ * The Windows-notification bridge: what the interface may ask the host to
+ * show. Plain text in both fields (no markup, no links, no actions); the
+ * host shows it with the operating system's notification service.
+ */
+export const DesktopNotification = z
+  .object({
+    tone: z.enum(['info', 'success', 'warning', 'error']),
+    title: z.string().trim().min(1).max(120),
+    body: z.string().max(400)
+  })
+  .strict()
+export type DesktopNotification = z.infer<typeof DesktopNotification>
+
+function settingUpdate<K extends keyof typeof SettingDefinitions>(key: K) {
+  return z.object({ key: z.literal(key), value: SettingDefinitions[key] }).strict()
+}
+
+/** One variant per known setting; a unit test keeps this list in step with `SettingDefinitions`. */
 export const SettingUpdate = z.discriminatedUnion('key', [
-  z.object({ key: z.literal('logging.level'), value: SettingDefinitions['logging.level'] }).strict()
+  settingUpdate('logging.level'),
+  settingUpdate('ui.language'),
+  settingUpdate('ui.theme'),
+  settingUpdate('ui.textScale'),
+  settingUpdate('ui.compact'),
+  settingUpdate('ui.reduceMotion'),
+  settingUpdate('ui.avatar'),
+  settingUpdate('notifications.desktop')
 ])
 export type SettingUpdate = z.infer<typeof SettingUpdate>
 
@@ -139,6 +165,18 @@ export const Capabilities = {
     kind: 'command',
     input: Empty,
     output: z.object({ opened: z.literal(true), path: z.string().max(4096) }).strict()
+  },
+  /** Whether this system can show desktop (Windows) notifications. */
+  'host.notifications.status': {
+    kind: 'query',
+    input: Empty,
+    output: z.object({ supported: z.boolean() }).strict()
+  },
+  /** Show a desktop notification. Plain text only; the host limits size and rate. */
+  'host.notifications.show': {
+    kind: 'command',
+    input: DesktopNotification,
+    output: z.object({ shown: z.literal(true) }).strict()
   },
   'runtime.report-host-status': {
     kind: 'command',

@@ -1,5 +1,7 @@
 import {
   MATCH_ALL_EVENTS,
+  SettingDefaults,
+  SettingDefinitions,
   type Actor,
   type AuditEvent,
   type BackupInfo,
@@ -266,12 +268,33 @@ export class CoreKernel {
     }
   }
 
+  /**
+   * A stored value is validated against the current definition; one that no
+   * longer validates (a downgrade, a hand-edited file) reads as the default and
+   * is reported, rather than reaching the interface.
+   */
   readSetting(key: SettingKey): SettingRecord {
+    const fallback: SettingRecord = {
+      key,
+      value: SettingDefaults[key],
+      source: 'default',
+      updatedAt: null,
+      updatedBy: null
+    }
     const stored = this.requireDatabase().settings.get(key)
-    if (!stored) return { key, value: null, source: 'default', updatedAt: null, updatedBy: null }
+    if (!stored) return fallback
+    const parsed = SettingDefinitions[key].safeParse(stored.value)
+    if (!parsed.success) {
+      this.logger.warn(
+        'settings.value.invalid',
+        `Stored value of ${key} is not valid for this version; using the default`,
+        { key }
+      )
+      return fallback
+    }
     return {
       key,
-      value: stored.value as SettingRecord['value'],
+      value: parsed.data,
       source: 'stored',
       updatedAt: stored.updatedAt,
       updatedBy: stored.updatedBy
@@ -291,7 +314,7 @@ export class CoreKernel {
       this.bus.publish({
         type: 'settings.changed',
         stream: { kind: 'settings', id: key },
-        payload: { key, previousValue: (previous?.value ?? null) as string | null, value },
+        payload: { key, previousValue: this.validSettingValue(key, previous?.value), value },
         persistent: true,
         correlationId: context.request.correlationId,
         actor: context.request.actor
@@ -339,6 +362,18 @@ export class CoreKernel {
   }
 
   callHost(capability: string, input: unknown, context: CapabilityContext): Promise<unknown> {
+    if (!this.options.config.hostCapabilities.includes(capability)) {
+      return Promise.reject(
+        new JupiterError(
+          'HOST_CAPABILITY_UNAVAILABLE',
+          `The host does not provide ${capability}.`,
+          {
+            category: 'unsupported',
+            userAction: null
+          }
+        )
+      )
+    }
     return this.options.host.call(capability, input, context.request, context.signal)
   }
 
@@ -538,11 +573,18 @@ export class CoreKernel {
       persistent: true,
       correlationId
     })
-    const stored = this.database?.settings.get('logging.level')?.value
-    this.applyLogLevel(
-      typeof stored === 'string' ? (stored as LogLevel) : this.options.config.defaultLogLevel,
-      correlationId
+    const stored = this.validSettingValue(
+      'logging.level',
+      this.database?.settings.get('logging.level')?.value
     )
+    this.applyLogLevel(stored ?? this.options.config.defaultLogLevel, correlationId)
+  }
+
+  /** The stored value if it is valid for this version, otherwise the default. */
+  private validSettingValue<K extends SettingKey>(key: K, stored: unknown): SettingValue<K> {
+    if (stored === undefined) return SettingDefaults[key]
+    const parsed = SettingDefinitions[key].safeParse(stored)
+    return parsed.success ? (parsed.data as SettingValue<K>) : SettingDefaults[key]
   }
 
   /** How each setting takes effect in the running Core. Every known key must have one. */
@@ -551,7 +593,15 @@ export class CoreKernel {
   } = {
     'logging.level': (value, correlationId) => {
       this.applyLogLevel(value ?? this.options.config.defaultLogLevel, correlationId)
-    }
+    },
+    // Interface preferences: Core only stores them; the interface applies them.
+    'ui.language': () => undefined,
+    'ui.theme': () => undefined,
+    'ui.textScale': () => undefined,
+    'ui.compact': () => undefined,
+    'ui.reduceMotion': () => undefined,
+    'ui.avatar': () => undefined,
+    'notifications.desktop': () => undefined
   }
 
   private applyLogLevel(level: LogLevel, correlationId: string): void {

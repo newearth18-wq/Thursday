@@ -3,14 +3,17 @@
 Jupiter is a Windows desktop AI agent, built in stages (SET 0–24). This
 repository is the Jupiter monorepo.
 
-**Current stage: SET 1 — Core architecture, IPC, events and database** (on
-top of SET 0, the repository foundation). Jupiter opens as a real desktop app.
-Behind the window, _Jupiter Core_ runs in its own process with a typed
-capability dispatcher, an event bus and a SQLite database; the interface talks
-to it only through a small, validated gateway. Diagnostics shows the real state
-of every service, the database, recent errors and the live event log. Jupiter
-**cannot do any AI work yet**: every capability that isn't built is labelled
-_Coming later_ in the app, and none of them is presented as working.
+**Current stage: SET 2 — product shell, design system and accessible
+interface** (on top of SET 1, Core architecture, and SET 0, the repository
+foundation). Jupiter opens as a real desktop app with twelve destinations,
+Thai and English (switchable without a restart), full keyboard use, Reduce
+Motion, text size up to 200%, compact mode and a Command Center whose status
+follows Jupiter Core's real state. Behind the window, _Jupiter Core_ runs in
+its own process with a typed capability dispatcher, an event bus and a SQLite
+database, reached only through a small, validated gateway. Jupiter **cannot do
+any AI work yet**: Home, Settings and Diagnostics work, and the other nine
+screens are labelled _Coming later_ with the SET that builds them. None of
+them is presented as working.
 
 |                 |                                                                                            |
 | --------------- | ------------------------------------------------------------------------------------------ |
@@ -57,7 +60,7 @@ packages/contracts/      Versioned zod schemas for every trust boundary
 packages/core/           Core kernel: capability dispatcher, event bus, service supervisor, logger, IDs
 packages/database/       SQLite (node:sqlite): migrations, transactions, backups, repositories
 packages/security/       Secret patterns and redaction
-packages/ui/             Visual Design Lock v1 tokens, fonts, the Jupiter mark
+packages/ui/             Visual Design Lock v1: design tokens, fonts, icons, the Jupiter mark
 packages/testing/        Launch the real app with Playwright; credential-shaped test values
 services/agent-runtime/  Coming later (SET 8)
 services/browser-runtime/ Coming later (SET 9)
@@ -81,7 +84,10 @@ five files kept, owner-only permissions, and credentials redacted before
 anything is written. The database is `<data folder>\jupiter.db` (SQLite, WAL);
 backups — including one taken automatically before any schema upgrade — are in
 `<data folder>\backups\`. Jupiter never deletes files there other than its own
-older backups (the newest ten are kept).
+older backups (the newest ten are kept). Preferences (language, theme, text
+size, motion, avatar, notifications) are stored in the database;
+`<data folder>\window-state.json` remembers the window's size, position and
+last screen.
 
 ## Documentation
 
@@ -92,6 +98,7 @@ older backups (the newest ten are kept).
 - [docs/DEFINITION_OF_DONE.md](docs/DEFINITION_OF_DONE.md) — when a SET is complete
 - [docs/sets/SET-00-foundation.md](docs/sets/SET-00-foundation.md) — SET 0 report and acceptance results
 - [docs/sets/SET-01-core-architecture.md](docs/sets/SET-01-core-architecture.md) — SET 1 report and acceptance results
+- [docs/sets/SET-02-product-shell.md](docs/sets/SET-02-product-shell.md) — SET 2 report and acceptance results
 - [docs/decisions/](docs/decisions/) — architecture decision records
 
 ## License

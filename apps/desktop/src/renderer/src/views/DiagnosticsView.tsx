@@ -9,6 +9,8 @@ import { request } from '../api'
 import { StatusBadge } from '../components/StatusBadge'
 import { formatBytes, formatDuration } from '../format'
 import { intlLocale, useI18n, type MessageKey } from '../i18n'
+import { ProgressIndicator } from '../components/Progress'
+import { useNotify } from '../components/Toasts'
 import { useEventLog } from '../useEventLog'
 import { envelopeOf, type Loadable } from '../useRuntime'
 import { LoadFailure } from './LoadFailure'
@@ -78,7 +80,9 @@ export function DiagnosticsView({ status, coreRunning }: Props) {
   return (
     <section className="view" aria-labelledby="diagnostics-title">
       <div className="view-header">
-        <h1 id="diagnostics-title">{t('diagnostics.title')}</h1>
+        <h1 id="diagnostics-title" tabIndex={-1}>
+          {t('diagnostics.title')}
+        </h1>
         <button
           type="button"
           className="button"
@@ -339,6 +343,7 @@ function DatabasePanel({
   readonly formatTime: (iso: string | null) => string
 }) {
   const { t } = useI18n()
+  const notify = useNotify()
   const [progress, setProgress] = useState<ProgressUpdate | null>(null)
   const [busy, setBusy] = useState(false)
   const [result, setResult] = useState<
@@ -355,10 +360,18 @@ function DatabasePanel({
         setResult({ ok: true, backup: info })
         setBusy(false)
         onChanged()
+        notify({
+          tone: 'success',
+          title: t('activity.backupCompleted'),
+          message: info.file,
+          desktop: true
+        })
       },
       (error: unknown) => {
-        setResult({ ok: false, message: envelopeOf(error).message })
+        const message = envelopeOf(error).message
+        setResult({ ok: false, message })
         setBusy(false)
+        notify({ tone: 'error', title: t('errorCode.BACKUP_FAILED'), message, desktop: true })
       }
     )
   }
@@ -480,25 +493,13 @@ function DatabasePanel({
 /** Exact progress only when Core reports a measurable total; otherwise an indeterminate indicator. */
 function BackupProgress({ progress }: { readonly progress: ProgressUpdate | null }) {
   const { t } = useI18n()
-  // Only a measured step count is shown as a bar with numbers; anything else is indeterminate.
-  const completed = progress?.completed ?? null
-  const total = progress?.total ?? null
   return (
-    <div className="progress" role="status" data-testid="backup-progress">
-      {completed !== null && total !== null ? (
-        <>
-          <progress value={completed} max={total} />
-          <span className="muted small">
-            {t('diagnostics.backupProgress', { done: completed, total })}
-          </span>
-        </>
-      ) : (
-        <>
-          <progress />
-          <span className="muted small">{t('diagnostics.backupStarting')}</span>
-        </>
-      )}
-    </div>
+    <ProgressIndicator
+      label={t('diagnostics.backingUp')}
+      completed={progress?.completed ?? null}
+      total={progress?.total ?? null}
+      testId="backup-progress"
+    />
   )
 }
 

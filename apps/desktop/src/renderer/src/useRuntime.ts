@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react'
+import { createContext, useCallback, useContext, useEffect, useState } from 'react'
 import type { ErrorEnvelope, GatewayStatus } from '@jupiter/contracts'
 import { createErrorEnvelope } from '@jupiter/core'
 import { BridgeError, fetchGatewayStatus, onGatewayStatus, retryService } from './api'
@@ -66,4 +66,20 @@ export function useRuntime(): RuntimeData {
   }, [])
 
   return { status, retry }
+}
+
+/** One shared gateway-status subscription for the whole interface. */
+export const RuntimeContext = createContext<RuntimeData>({
+  status: { state: 'loading' },
+  retry: () => Promise.resolve(null)
+})
+
+export function useRuntimeContext(): RuntimeData {
+  return useContext(RuntimeContext)
+}
+
+/** Identifies the running Jupiter Core process (changes on every restart), or null when it is not running. */
+export function coreSessionOf(status: Loadable<GatewayStatus>): string | null {
+  if (status.state !== 'ready' || status.value.core.state !== 'running') return null
+  return `${String(status.value.core.pid)}:${String(status.value.core.restarts)}`
 }

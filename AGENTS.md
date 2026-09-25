@@ -66,6 +66,22 @@ Do not modify `legacy/thursday-browser` unless a task is explicitly about it.
 - Schema changes are new migrations at the end of `JUPITER_MIGRATIONS`; never
   edit a migration that has shipped (see `packages/database/README.md`).
 
+## Interface work (from SET 2 on)
+
+- Never write interface text in a component: add a key to both
+  `apps/desktop/src/renderer/src/i18n/en.ts` and `th.ts` (same keys, same
+  placeholders). `src/checks/renderer-copy.test.ts` fails on literal copy.
+- Use the tokens in `packages/ui/src/tokens.ts` (and `tokens.css`, kept equal
+  by a test) and `rem` units; no raw colours, pixel font sizes or durations.
+- A screen for something unbuilt keeps its _Coming later_ label and has no
+  enabled controls, progress or motion until the SET that builds it
+  (`destinations.ts` records which SET that is).
+- A user preference is a setting in `SettingDefinitions`
+  (`packages/contracts/src/settings.ts`), not browser storage.
+- Dialogs, menus and tabs use the shared components, which handle focus and
+  keyboard behaviour. Every control must be reachable by keyboard, and motion
+  must stop under Reduce Motion.
+
 ## Checks to run
 
 ```bash

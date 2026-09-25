@@ -60,7 +60,7 @@ describe('Jupiter desktop shell — healthy start', () => {
     expect(await page.getByTestId('app-version').textContent()).toBe(packageJson.version)
     expect(await page.getByTestId('app-channel').textContent()).toBe('alpha')
     expect(await page.getByTestId('app-environment').textContent()).toBe('Test')
-    expect(page.url()).toBe('jupiter://app/index.html')
+    expect(page.url()).toBe('jupiter://app/index.html#/home')
     for (const id of RUNNING) {
       expect(await page.getByTestId(`service-${id}`).getAttribute('data-status'), id).toBe(
         'HEALTHY'
@@ -104,16 +104,15 @@ describe('Jupiter desktop shell — healthy start', () => {
     expect(scrolled).toBeGreaterThan(0)
 
     await page.getByTestId('nav-settings').click()
-    await page.getByTestId('settings-read-only').waitFor()
+    await page.getByTestId('settings-tabs').waitFor()
     expect(await page.evaluate(() => document.querySelector('main.content')?.scrollTop)).toBe(0)
 
-    const planned = page.getByTestId('nav-planned')
-    expect(await planned.count()).toBe(8)
-    for (let i = 0; i < 8; i++) {
-      const item = planned.nth(i)
-      expect(await item.getAttribute('aria-disabled')).toBe('true')
-      expect(await item.textContent()).toContain('Coming later')
-      expect(await item.locator('button, a, input').count()).toBe(0)
+    // Unbuilt destinations (SET 2: real screens) are grouped under "Coming later" and say so.
+    expect(await page.getByTestId('nav-planned-heading').textContent()).toBe('Coming later')
+    const planned = page.locator('[data-availability="COMING_LATER"].nav-link')
+    expect(await planned.count()).toBe(9)
+    for (let i = 0; i < 9; i++) {
+      expect(await planned.nth(i).getAttribute('aria-describedby')).toBe('nav-planned-heading')
     }
 
     await page.getByTestId('nav-home').click()
@@ -375,8 +374,8 @@ describe('Jupiter desktop shell — Thai', () => {
     expect(await page.evaluate(() => document.documentElement.lang)).toBe('th')
     expect(await page.getByTestId('nav-home').textContent()).toBe('หน้าหลัก')
     expect(await page.getByTestId('overall-status').textContent()).toContain(
-      'บริการพื้นฐานทั้งหมดทำงานปกติ'
+      'บริการทั้งหมดทำงานปกติ'
     )
-    expect(await page.getByTestId('nav-planned').first().textContent()).toContain('จะมาในภายหลัง')
+    expect(await page.getByTestId('nav-planned-heading').textContent()).toBe('จะมาในภายหลัง')
   })
 })

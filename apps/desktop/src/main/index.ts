@@ -6,6 +6,8 @@ import {
   dialog,
   ipcMain,
   Menu,
+  nativeTheme,
+  Notification,
   session,
   shell,
   webContents
@@ -44,6 +46,7 @@ import { createMainLogging, type MainLogging } from './logging'
 import { hardenSession, hardenWebContents } from './security'
 import { registerServices } from './services'
 import { createMainWindow, type RendererSource } from './window'
+import { WindowStateStore } from './window-state'
 
 /**
  * Jupiter host (Electron main process).
@@ -69,6 +72,7 @@ let env: MainEnvironment | null = null
 let logging: MainLogging | null = null
 let mainWindow: BrowserWindow | null = null
 let supervisor: ServiceSupervisor | null = null
+let windowState: WindowStateStore | null = null
 
 function reportFatal(stage: string, error: unknown): void {
   const reason = redactString(describeError(error), 1500)
@@ -111,6 +115,8 @@ async function start(environment: MainEnvironment, mainLogging: MainLogging): Pr
     handleAppProtocol(session.defaultSession, join(here, '../renderer'), PRODUCTION_CSP, logger)
   }
   if (!environment.profile.allowDevTools) Menu.setApplicationMenu(null)
+  // Jupiter is a dark interface (Visual Design Lock v1): the native Windows title bar follows it.
+  nativeTheme.themeSource = 'dark'
 
   const metadata = readBuildMetadata()
   const services = new ServiceSupervisor(logger)
@@ -123,7 +129,23 @@ async function start(environment: MainEnvironment, mainLogging: MainLogging): Pr
   const hostCapabilities = new HostCapabilities({
     logger,
     logsDirectory: environment.logsDir,
-    openPath: (path) => shell.openPath(path)
+    openPath: (path) => shell.openPath(path),
+    notifier: {
+      isSupported: () => Notification.isSupported(),
+      show: (message) => {
+        const notification = new Notification({
+          title: message.title,
+          body: message.body,
+          silent: message.tone === 'info' || message.tone === 'success'
+        })
+        notification.on('click', () => {
+          if (!mainWindow || mainWindow.isDestroyed()) return
+          if (mainWindow.isMinimized()) mainWindow.restore()
+          mainWindow.focus()
+        })
+        notification.show()
+      }
+    }
   })
 
   const core: CoreProcessManager = new CoreProcessManager({
@@ -347,11 +369,14 @@ async function start(environment: MainEnvironment, mainLogging: MainLogging): Pr
     )
   })
 
+  windowState = new WindowStateStore(environment.userDataDir, logger)
+  windowState.load()
   const window = createMainWindow({
     logger,
     env: environment,
     preloadPath: join(here, '../preload/index.cjs'),
-    renderer: rendererSource(environment)
+    renderer: rendererSource(environment),
+    state: windowState
   })
   mainWindow = window
   const contentsId = window.webContents.id
@@ -431,6 +456,7 @@ function main(): void {
     quitting = true
     event.preventDefault()
     logger.info('app.shutdown', 'Jupiter shutting down')
+    windowState?.flush()
     const stopped = supervisor?.stopAll() ?? Promise.resolve()
     void Promise.race([stopped, new Promise((resolve) => setTimeout(resolve, 12_000))])
       .catch((error: unknown) => {

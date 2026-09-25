@@ -37,7 +37,10 @@ export default defineConfig({
           testTimeout: 120_000,
           hookTimeout: 120_000,
           // Electron instances run one at a time so they never compete for the display.
-          fileParallelism: false
+          fileParallelism: false,
+          // expect.poll waits for real work: Core restarts and durable (fsync'd) database
+          // writes, which take seconds on a busy CI runner. The default 1 s window is too short.
+          expect: { poll: { timeout: 15_000, interval: 100 } }
         }
       }
     ]

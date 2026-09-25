@@ -53,7 +53,8 @@ describe.skipIf(!executablePath)('packaged Jupiter build', () => {
 
   it('serves the interface from jupiter://app and runs Jupiter Core with its database', async () => {
     const page = jupiter.window
-    expect(page.url()).toBe('jupiter://app/index.html')
+    // A new profile opens on Home, at its own address (SET 2 navigation).
+    expect(page.url()).toBe('jupiter://app/index.html#/home')
     const status = await gatewayStatus(page)
     expect(status.core.state).toBe('running')
     for (const id of ['core', 'database', 'event-bus', 'capability-dispatcher']) {

@@ -1,7 +1,9 @@
-import { app, BrowserWindow, dialog } from 'electron'
+import { app, BrowserWindow, dialog, screen } from 'electron'
 import type { Logger } from '@jupiter/core'
 import { colors } from '@jupiter/ui/tokens'
+import { hashForView, viewFromUrl } from '../shared/views'
 import type { MainEnvironment } from './environment'
+import { MIN_WINDOW, fitToDisplays, type WindowStateStore } from './window-state'
 
 /** Where the interface is loaded from: the loopback dev server, or jupiter://app in every other case. */
 export type RendererSource = { readonly kind: 'dev-server' | 'app-protocol'; readonly url: string }
@@ -11,6 +13,8 @@ interface WindowOptions {
   readonly env: MainEnvironment
   readonly preloadPath: string
   readonly renderer: RendererSource
+  /** Size, position, maximized state and last view, remembered between launches. */
+  readonly state: WindowStateStore
 }
 
 /** Automatic renderer restarts allowed per minute before asking the person. */
@@ -21,11 +25,17 @@ export function createMainWindow(options: WindowOptions): BrowserWindow {
   const { env, renderer } = options
   const log = options.logger.child({ component: 'window' })
 
+  const saved = options.state.current
+  const bounds = fitToDisplays(
+    saved.bounds,
+    screen.getAllDisplays().map((display) => display.workArea),
+    screen.getPrimaryDisplay().workArea
+  )
   const window = new BrowserWindow({
-    width: 1280,
-    height: 800,
-    minWidth: 960,
-    minHeight: 600,
+    ...bounds,
+    // Small enough for 1366×768 at 150% scaling (about 910×512 usable).
+    minWidth: MIN_WINDOW.width,
+    minHeight: MIN_WINDOW.height,
     show: false,
     title: 'Jupiter',
     backgroundColor: colors.graphiteBlack,
@@ -33,7 +43,7 @@ export function createMainWindow(options: WindowOptions): BrowserWindow {
     webPreferences: {
       preload: options.preloadPath,
       // The renderer is a plain, sandboxed web page: no Node.js, no Electron
-      // internals, only the four-method bridge from the preload script.
+      // internals, only the frozen bridge from the preload script.
       contextIsolation: true,
       nodeIntegration: false,
       nodeIntegrationInWorker: false,
@@ -50,9 +60,40 @@ export function createMainWindow(options: WindowOptions): BrowserWindow {
     }
   })
 
+  if (saved.maximized) window.maximize()
+
+  // Remember where the window is. getNormalBounds() is the restored size even while maximized.
+  const remember = () => {
+    if (window.isDestroyed() || window.isMinimized() || window.isFullScreen()) return
+    options.state.update({ bounds: window.getNormalBounds(), maximized: window.isMaximized() })
+  }
+  window.on('resize', remember)
+  window.on('move', remember)
+  window.on('maximize', remember)
+  window.on('unmaximize', remember)
+  window.on('close', () => {
+    remember()
+    options.state.flush()
+  })
+  // The view lives in the URL fragment; remember it so the next launch opens the same place.
+  const rememberView = (url: string) => {
+    const view = viewFromUrl(url)
+    if (view) options.state.update({ lastView: view })
+  }
+  window.webContents.on('did-navigate-in-page', (_event, url, isMainFrame) => {
+    if (isMainFrame) rememberView(url)
+  })
+  window.webContents.on('did-navigate', (_event, url) => {
+    rememberView(url)
+  })
+
   window.once('ready-to-show', () => {
     window.show()
-    log.info('window.shown', 'Main window shown')
+    log.info('window.shown', 'Main window shown', {
+      bounds: window.getBounds(),
+      maximized: window.isMaximized(),
+      view: saved.lastView
+    })
   })
 
   const reloadTimes: number[] = []
@@ -138,7 +179,14 @@ export function createMainWindow(options: WindowOptions): BrowserWindow {
     log.info('window.responsive', 'The interface is responding again')
   })
 
-  loadRenderer(window, renderer)
+  // Open where the person left off; the interface falls back to Home for anything it does not know.
+  const initial: RendererSource = saved.lastView
+    ? {
+        ...renderer,
+        url: `${renderer.url.split('#')[0] ?? renderer.url}${hashForView(saved.lastView)}`
+      }
+    : renderer
+  loadRenderer(window, initial)
   return window
 }
 

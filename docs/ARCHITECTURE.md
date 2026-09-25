@@ -1,7 +1,8 @@
-# Jupiter architecture — after SET 1
+# Jupiter architecture — after SET 2
 
-This document describes what exists after SET 1 (Core architecture, IPC,
-events and database) on top of the SET 0 foundation. Later SETs extend it;
+This document describes what exists after SET 2 (product shell, design system
+and accessible interface) on top of SET 1 (Core architecture, IPC, events and
+database) and the SET 0 foundation. Later SETs extend it;
 each section says what is deliberately not here yet. Decisions and their
 alternatives are in [docs/decisions/](decisions/).
 
@@ -36,8 +37,9 @@ React. The Core bundle imports only `node:crypto`, `node:fs`, `node:path` and
 
 ```text
 ┌─────────────────────────────────────────────┐
-│ Renderer (React 19) — jupiter://app         │  sandboxed, contextIsolation, no Node.js,
-│ Home · Diagnostics · Settings               │  strict CSP, validates every reply and push
+│ Renderer (React 19) — jupiter://app#/<view> │  sandboxed, contextIsolation, no Node.js,
+│ 12 destinations: Home · Settings ·          │  strict CSP, validates every reply and push
+│   Diagnostics work; 9 are Coming later      │
 └───────────────────┬─────────────────────────┘
                     │ window.jupiter — 7 frozen functions (contract v1)
 ┌───────────────────┴─────────────────────────┐
@@ -51,8 +53,10 @@ React. The Core bundle imports only `node:crypto`, `node:fs`, `node:path` and
 │    actor assignment, ownership, audit)      │
 │  Host services: build-metadata, environment,│
 │    storage, logging, core (supervisor)      │
-│  Host capabilities (host.logs.reveal) —     │
-│    run only when Core's dispatcher asks     │
+│  Host capabilities (logs.reveal,            │
+│    notifications.status/show) — run only    │
+│    when Core's dispatcher asks              │
+│  Window state (window-state.json)           │
 └───────────────────┬─────────────────────────┘
                     │ MessagePort (utility process), versioned protocol,
                     │ schema-validated both ways, heartbeat
@@ -140,9 +144,10 @@ reach the host (`settings.update`, `database.backup`, `host.logs.reveal`,
 `runtime.report-host-status`) are audited on every call with their outcome;
 read-only queries are audited only when refused.
 
-SET 1 capabilities: `diagnostics.snapshot`, `diagnostics.report-renderer-error`,
+Capabilities: `diagnostics.snapshot`, `diagnostics.report-renderer-error`,
 `settings.list`, `settings.update`, `events.list`, `audit.list`,
-`database.backup`, `host.logs.reveal` (host provider), and
+`database.backup`, `host.logs.reveal`, `host.notifications.status` and
+`host.notifications.show` (host provider; the last two added in SET 2), and
 `runtime.report-host-status` (host actor only). There is no capability that
 reads files, credentials or runs commands.
 
@@ -225,9 +230,63 @@ JSON Lines as in SET 0 (`ts`, `level`, `event`, `message`, `component`,
 sends its entries to the host over the Core port; the host re-redacts them and
 owns the files, so one file holds both processes under one session id.
 
-## Not in SET 1
+## Product shell (SET 2)
 
-Design system, navigation state, language switch and editable settings
-(SET 2); providers and secure credential storage (SET 3); Missions (SET 4) and
-everything after that. The architecture diagram's future components are listed
-as _Coming later_ in the app and none of them is presented as working.
+Decisions and alternatives: [ADR 0003](decisions/0003-product-shell-preferences-and-window-state.md).
+
+- **Destinations.** Twelve screens, each at its own address
+  (`#/home`, `#/chat`, … `#/diagnostics`); an unknown address opens Home.
+  `destinations.ts` states for each one whether it works and which SET builds
+  it. Home (Command Center), Settings and Diagnostics work. Chat, Missions,
+  Skills, Memory, Files, Automations, AI Models, Devices and Plugins open a
+  screen labelled _Coming later_ with its SET, and have no enabled controls,
+  progress or motion.
+- **Command Center.** The Jupiter stage (mark + status) is driven only by
+  Core's real state as the host reports it: idle, attention (a service
+  degraded or failed), starting, connecting, or unavailable (Core stopped). It
+  never shows "thinking" or "working". Next to it: the chat composer
+  (disabled, says why), the current-Mission card (says no Mission is running),
+  recent activity from the event bus, and System health.
+- **Shell.** Skip link; a sidebar that collapses to icons (compact mode or
+  Ctrl+B); a top bar with the Jupiter menu (keyboard shortcuts, About), the
+  network indicator (as Chromium sees it) and the Core indicator. F6 moves
+  between sidebar, top bar and content. Ctrl+1…9, Ctrl+, and Ctrl+Shift+D
+  open screens, and F1 or Ctrl+/ lists the shortcuts. Shortcuts are ignored
+  while a dialog is open. On each screen change, focus moves to the screen's
+  heading and the window title names the screen.
+- **Components** (`apps/desktop/src/renderer/src/components`): modal dialog
+  (native `<dialog>`, focus trapped and restored), menu button, tabs,
+  radio/switch/select form controls, toasts, determinate and indeterminate
+  progress (numbers only when both amounts are known), state messages (empty,
+  loading, offline, unavailable, error with retry), timeline, the permission
+  and identity-check dialog shells (identity check says _Unavailable_ and
+  offers only Cancel), and the Mission card.
+- **Preferences** are Core settings (`ui.language`, `ui.theme`,
+  `ui.textScale`, `ui.compact`, `ui.reduceMotion`, `ui.avatar`,
+  `notifications.desktop`), validated on write and on read. The interface sets
+  `lang`, `data-theme`, `data-compact`, `data-motion` and `data-avatar` on
+  `<html>` and the root font size (100–200%), so a change takes effect at once
+  with no restart. If the database is down, a change is applied for the
+  session, shown as not saved, and saved when the database is back.
+- **Window state.** The host keeps size, position, maximized state and the
+  last screen in `<data folder>/window-state.json` (validated, written
+  atomically), fits them to the current displays, and opens the window at the
+  last screen. The title bar is the native Windows one, dark.
+- **Design tokens** in `packages/ui/src/tokens.ts` (mirrored as CSS custom
+  properties in `tokens.css`, tested equal). Everything is sized in `rem` with
+  container queries, so text size and Windows scaling from 100% to 200% keep
+  the layout usable from 720×480 (the smallest window) up to 4K. Reduce Motion
+  (Follow Windows / On / Off) sets every transition and animation to none;
+  Static and Hidden Avatar stop or remove the mark and keep the status text.
+  High contrast and Windows forced colours are supported.
+- **Copy.** Every string comes from the English or Thai catalogue. Both
+  catalogues have the same keys and placeholders, and a unit test parses the
+  renderer and fails on literal copy in components.
+
+## Not in SET 2
+
+Providers, the Model Router, chat and secure credential storage (SET 3);
+Missions (SET 4) and everything after that; the animated avatar engine
+(SET 16). The architecture diagram's future components, and the nine
+unfinished destinations, are shown as _Coming later_ in the app, and none of
+them is presented as working.

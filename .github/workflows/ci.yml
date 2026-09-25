@@ -55,13 +55,13 @@ jobs:
         run: npm run build
 
       - name: Integration and Electron E2E tests
-        run: xvfb-run -a npx vitest run --project integration
+        run: xvfb-run -a -s "-screen 0 4096x2304x24" npx vitest run --project integration
 
       - name: Secret scan (sources and build output)
         run: node scripts/check-secrets.mjs --include-build
 
       - name: Development mode launches the app
-        run: xvfb-run -a node scripts/dev-smoke.mjs
+        run: xvfb-run -a -s "-screen 0 4096x2304x24" node scripts/dev-smoke.mjs
 
       - name: Windows unpacked build and validation
         run: |
@@ -72,7 +72,7 @@ jobs:
         run: |
           npm run package:linux:dir
           node scripts/validate-package.mjs --platform linux
-          xvfb-run -a npx vitest run --project integration apps/desktop/test/packaged.integration.test.ts
+          xvfb-run -a -s "-screen 0 4096x2304x24" npx vitest run --project integration apps/desktop/test/packaged.integration.test.ts
         env:
           JUPITER_PACKAGED_EXECUTABLE: apps/desktop/dist/linux-unpacked/jupiter
 

@@ -1,66 +1,89 @@
-import { JupiterMark } from '@jupiter/ui'
-import { useI18n, type MessageKey } from '../i18n'
+import { Icon, JupiterMark } from '@jupiter/ui'
+import type { ViewId } from '../../../shared/views'
+import { DESTINATIONS, shortcutLabel, type Destination } from '../destinations'
+import { useI18n } from '../i18n'
 
-export type View = 'home' | 'settings' | 'diagnostics'
-
-/** Destinations from the Visual Design Lock that do not exist yet, with the SET that builds them. */
-const PLANNED: readonly { readonly label: MessageKey; readonly set: number }[] = [
-  { label: 'nav.missions', set: 4 },
-  { label: 'nav.skills', set: 6 },
-  { label: 'nav.memory', set: 11 },
-  { label: 'nav.files', set: 10 },
-  { label: 'nav.automations', set: 18 },
-  { label: 'nav.aiModels', set: 3 },
-  { label: 'nav.devices', set: 12 },
-  { label: 'nav.plugins', set: 15 }
-]
-
+/**
+ * Compact left navigation (Visual Design Lock v1). Every destination is a
+ * real link to a screen. Screens that are not built yet are grouped under a
+ * "Coming later" heading (announced with each of them) and say so again on
+ * the screen itself. In compact mode (or
+ * when the window is narrow) only icons show; each keeps its accessible name
+ * and a tooltip.
+ */
 interface Props {
-  readonly view: View
-  readonly onNavigate: (view: View) => void
+  readonly view: ViewId
+  readonly onNavigate: (view: ViewId) => void
+  readonly compact: boolean
+  readonly onToggleCompact: () => void
 }
 
-export function Sidebar({ view, onNavigate }: Props) {
+export function Sidebar({ view, onNavigate, compact, onToggleCompact }: Props) {
   const { t } = useI18n()
-  const link = (target: View, label: MessageKey) => (
-    <li>
-      <button
-        type="button"
-        className="nav-link"
-        aria-current={view === target ? 'page' : undefined}
-        data-testid={`nav-${target}`}
-        onClick={() => {
-          onNavigate(target)
-        }}
-      >
-        {t(label)}
-      </button>
-    </li>
-  )
+
+  const link = (destination: Destination) => {
+    const label = t(destination.label)
+    const planned = destination.availability === 'COMING_LATER'
+    const hint = [
+      label,
+      planned ? t('availability.COMING_LATER') : null,
+      destination.shortcut ? shortcutLabel(destination.shortcut) : null
+    ]
+      .filter(Boolean)
+      .join(' · ')
+    return (
+      <li key={destination.id}>
+        <button
+          type="button"
+          className="nav-link"
+          aria-current={view === destination.id ? 'page' : undefined}
+          aria-describedby={planned ? 'nav-planned-heading' : undefined}
+          title={hint}
+          data-testid={`nav-${destination.id}`}
+          data-availability={destination.availability}
+          onClick={() => {
+            onNavigate(destination.id)
+          }}
+        >
+          <Icon name={destination.icon} />
+          <span className="nav-label">{label}</span>
+        </button>
+      </li>
+    )
+  }
+
+  const main = DESTINATIONS.filter((destination) => destination.group === 'main')
 
   return (
-    <nav className="sidebar" aria-label={t('nav.label')}>
+    <nav className="sidebar" aria-label={t('nav.label')} data-compact={compact}>
       <div className="brand">
-        <JupiterMark size={36} />
-        <span>{t('app.name')}</span>
+        <JupiterMark size={32} />
+        <span className="brand-name">{t('app.name')}</span>
       </div>
       <ul className="nav-list">
-        {link('home', 'nav.home')}
-        {PLANNED.map((item) => (
-          // Not a control: an unavailable destination must not look clickable.
-          <li
-            key={item.label}
-            className="nav-planned"
-            aria-disabled="true"
-            title={t('nav.plannedFor', { set: item.set })}
-            data-testid="nav-planned"
+        {main.filter((destination) => destination.availability === 'available').map(link)}
+      </ul>
+      <p id="nav-planned-heading" className="nav-heading" data-testid="nav-planned-heading">
+        {t('availability.COMING_LATER')}
+      </p>
+      <ul className="nav-list" aria-labelledby="nav-planned-heading">
+        {main.filter((destination) => destination.availability === 'COMING_LATER').map(link)}
+      </ul>
+      <ul className="nav-list nav-list-system">
+        {DESTINATIONS.filter((destination) => destination.group === 'system').map(link)}
+        <li>
+          <button
+            type="button"
+            className="nav-link nav-toggle"
+            aria-pressed={compact}
+            title={`${t(compact ? 'nav.expand' : 'nav.collapse')} · Ctrl+B`}
+            data-testid="nav-toggle-compact"
+            onClick={onToggleCompact}
           >
-            <span>{t(item.label)}</span>
-            <span className="badge badge-muted">{t('availability.COMING_LATER')}</span>
-          </li>
-        ))}
-        {link('settings', 'nav.settings')}
-        {link('diagnostics', 'nav.diagnostics')}
+            <Icon name={compact ? 'sidebarExpand' : 'sidebarCollapse'} />
+            <span className="nav-label">{t('nav.compactMode')}</span>
+          </button>
+        </li>
       </ul>
     </nav>
   )

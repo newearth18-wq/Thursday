@@ -6,6 +6,7 @@
   "include": [
     "src/main/**/*.ts",
     "src/core/**/*.ts",
+    "src/checks/**/*.ts",
     "src/preload/**/*.ts",
     "src/shared/**/*.ts",
     "scripts/**/*.ts",

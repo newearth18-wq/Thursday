@@ -1,6 +1,18 @@
+import {
+  AvailabilityStatus,
+  JupiterEnvironment,
+  OverallRuntimeStatus,
+  RiskLevel,
+  RunningServiceStatus,
+  SettingKey
+} from '@jupiter/contracts'
 import { describe, expect, it } from 'vitest'
+import { VIEW_IDS } from '../../../shared/views'
+import { STAGE_STATES } from '../components/JupiterStage'
+import { DESTINATIONS } from '../destinations'
+import { KNOWN_CODES } from '../errorText'
 import { en } from './en'
-import { createTranslator, detectLocale } from './index'
+import { createTranslator, detectLocale, localeFor } from './index'
 import { th } from './th'
 
 describe('message catalogs', () => {
@@ -44,5 +56,60 @@ describe('translator', () => {
     expect(detectLocale('th-TH')).toBe('th')
     expect(detectLocale('en-US')).toBe('en')
     expect(detectLocale(undefined)).toBe('en')
+  })
+})
+
+describe('keys built at runtime', () => {
+  // Components build some keys from data (`status.${status}`); every such family must be complete.
+  const has = (key: string) => Object.hasOwn(en, key) && Object.hasOwn(th, key)
+
+  it('covers every value each family can take', () => {
+    const families: Record<string, readonly string[]> = {
+      'status.': [...RunningServiceStatus.options, ...AvailabilityStatus.options],
+      'overall.': OverallRuntimeStatus.options,
+      'env.': JupiterEnvironment.options,
+      'risk.': RiskLevel.options,
+      'settingName.': SettingKey.options,
+      'errorCode.': KNOWN_CODES,
+      'feature.': VIEW_IDS.filter((view) => !['home', 'settings', 'diagnostics'].includes(view)),
+      'stage.': STAGE_STATES,
+      'indicators.core.': ['running', 'starting', 'stopped', 'unknown'],
+      'activity.state.': ['live', 'connecting', 'waiting-for-core', 'error'],
+      'language.': ['en', 'th'],
+      'coreState.': ['starting', 'running', 'stopping', 'stopped', 'crashed'],
+      'service.': [
+        'build-metadata',
+        'environment',
+        'storage',
+        'logging',
+        'core',
+        'database',
+        'event-bus',
+        'capability-dispatcher',
+        'model-router',
+        'mission-manager',
+        'workflow-engine',
+        'skill-registry',
+        'permission-engine',
+        'agent-runtime',
+        'browser-runtime',
+        'artifact-manager',
+        'identity-gateway',
+        'plugin-runtime'
+      ]
+    }
+    for (const [prefix, values] of Object.entries(families)) {
+      for (const value of values) expect(has(`${prefix}${value}`), `${prefix}${value}`).toBe(true)
+    }
+    for (const state of STAGE_STATES) expect(has(`stage.${state}Detail`), state).toBe(true)
+    for (const destination of DESTINATIONS)
+      expect(has(destination.label), destination.id).toBe(true)
+  })
+
+  it('follows the language preference, with the system language for `system`', () => {
+    expect(localeFor('system', 'th-TH')).toBe('th')
+    expect(localeFor('system', 'en-GB')).toBe('en')
+    expect(localeFor('th', 'en-US')).toBe('th')
+    expect(localeFor('en', 'th-TH')).toBe('en')
   })
 })

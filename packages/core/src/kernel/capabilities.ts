@@ -12,7 +12,7 @@ import type { CapabilityContext, CapabilityDefinition } from '../dispatch/dispat
 import type { CoreKernel } from './core-kernel'
 
 /**
- * Jupiter Core's SET 1 capabilities. Input and output schemas come from the
+ * Jupiter Core's capabilities (SET 1, plus the SET 2 notification bridge). Input and output schemas come from the
  * shared capability catalogue; the policy (who may call it, risk, audit,
  * dependencies) is declared here, next to the handler.
  */
@@ -99,6 +99,22 @@ export function coreCapabilities(kernel: CoreKernel): CapabilityDefinition<never
         return Capabilities['host.logs.reveal'].output.parse(result)
       },
       () => 'logs-folder'
+    ),
+
+    define('host.notifications.status', { ...UI_READ, provider: 'host' }, async (input, context) =>
+      Capabilities['host.notifications.status'].output.parse(
+        await kernel.callHost('host.notifications.status', input, context)
+      )
+    ),
+
+    define(
+      'host.notifications.show',
+      { ...UI_READ, audit: 'always', provider: 'host', timeoutMs: 15_000 },
+      async (input, context) =>
+        Capabilities['host.notifications.show'].output.parse(
+          await kernel.callHost('host.notifications.show', input, context)
+        ),
+      () => 'desktop-notification'
     ),
 
     define(

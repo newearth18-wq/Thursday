@@ -25,7 +25,9 @@ if (process.platform === 'linux' && !process.env.DISPLAY && !process.env.WAYLAND
     process.exit(2)
   }
   executable = 'xvfb-run'
-  finalArgs = ['-a', '-s', '-screen 0 1440x900x24', command, ...args]
+  // Larger than 4K: Chromium on X11 will not make a window exactly the size of the screen,
+  // and the layout tests need a real 3840×2160 window.
+  finalArgs = ['-a', '-s', '-screen 0 4096x2304x24', command, ...args]
 }
 
 const child = spawn(executable, finalArgs, {

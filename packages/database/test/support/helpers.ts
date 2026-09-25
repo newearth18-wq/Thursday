@@ -28,8 +28,14 @@ export function raw(path: string): DatabaseSync {
   return new DatabaseSync(path)
 }
 
+/**
+ * Integrity of a database file, opened the way Jupiter opens it: read-write,
+ * so SQLite first performs its normal recovery of a hot journal or WAL left by
+ * a killed writer. (A read-only connection cannot recover, and fails with
+ * SQLITE_READONLY_ROLLBACK when the kill landed while a journal was hot.)
+ */
 export function integrityOf(path: string): string[] {
-  const db = new DatabaseSync(path, { readOnly: true })
+  const db = new DatabaseSync(path)
   try {
     return db
       .prepare('PRAGMA integrity_check')

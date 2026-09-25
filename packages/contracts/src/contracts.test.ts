@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest'
 import {
   AppInfo,
   BuildMetadata,
+  DesktopNotification,
   ErrorEnvelope,
   GatewayReply,
   INVOKE_CHANNELS,
@@ -9,6 +10,10 @@ import {
   RuntimeStatus,
   SemVer,
   ServiceHealth,
+  SettingDefaults,
+  SettingDefinitions,
+  SettingKey,
+  SettingUpdate,
   Uuidv7,
   gatewayContract,
   isInvokeChannel
@@ -161,5 +166,41 @@ describe('gateway IPC contract', () => {
 
   it('never lets AppInfo carry unexpected fields', () => {
     expect(AppInfo.safeParse({ apiKey: 'nope' }).success).toBe(false)
+  })
+})
+
+describe('settings', () => {
+  it('has one update variant, and a valid default, for every known setting', () => {
+    const variants = SettingUpdate.options.map((option) => option.shape.key.value).sort()
+    expect(variants).toEqual([...SettingKey.options].sort())
+    for (const key of SettingKey.options) {
+      expect(SettingDefinitions[key].safeParse(SettingDefaults[key]).success, key).toBe(true)
+    }
+  })
+
+  it('accepts only the documented values for interface preferences', () => {
+    expect(SettingUpdate.safeParse({ key: 'ui.language', value: 'th' }).success).toBe(true)
+    expect(SettingUpdate.safeParse({ key: 'ui.language', value: 'fr' }).success).toBe(false)
+    expect(SettingUpdate.safeParse({ key: 'ui.textScale', value: '200' }).success).toBe(true)
+    expect(SettingUpdate.safeParse({ key: 'ui.textScale', value: '300' }).success).toBe(false)
+    expect(SettingUpdate.safeParse({ key: 'ui.compact', value: 'yes' }).success).toBe(false)
+    expect(SettingUpdate.safeParse({ key: 'ui.avatar', value: 'hidden', extra: 1 }).success).toBe(
+      false
+    )
+  })
+
+  it('limits desktop notifications to short plain text', () => {
+    expect(DesktopNotification.safeParse({ tone: 'info', title: 'Done', body: '' }).success).toBe(
+      true
+    )
+    expect(DesktopNotification.safeParse({ tone: 'info', title: ' ', body: '' }).success).toBe(
+      false
+    )
+    expect(
+      DesktopNotification.safeParse({ tone: 'info', title: 'x'.repeat(121), body: '' }).success
+    ).toBe(false)
+    expect(
+      DesktopNotification.safeParse({ tone: 'info', title: 'a', body: '', onClick: 'x' }).success
+    ).toBe(false)
   })
 })

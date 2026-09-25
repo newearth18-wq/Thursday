@@ -374,9 +374,10 @@ describe('SET 1 — typed gateway, authorization and persistence (real app)', ()
     expect(before.length).toBeGreaterThan(0)
     expect(new Set(before).size).toBe(before.length)
 
+    // SET 2: a reload keeps the selected view, so the page comes back on Diagnostics.
     for (let reload = 0; reload < 2; reload++) {
       await page.reload()
-      await settledOverallStatus(page)
+      await page.getByTestId('view-diagnostics').waitFor()
       await openDiagnostics(page)
     }
 

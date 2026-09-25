@@ -1,11 +1,10 @@
 /**
  * English UI copy. Every visible string lives here or in `th.ts`; components
- * never hardcode copy. `th.ts` must define exactly the same keys (type-checked).
+ * never hardcode copy (a unit test scans the components). `th.ts` must define
+ * exactly the same keys (type-checked and tested).
  */
 export const en = {
   'app.name': 'Jupiter',
-  'app.tagline': 'Foundation build. Jupiter’s abilities arrive in later releases.',
-
   'nav.label': 'Main navigation',
   'nav.home': 'Home',
   'nav.missions': 'Missions',
@@ -19,12 +18,10 @@ export const en = {
   'nav.settings': 'Settings',
   'nav.diagnostics': 'Diagnostics',
   'nav.plannedFor': 'Planned for SET {set}',
-
   'availability.COMING_LATER': 'Coming later',
   'availability.NOT_CONFIGURED': 'Not configured',
   'availability.UNAVAILABLE': 'Unavailable',
   'availability.EXPERIMENTAL': 'Experimental',
-
   'status.NOT_STARTED': 'Not started',
   'status.STARTING': 'Starting',
   'status.HEALTHY': 'Healthy',
@@ -35,12 +32,10 @@ export const en = {
   'status.NOT_CONFIGURED': 'Not configured',
   'status.UNAVAILABLE': 'Unavailable',
   'status.EXPERIMENTAL': 'Experimental',
-
   'overall.STARTING': 'Starting services…',
-  'overall.HEALTHY': 'All foundation services are running.',
+  'overall.HEALTHY': 'All services are running.',
   'overall.DEGRADED': 'Jupiter is running, but a service needs attention.',
   'overall.FAILED': 'A critical service failed. Jupiter cannot work normally until it is fixed.',
-
   'service.build-metadata': 'Build metadata',
   'service.environment': 'Environment',
   'service.storage': 'Local data folder',
@@ -49,7 +44,6 @@ export const en = {
   'service.agent-runtime': 'Agent runtime',
   'service.browser-runtime': 'Browser runtime',
   'service.plugin-runtime': 'Plugin runtime',
-
   'service.core': 'Jupiter Core',
   'service.event-bus': 'Event bus',
   'service.capability-dispatcher': 'Capability dispatcher',
@@ -92,8 +86,6 @@ export const en = {
   'diagnostics.noBackups': 'No backups yet.',
   'diagnostics.backupNow': 'Back up now',
   'diagnostics.backingUp': 'Backing up…',
-  'diagnostics.backupStarting': 'Preparing the backup…',
-  'diagnostics.backupProgress': 'Copied {done} of {total} pages',
   'diagnostics.backupDone': 'Backup saved: {file} ({size})',
   'diagnostics.backupFailed': 'Backup failed: {message}',
   'diagnostics.dbUnavailable': 'The database is not available.',
@@ -121,24 +113,18 @@ export const en = {
   'unit.bytes': '{value} B',
   'unit.kilobytes': '{value} KB',
   'unit.megabytes': '{value} MB',
-  'settings.logLevelValue': '{value} ({source})',
-  'settings.source.default': 'environment default',
-  'settings.source.stored': 'saved setting',
-  'settings.loadFailed': 'Jupiter could not read the stored settings.',
-
   'home.version': 'Version',
   'home.channel': 'Channel',
   'home.environment': 'Environment',
   'home.versionUnavailable': 'Unavailable',
-  'home.runtimeTitle': 'Runtime status',
-  'home.servicesTitle': 'Foundation services',
+  'home.runtimeTitle': 'System health',
+  'home.servicesTitle': 'Running services',
   'home.plannedTitle': 'Planned services',
   'home.plannedNote':
     'These are not part of this build. They are listed so nothing looks available before it is.',
   'home.openDiagnostics': 'Open Diagnostics',
   'home.openSettings': 'Open Settings',
   'home.latency': '{ms} ms',
-
   'recovery.whatToDo': 'What to do',
   'recovery.code': 'Code',
   'recovery.reference': 'Reference',
@@ -146,11 +132,9 @@ export const en = {
   'recovery.retrying': 'Retrying…',
   'recovery.notRetryable': 'Retrying will not help while Jupiter is running.',
   'recovery.retryFailed': 'Retry could not be performed: {message}',
-
   'load.infoFailed': 'Jupiter could not read its application information.',
   'load.statusFailed': 'Jupiter could not read its runtime status.',
   'load.loading': 'Loading…',
-
   'diagnostics.title': 'Diagnostics',
   'diagnostics.intro':
     'Every value on this page is read from the running application when the page opens.',
@@ -192,27 +176,260 @@ export const en = {
   'diagnostics.error': 'Error',
   'diagnostics.session': 'Session',
   'diagnostics.none': '—',
-
-  'settings.title': 'Settings',
-  'settings.readOnly':
-    'This build has no editable settings yet. The values below are the configuration Jupiter is actually using. Editing settings is coming later (SET 2).',
-  'settings.language': 'Interface language',
-  'settings.languageValue': '{language} (follows your system: {locale})',
-  'settings.languageName': 'English',
-  'settings.environment': 'Environment',
-  'settings.dataFolder': 'Data folder',
-  'settings.logLevel': 'Log level',
-
   'env.development': 'Development',
   'env.test': 'Test',
   'env.production': 'Production',
-
   'boundary.title': 'Jupiter’s interface hit an unexpected error.',
   'boundary.body':
     'Nothing was lost: this only affects the window. The error has been recorded in the log.',
   'boundary.reference': 'Log reference: {reference}',
   'boundary.notRecorded': 'The error could not be written to the log.',
-  'boundary.reload': 'Reload interface'
+  'boundary.reload': 'Reload interface',
+
+  'app.windowTitle': '{view} — Jupiter',
+  'app.starting': 'Starting Jupiter…',
+  'app.skipToContent': 'Skip to main content',
+
+  'nav.chat': 'Chat',
+  'nav.compactMode': 'Compact mode',
+  'nav.collapse': 'Switch to compact navigation',
+  'nav.expand': 'Show navigation labels',
+
+  'indicators.label': 'System status',
+  'indicators.online': 'Online',
+  'indicators.offline': 'Offline',
+  'indicators.onlineHint': 'This computer has a network connection. Nothing in this build uses it.',
+  'indicators.offlineHint':
+    'This computer has no network connection. Everything in this build works without one.',
+  'indicators.core.running': 'Jupiter Core running',
+  'indicators.core.starting': 'Jupiter Core starting',
+  'indicators.core.stopped': 'Jupiter Core not running',
+  'indicators.core.unknown': 'Checking Jupiter Core…',
+
+  'menu.label': 'Jupiter menu',
+  'menu.shortcuts': 'Keyboard shortcuts',
+  'menu.about': 'About Jupiter',
+  'menu.openLogs': 'Open log folder',
+  'menu.logsOpened': 'Log folder opened',
+  'menu.logsFailed': 'The log folder could not be opened',
+
+  'dialog.close': 'Close',
+  'dialog.done': 'Done',
+  'dialog.cancel': 'Cancel',
+
+  'toast.region': 'Notifications',
+  'toast.dismiss': 'Dismiss notification',
+  'toast.coreStopped': 'Jupiter Core stopped unexpectedly',
+  'toast.coreStoppedDetail': 'The window keeps working. Home shows what Jupiter is doing about it.',
+  'toast.coreRunning': 'Jupiter Core is running again',
+
+  'progress.measured': '{label}: {done} of {total} ({percent}%)',
+  'progress.indeterminate': '{label}: in progress',
+
+  'stage.avatarLabel': 'Jupiter',
+  'stage.idle': 'Idle',
+  'stage.idleDetail': 'Jupiter Core is running and nothing is in progress.',
+  'stage.attention': 'Needs attention',
+  'stage.attentionDetail': 'A service has a problem. System health below shows what to do.',
+  'stage.starting': 'Starting',
+  'stage.startingDetail': 'Jupiter Core is starting.',
+  'stage.connecting': 'Connecting',
+  'stage.connectingDetail': 'Reading Jupiter’s status…',
+  'stage.unavailable': 'Jupiter Core is not running',
+  'stage.unavailableDetail': 'System health below shows why and what to do.',
+
+  'composer.label': 'Message to Jupiter',
+  'composer.placeholder': 'Chat is not available in this build',
+  'composer.unavailable':
+    'Jupiter has no AI model yet, so messages cannot be sent. AI models and chat are planned for SET 3.',
+  'composer.send': 'Send',
+
+  'mission.title': 'Current Mission',
+  'mission.none': 'No Mission is running.',
+  'mission.plannedFor': 'Missions are planned for SET {set}.',
+  'mission.unknown': 'Not reported',
+  'mission.progress': 'Progress',
+  'mission.elapsed': 'Elapsed',
+  'mission.agent': 'Agent',
+  'mission.skill': 'Skill',
+  'mission.model': 'Model',
+  'mission.pause': 'Pause',
+  'mission.cancel': 'Cancel',
+  'mission.details': 'Details',
+
+  'timeline.details': 'Details',
+  'timeline.showAll': 'Show {count} more',
+  'timeline.showLess': 'Show fewer',
+
+  'activity.title': 'Activity',
+  'activity.empty': 'Nothing has been recorded yet.',
+  'activity.waitingForCore': 'Activity appears when Jupiter Core is running.',
+  'activity.state.live': 'Live',
+  'activity.state.connecting': 'Connecting…',
+  'activity.state.waiting-for-core': 'Waiting for Jupiter Core',
+  'activity.state.error': 'Not available',
+  'activity.correlation': 'Correlation ID',
+  'activity.coreStarted': 'Jupiter Core started',
+  'activity.coreStopped': 'Jupiter Core stopped',
+  'activity.coreCrashed': 'Jupiter Core stopped unexpectedly',
+  'activity.serviceStatus': '{service}: {status}',
+  'activity.settingChanged': 'Setting changed: {setting}',
+  'activity.errorRecorded': 'Error recorded ({code})',
+  'activity.databaseMigrated': 'Database updated to version {version}',
+  'activity.backupCompleted': 'Database backup saved',
+  'activity.logLevel': 'Log level set to {level}',
+
+  'settingName.logging.level': 'Log level',
+  'settingName.ui.language': 'Language',
+  'settingName.ui.theme': 'Theme',
+  'settingName.ui.textScale': 'Text size',
+  'settingName.ui.compact': 'Compact mode',
+  'settingName.ui.reduceMotion': 'Reduce Motion',
+  'settingName.ui.avatar': 'Avatar',
+  'settingName.notifications.desktop': 'Desktop notifications',
+
+  'shortcuts.title': 'Keyboard shortcuts',
+  'shortcuts.description':
+    'Every part of Jupiter can be used with the keyboard. These shortcuts save steps.',
+  'shortcuts.keys': 'Keys',
+  'shortcuts.action': 'Action',
+  'shortcuts.open': 'Open {view}',
+  'shortcuts.compact': 'Turn compact mode on or off',
+  'shortcuts.regions': 'Move between navigation, the top bar and the page (Shift+F6 goes back)',
+  'shortcuts.help': 'Show this list',
+  'shortcuts.escape': 'Close a dialog, menu or notification',
+  'shortcuts.tab': 'Move to the next or previous control',
+
+  'about.title': 'About Jupiter',
+
+  'permission.title': 'Allow this action?',
+  'permission.description':
+    'Jupiter needs your permission before it continues. Check the exact target.',
+  'permission.action': 'Action',
+  'permission.target': 'Target',
+  'permission.risk': 'Risk',
+  'permission.requestedBy': 'Requested by',
+  'permission.reason': 'Reason given',
+  'permission.deny': 'Deny',
+  'permission.allowOnce': 'Allow once',
+  'risk.LOW': 'Low',
+  'risk.MEDIUM': 'Medium',
+  'risk.HIGH': 'High',
+  'risk.CRITICAL': 'Critical',
+
+  'identity.title': 'Confirm it’s you',
+  'identity.unavailable':
+    'Identity verification is not part of this build (planned for SET 14), so this action cannot continue.',
+  'identity.cancel': 'Cancel',
+
+  'feature.chat': 'Talk with Jupiter and follow its answers.',
+  'feature.missions': 'Follow each task Jupiter carries out, step by step, with its results.',
+  'feature.skills': 'Browse and manage what Jupiter knows how to do.',
+  'feature.memory': 'See and manage what Jupiter remembers.',
+  'feature.files': 'Find the files and finished work (artifacts) Jupiter produces.',
+  'feature.automations': 'Schedule work for Jupiter to repeat.',
+  'feature.models': 'Connect and choose the AI models Jupiter uses.',
+  'feature.devices': 'Set up microphones, cameras and other devices.',
+  'feature.plugins': 'Add and control extensions, each isolated from Jupiter.',
+  'feature.notBuilt': 'Coming later — planned for SET {set}',
+  'feature.nothingWorks': 'This screen is a placeholder. Nothing on it works in this build.',
+
+  'errorCode.BACKUP_FAILED': 'The database backup failed.',
+  'errorCode.BUILD_METADATA_INVALID': 'This build’s version information is damaged.',
+  'errorCode.BUILD_METADATA_MISMATCH': 'This build’s version information does not match the app.',
+  'errorCode.CORE_CRASHED': 'Jupiter Core stopped unexpectedly.',
+  'errorCode.CORE_NO_REPLY': 'Jupiter Core did not answer in time.',
+  'errorCode.CORE_START_FAILED': 'Jupiter Core could not start.',
+  'errorCode.CORE_START_TIMEOUT': 'Jupiter Core took too long to start.',
+  'errorCode.CORE_UNAVAILABLE': 'Jupiter Core is not running.',
+  'errorCode.DATABASE_CORRUPT': 'The database file is damaged.',
+  'errorCode.DATABASE_MIGRATION_FAILED': 'Updating the database failed; it was left as it was.',
+  'errorCode.DATABASE_MIGRATION_MODIFIED':
+    'The database was updated by a different build of Jupiter.',
+  'errorCode.DATABASE_MIGRATIONS_INCONSISTENT': 'The database’s update history is inconsistent.',
+  'errorCode.DATABASE_SCHEMA_NEWER': 'The database belongs to a newer version of Jupiter.',
+  'errorCode.DATABASE_UNREADABLE': 'Jupiter cannot open its database.',
+  'errorCode.DEPENDENCY_UNAVAILABLE': 'Something this needs is not available right now.',
+  'errorCode.ENVIRONMENT_SETTING_IGNORED': 'An environment setting was ignored.',
+  'errorCode.EVENT_PERSISTENCE_UNAVAILABLE':
+    'Events are not being saved because the database is not available.',
+  'errorCode.LOG_DIRECTORY_UNAVAILABLE': 'Jupiter cannot write its log files.',
+  'errorCode.LOG_WRITE_FAILED': 'Writing to the log file failed.',
+  'errorCode.NOTIFICATIONS_RATE_LIMITED': 'Too many desktop notifications in a short time.',
+  'errorCode.NOTIFICATIONS_UNAVAILABLE': 'This system cannot show desktop notifications.',
+  'errorCode.PERMISSION_DENIED': 'This action is not allowed.',
+  'errorCode.STORAGE_NOT_WRITABLE': 'Jupiter cannot write to its data folder.',
+  'errorCode.TIMEOUT': 'The operation took too long.',
+
+  'language.en': 'English',
+  'language.th': 'ไทย',
+
+  'home.commandCenter': 'Command Center',
+
+  'settings.title': 'Settings',
+  'settings.sections': 'Settings sections',
+  'settings.tab.general': 'General',
+  'settings.tab.appearance': 'Appearance',
+  'settings.tab.accessibility': 'Accessibility',
+  'settings.tab.notifications': 'Notifications',
+  'settings.tab.advanced': 'Advanced',
+  'settings.saved': 'Saved.',
+  'settings.notSaved': 'Not saved: {reason} The change applies to this session only.',
+  'settings.unavailable':
+    'Your saved preferences could not be read ({reason}). Jupiter is using the defaults, and changes apply to this session only until they can be saved.',
+  'settings.coreNotRunning': 'Jupiter Core is not running',
+  'settings.language': 'Language',
+  'settings.languageSystem': 'Same as Windows',
+  'settings.languageHint': 'Changes the language of the interface immediately.',
+  'settings.theme': 'Theme',
+  'settings.themeStandard': 'Standard dark',
+  'settings.themeHighContrast': 'High contrast dark',
+  'settings.themeHint':
+    'High contrast makes secondary text and borders stronger. Windows contrast themes are always respected.',
+  'settings.textScale': 'Text size',
+  'settings.textScaleHint': 'Makes all text larger. The layout adapts.',
+  'settings.percent': '{value}%',
+  'settings.compact': 'Compact mode',
+  'settings.compactHint':
+    'Shows only icons in the navigation and uses tighter spacing. Ctrl+B switches it.',
+  'settings.reduceMotion': 'Reduce Motion',
+  'settings.reduceMotionHint': 'Turns off non-essential animation and transitions.',
+  'settings.followSystem': 'Follow Windows',
+  'settings.on': 'On',
+  'settings.off': 'Off',
+  'settings.avatar': 'Jupiter’s avatar',
+  'settings.avatarAnimated': 'Animated',
+  'settings.avatarStatic': 'Static',
+  'settings.avatarHidden': 'Hidden',
+  'settings.avatarHint':
+    'The avatar moves only while Jupiter Core is running, and never to suggest work that is not happening.',
+  'settings.desktopNotifications': 'Desktop notifications',
+  'settings.desktopNotificationsHint':
+    'While Jupiter is in the background, important results also appear as Windows notifications.',
+  'settings.notificationsSupported': 'This system can show desktop notifications.',
+  'settings.notificationsUnsupported':
+    'Unavailable: this system cannot show desktop notifications.',
+  'settings.notificationsUnknown': 'Could not check desktop notifications: {reason}',
+  'settings.sendTestNotification': 'Send a test notification',
+  'settings.testNotificationTitle': 'Jupiter test notification',
+  'settings.testNotificationBody': 'If you can read this, desktop notifications work.',
+  'settings.testNotificationShown': 'The system accepted the test notification',
+  'settings.testNotificationFailed': 'The test notification could not be shown',
+  'settings.logLevel': 'Log level',
+  'settings.logLevelHint':
+    'How much detail Jupiter writes to its log files. Secrets are always removed.',
+  'settings.logLevelDefault': 'Environment default ({level})',
+  'settings.logLevelSaved': 'Log level saved',
+  'settings.logLevelUnavailable': 'The log level could not be read: {reason}',
+  'settings.reset': 'Reset interface preferences',
+  'settings.resetHint':
+    'Returns language, appearance, accessibility and notification preferences to their defaults. Your data is not affected.',
+  'settings.resetButton': 'Reset preferences',
+  'settings.resetTitle': 'Reset interface preferences?',
+  'settings.resetConfirm':
+    'Language, theme, text size, compact mode, Reduce Motion, avatar and notification preferences return to their defaults.',
+  'settings.resetDone': 'Preferences reset',
+  'settings.resetFailed': 'Preferences could not be reset'
 } as const
 
 export type MessageKey = keyof typeof en

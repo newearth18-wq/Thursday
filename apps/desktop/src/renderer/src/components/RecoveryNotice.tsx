@@ -1,5 +1,6 @@
 import { useState } from 'react'
 import type { ErrorEnvelope, ServiceHealth } from '@jupiter/contracts'
+import { errorSummary } from '../errorText'
 import { useI18n, type MessageKey } from '../i18n'
 import { StatusBadge } from './StatusBadge'
 
@@ -10,7 +11,8 @@ interface Props {
 
 /**
  * Shows a failed or degraded service exactly as the main process reported
- * it: the real message, the next step, the error code and reference. Retry
+ * it: a summary in the interface language for errors Jupiter knows, then the
+ * real message, the next step, the error code and reference. Retry
  * re-runs the service's real start routine; the result arrives as a new
  * status, never as an optimistic "fixed" message.
  */
@@ -21,6 +23,7 @@ export function RecoveryNotice({ service, onRetry }: Props) {
   const error = service.sanitizedError
   const name = t(`service.${service.serviceId}` as MessageKey)
   const canRetry = service.retryable && (error?.retryable ?? true)
+  const summary = error ? errorSummary(error, t) : null
 
   return (
     <div
@@ -33,6 +36,11 @@ export function RecoveryNotice({ service, onRetry }: Props) {
       </p>
       {error ? (
         <>
+          {summary ? (
+            <p className="notice-summary" data-testid="recovery-summary">
+              {summary}
+            </p>
+          ) : null}
           <p className="notice-message" data-testid="recovery-message">
             {error.message}
           </p>

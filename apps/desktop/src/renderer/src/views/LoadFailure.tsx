@@ -1,4 +1,5 @@
 import type { ErrorEnvelope } from '@jupiter/contracts'
+import { errorSummary } from '../errorText'
 import { useI18n } from '../i18n'
 
 /** A request to the application core failed: say so, with the real reason. */
@@ -10,9 +11,11 @@ export function LoadFailure({
   readonly error: ErrorEnvelope
 }) {
   const { t } = useI18n()
+  const summary = errorSummary(error, t)
   return (
     <div className="notice notice-error" role="alert" data-testid="load-failure">
       <p className="notice-title">{title}</p>
+      {summary ? <p className="notice-summary">{summary}</p> : null}
       <p className="notice-message">{error.message}</p>
       {error.userAction ? (
         <p>
