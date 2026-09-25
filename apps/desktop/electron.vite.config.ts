@@ -3,41 +3,9 @@ import react from '@vitejs/plugin-react'
 import { defineConfig } from 'electron-vite'
 import type { BuildOptions, Plugin } from 'vite'
 import { collectBuildMetadata } from './scripts/build-metadata'
+import { DEVELOPMENT_CSP, PRODUCTION_CSP } from './src/shared/csp'
 
-/**
- * Content Security Policy for the renderer.
- *
- * Production allows nothing but the app's own bundled files: no inline or
- * evaluated script, no remote content, no network connections. The dev server
- * additionally needs inline scripts (React Refresh preamble), inline styles
- * (Vite CSS injection) and its own loopback websocket; those relaxations exist
- * only in `electron-vite dev` and never reach a build.
- */
-const PRODUCTION_CSP = [
-  "default-src 'none'",
-  "script-src 'self'",
-  "style-src 'self'",
-  "font-src 'self'",
-  "img-src 'self'",
-  "connect-src 'none'",
-  "base-uri 'none'",
-  "form-action 'none'",
-  "frame-ancestors 'none'",
-  "object-src 'none'"
-].join('; ')
-
-const DEVELOPMENT_CSP = [
-  "default-src 'none'",
-  "script-src 'self' 'unsafe-inline'",
-  "style-src 'self' 'unsafe-inline'",
-  "font-src 'self'",
-  "img-src 'self'",
-  'connect-src ws://localhost:* http://localhost:* ws://127.0.0.1:* http://127.0.0.1:*',
-  "base-uri 'none'",
-  "form-action 'none'",
-  "object-src 'none'"
-].join('; ')
-
+/** Writes the CSP meta tag: the strict policy for builds, a relaxed one only for the dev server. */
 function contentSecurityPolicy(): Plugin {
   return {
     name: 'jupiter-csp',
@@ -73,7 +41,11 @@ export default defineConfig(({ command }) => {
         externalizeDeps: false,
         sourcemap: false,
         rollupOptions: {
-          input: { index: resolve(__dirname, 'src/main/index.ts') },
+          input: {
+            index: resolve(__dirname, 'src/main/index.ts'),
+            // Jupiter Core runs in its own utility process (a separate crash domain).
+            core: resolve(__dirname, 'src/core/index.ts')
+          },
           onwarn,
           output: { format: 'es', entryFileNames: '[name].js' }
         }

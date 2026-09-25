@@ -2,6 +2,7 @@ import { app } from 'electron'
 import { JupiterError, describeError, type ServiceSupervisor } from '@jupiter/core'
 import { probeWritableDirectory, type RotatingFileSink } from '@jupiter/core/node'
 import { readBuildMetadata } from './build-metadata'
+import type { CoreProcessManager } from './core-process'
 import type { MainEnvironment } from './environment'
 
 /**
@@ -15,14 +16,37 @@ import type { MainEnvironment } from './environment'
 interface ServiceDependencies {
   readonly env: MainEnvironment
   readonly fileSink: RotatingFileSink
+  readonly core: CoreProcessManager
+  /** Set by the restart policy so the next Core start is counted as an automatic restart. */
+  readonly takeAutomaticRestart: () => boolean
 }
 
+/** Jupiter Core modules and isolated runtimes that later SETs deliver. Never started, never shown as working. */
 export const PLANNED_SERVICES = [
+  { id: 'model-router', availability: 'COMING_LATER', plannedSet: 3, capabilities: ['ai.route'] },
   {
-    id: 'database',
+    id: 'mission-manager',
     availability: 'COMING_LATER',
-    plannedSet: 1,
-    capabilities: ['storage.sqlite', 'storage.migrations']
+    plannedSet: 4,
+    capabilities: ['missions.manage']
+  },
+  {
+    id: 'workflow-engine',
+    availability: 'COMING_LATER',
+    plannedSet: 5,
+    capabilities: ['workflows.run']
+  },
+  {
+    id: 'skill-registry',
+    availability: 'COMING_LATER',
+    plannedSet: 6,
+    capabilities: ['skills.invoke']
+  },
+  {
+    id: 'permission-engine',
+    availability: 'COMING_LATER',
+    plannedSet: 7,
+    capabilities: ['permissions.decide']
   },
   {
     id: 'agent-runtime',
@@ -37,6 +61,18 @@ export const PLANNED_SERVICES = [
     capabilities: ['agent.browser']
   },
   {
+    id: 'artifact-manager',
+    availability: 'COMING_LATER',
+    plannedSet: 10,
+    capabilities: ['artifacts.manage']
+  },
+  {
+    id: 'identity-gateway',
+    availability: 'COMING_LATER',
+    plannedSet: 14,
+    capabilities: ['identity.verify']
+  },
+  {
     id: 'plugin-runtime',
     availability: 'COMING_LATER',
     plannedSet: 15,
@@ -45,7 +81,7 @@ export const PLANNED_SERVICES = [
 ] as const
 
 export function registerServices(supervisor: ServiceSupervisor, deps: ServiceDependencies): void {
-  const { env, fileSink } = deps
+  const { env, fileSink, core } = deps
   const metadata = readBuildMetadata()
 
   supervisor.register({
@@ -155,6 +191,22 @@ export function registerServices(supervisor: ServiceSupervisor, deps: ServiceDep
     },
     stop() {
       fileSink.close()
+    }
+  })
+
+  supervisor.register({
+    id: 'core',
+    version: metadata.ok ? metadata.metadata.version : null,
+    capabilities: ['core.kernel', 'core.events', 'core.dispatch'],
+    critical: true,
+    retryable: true,
+    timeoutMs: 60_000,
+    async start() {
+      await core.start({ automaticRestart: deps.takeAutomaticRestart() })
+      return undefined
+    },
+    stop() {
+      return core.stop()
     }
   })
 

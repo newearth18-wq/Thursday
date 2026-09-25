@@ -33,3 +33,38 @@ export {
   type ServiceDefinition,
   type ServiceStartContext
 } from './services/supervisor'
+export type {
+  AuditStore,
+  BackupOptions,
+  DatabasePort,
+  EventStore,
+  NewPersistentEvent,
+  ServiceHealthStore,
+  SettingsStore,
+  StoredSetting,
+  TransactionRunner
+} from './ports'
+export {
+  EventBus,
+  matchesFilter,
+  type EventDelivery,
+  type PublishInput,
+  type SubscribeOptions,
+  type SubscribeReceiptData
+} from './events/event-bus'
+export {
+  CapabilityDispatcher,
+  type AuditSink,
+  type CapabilityContext,
+  type CapabilityDefinition,
+  type DispatchHooks,
+  type DispatcherOptions,
+  type ProgressInput,
+  type RequestContext
+} from './dispatch/dispatcher'
+export {
+  CoreKernel,
+  type CoreKernelOptions,
+  type HostPort,
+  type OpenedDatabasePort
+} from './kernel/core-kernel'

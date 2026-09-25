@@ -14,7 +14,8 @@
   },
   "dependencies": {
     "@jupiter/contracts": "0.1.0",
-    "@jupiter/security": "0.1.0"
+    "@jupiter/security": "0.1.0",
+    "zod": "^4.6.5"
   },
   "devDependencies": {
     "@jupiter/testing": "0.1.0"

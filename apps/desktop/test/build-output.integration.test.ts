@@ -58,6 +58,26 @@ describe('production build output', () => {
     expect(rendererScripts()).not.toContain(metadata.buildId)
   })
 
+  it('bundles Jupiter Core as its own entry that never touches Electron windows or IPC', () => {
+    const core = readFileSync(join(outDirectory, 'main', 'core.js'), 'utf8')
+    const chunksDirectory = join(outDirectory, 'main', 'chunks')
+    const shared = readdirSync(chunksDirectory).map((file) =>
+      readFileSync(join(chunksDirectory, file), 'utf8')
+    )
+    const imports = (source: string) =>
+      [...source.matchAll(/(?:from|import)\s*\(?\s*"([^"]+)"/g)].map((match) => match[1] ?? '')
+    const external = [core, ...shared]
+      .flatMap(imports)
+      .filter((specifier) => !specifier.startsWith('./'))
+    expect(new Set(external)).toEqual(
+      new Set(['node:crypto', 'node:fs', 'node:path', 'node:sqlite'])
+    )
+    expect(core).toContain('parentPort')
+    for (const forbidden of ['BrowserWindow', 'ipcMain', 'webContents', 'shell.openPath']) {
+      expect(core, forbidden).not.toContain(forbidden)
+    }
+  })
+
   it('builds a sandbox-compatible preload that only requires electron', () => {
     const preload = readFileSync(join(outDirectory, 'preload', 'index.cjs'), 'utf8')
     const requires = [...preload.matchAll(/require\(["']([^"']+)["']\)/g)].map((match) => match[1])

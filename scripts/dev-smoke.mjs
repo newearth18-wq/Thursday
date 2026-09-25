@@ -6,7 +6,8 @@
  * profile and waits until the main process reports, in its own logs, that:
  *   - it resolved the development environment from the dev server,
  *   - the interface loaded from the dev server,
- *   - the renderer reached the main process through the preload bridge,
+ *   - the renderer reached the host gateway through the preload bridge,
+ *   - Jupiter Core started in its utility process,
  *   - the runtime finished starting.
  * Then it stops the whole process tree. Exit code 0 only if all were seen.
  */
@@ -42,11 +43,15 @@ const expectations = [
   },
   {
     label: 'interface loaded from the dev server',
-    pattern: /renderer\.loaded — Interface loaded[\s\S]*source: 'url'/
+    pattern: /renderer\.loaded — Interface loaded[\s\S]*source: 'dev-server'/
   },
   {
-    label: 'renderer reached the main process through the preload bridge',
-    pattern: /ipc\.response — jupiter:v0:app:get-info succeeded/
+    label: 'renderer reached the host gateway through the preload bridge',
+    pattern: /gateway\.reply — jupiter:v1:gateway-status succeeded/
+  },
+  {
+    label: 'Jupiter Core started in its utility process',
+    pattern: /core\.ready — Jupiter Core is ready \(pid \d+\)/
   },
   {
     label: 'runtime finished starting',

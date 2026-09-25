@@ -145,6 +145,7 @@ check('app.asar contains only the self-contained bundles', () => {
   for (const required of [
     '/package.json',
     '/out/main/index.js',
+    '/out/main/core.js',
     '/out/preload/index.cjs',
     '/out/renderer/index.html'
   ]) {

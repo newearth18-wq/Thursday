@@ -26,7 +26,8 @@ Jupiter is developed one SET at a time from the _Jupiter Complete Master Prompt_
    (`ErrorEnvelope` in `packages/contracts`).
 4. The renderer has no Node.js, shell, filesystem, credential or unrestricted
    IPC access. Every IPC channel is allowlisted, schema-validated in both
-   directions, sender-checked and correlated.
+   directions, sender-checked and correlated, and every command or query goes
+   through the Core capability dispatcher.
 5. Secrets never go into source, plaintext storage, logs, the renderer or error
    messages. Credentials use OS-backed secure storage (arrives in SET 3).
 6. Every trust boundary uses typed, validated schemas.
@@ -40,12 +41,30 @@ Jupiter is developed one SET at a time from the _Jupiter Complete Master Prompt_
 | --------------------------------------------------- | -------------------- |
 | Data shapes crossing a process or trust boundary    | `packages/contracts` |
 | Framework-independent logic (no Electron, no React) | `packages/core`      |
+| SQLite schema, migrations, repositories             | `packages/database`  |
 | Redaction, secret detection                         | `packages/security`  |
 | Design tokens, shared visual components             | `packages/ui`        |
-| Electron main, preload, renderer                    | `apps/desktop`       |
+| Electron host, Core entry, preload, renderer        | `apps/desktop`       |
 | Isolated runtimes (future SETs)                     | `services/*`         |
 
 Do not modify `legacy/thursday-browser` unless a task is explicitly about it.
+
+## Adding functionality (from SET 1 on)
+
+- A new command or query is a **capability**: add its input and output schemas
+  to `Capabilities` in `packages/contracts/src/capabilities.ts`, and its policy
+  (allowed actor types, risk, required services, timeout, audit) and handler in
+  `packages/core/src/kernel/capabilities.ts`. Do not add IPC channels or preload
+  functions — the renderer reaches every capability through `request`.
+- Anything privileged on the host (files, shell, OS integration) is a capability
+  with `provider: 'host'`, implemented in `apps/desktop/src/main/host-capabilities.ts`
+  and reached only through the dispatcher. It must act on targets the host
+  chooses, never on paths or commands taken from the request.
+- Something that happened is a **domain event**: add its payload schema to
+  `packages/contracts/src/events.ts` and publish it through the event bus inside
+  the same transaction as the change it describes.
+- Schema changes are new migrations at the end of `JUPITER_MIGRATIONS`; never
+  edit a migration that has shipped (see `packages/database/README.md`).
 
 ## Checks to run
 
@@ -63,8 +82,10 @@ helpers add it only in that case.
 - Unit tests: `*.test.ts(x)` next to the code. Integration tests:
   `*.integration.test.ts`.
 - E2E tests launch the real built app through `@jupiter/testing`
-  (`launchJupiter`) with a temporary profile. Don't stub Jupiter internals in
-  E2E tests.
+  (`launchJupiter`, or `launchPackagedJupiter` for an electron-builder output)
+  with a temporary profile. Don't stub Jupiter internals in E2E tests.
+- Database tests use real SQLite files in a temporary folder
+  (`packages/database/test`).
 - Never put a real or realistic-looking credential in the repository: use
   `@jupiter/testing/fake-credentials`, which assembles test values at runtime so
   the secret scan stays meaningful.

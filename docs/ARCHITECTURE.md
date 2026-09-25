@@ -1,131 +1,233 @@
-# Jupiter architecture — SET 0 foundation
+# Jupiter architecture — after SET 1
 
-This document describes what exists after SET 0. Later SETs extend it; each
-section says what is deliberately not here yet.
+This document describes what exists after SET 1 (Core architecture, IPC,
+events and database) on top of the SET 0 foundation. Later SETs extend it;
+each section says what is deliberately not here yet. Decisions and their
+alternatives are in [docs/decisions/](decisions/).
 
 ## Monorepo
 
 npm workspaces, one lockfile, strict TypeScript everywhere.
 
 ```text
-apps/desktop          ── depends on ──▶ contracts, core, security, ui   (bundled, nothing external at runtime)
-packages/core         ── depends on ──▶ contracts, security
+apps/desktop          ── depends on ──▶ contracts, core, database, security, ui   (bundled, nothing external at runtime)
+packages/database     ── depends on ──▶ contracts, core            (node:sqlite, built into Electron's Node.js)
+packages/core         ── depends on ──▶ contracts, security, zod
 packages/security     ── no dependencies (patterns file is dependency-free on purpose)
 packages/contracts    ── depends on ──▶ zod
 packages/ui           ── depends on ──▶ @fontsource fonts (React is a peer)
 packages/testing      ── depends on ──▶ playwright            (tests only)
-packages/database, services/*, plugins/   placeholders: no code, labelled Coming later
+services/*, plugins/  placeholders: no code, labelled Coming later
 legacy/thursday-browser                   separate npm project, own lockfile, not a workspace
 ```
 
 Workspace packages are consumed as TypeScript source (`exports` point at
-`src/*.ts`). electron-vite bundles them into the main, preload and renderer
-outputs, so a packaged Jupiter ships **no `node_modules`** — the package
+`src/*.ts`). electron-vite bundles them into four outputs — host main
+(`out/main/index.js`), Jupiter Core (`out/main/core.js`), preload and
+renderer — so a packaged Jupiter ships **no `node_modules`** and no native
+modules (SQLite is `node:sqlite`, part of Electron's Node.js). The package
 validator checks this.
 
-Domain code (`contracts`, `core`, `security`) does not import Electron or React.
-Node-specific code in `core` lives behind the `@jupiter/core/node` subpath so it
-can never be bundled into the renderer (lint enforces this too).
+Domain code (`contracts`, `core`, `database`) does not import Electron or
+React. The Core bundle imports only `node:crypto`, `node:fs`, `node:path` and
+`node:sqlite` — a build-output test enforces it.
 
 ## Process model
 
 ```text
-┌───────────────────────────────────────────┐
-│ Renderer (React 19)                       │  sandboxed, contextIsolation, no Node.js,
-│ Home · Diagnostics · Settings             │  strict CSP, validates every reply
-└──────────────────┬────────────────────────┘
-                   │ window.jupiter — 5 frozen functions
-┌──────────────────┴────────────────────────┐
-│ Preload (sandboxed, CommonJS, ~1 kB)      │  fixed channel names only
-└──────────────────┬────────────────────────┘
-                   │ ipcRenderer.invoke / on   (jupiter:v0:* channels)
-┌──────────────────┴────────────────────────┐
-│ Main process                              │
-│  environment → logging → security →       │
-│  IPC gateway → window → ServiceSupervisor │
-│   ├─ build-metadata   (real check)        │
-│   ├─ environment      (real check)        │
-│   ├─ storage          (write probe)       │
-│   ├─ logging          (opens log file)    │
-│   └─ database, agent-, browser-, plugin-runtime: COMING_LATER │
-└───────────────────────────────────────────┘
+┌─────────────────────────────────────────────┐
+│ Renderer (React 19) — jupiter://app         │  sandboxed, contextIsolation, no Node.js,
+│ Home · Diagnostics · Settings               │  strict CSP, validates every reply and push
+└───────────────────┬─────────────────────────┘
+                    │ window.jupiter — 7 frozen functions (contract v1)
+┌───────────────────┴─────────────────────────┐
+│ Preload (sandboxed, CommonJS)               │  6 fixed invoke channels + 1 push channel
+└───────────────────┬─────────────────────────┘
+                    │ ipcRenderer.invoke / on   (jupiter:v1:*)
+┌───────────────────┴─────────────────────────┐
+│ Host — Electron main                        │
+│  jupiter:// protocol · window · security    │
+│  Host gateway (sender check, size, schema,  │
+│    actor assignment, ownership, audit)      │
+│  Host services: build-metadata, environment,│
+│    storage, logging, core (supervisor)      │
+│  Host capabilities (host.logs.reveal) —     │
+│    run only when Core's dispatcher asks     │
+└───────────────────┬─────────────────────────┘
+                    │ MessagePort (utility process), versioned protocol,
+                    │ schema-validated both ways, heartbeat
+┌───────────────────┴─────────────────────────┐
+│ Jupiter Core — Electron utility process     │
+│  Capability dispatcher (validate, authorize │
+│    deny-by-default, timeout, cancel, audit) │
+│  Event bus (per-stream order, persistence,  │
+│    replay-safe subscriptions)               │
+│  Services: database · event-bus ·           │
+│    capability-dispatcher                    │
+│  SQLite (WAL, FULL sync, FKs, STRICT tables,│
+│    append-only events and audit, backups)   │
+└─────────────────────────────────────────────┘
+   Mission Manager, Workflow Engine, Skill Registry, Permission Engine,
+   Identity Gateway, Model Router, Artifact Manager, Agent/Browser/Plugin
+   runtimes: COMING_LATER (SET 3–15). They will register capabilities with
+   the dispatcher and publish on the event bus; nothing reaches the host
+   without going through the dispatcher.
 ```
 
-## Startup sequence (crash-safe)
+Why Core is a separate process: a crash, a hang or a runaway query in Core
+cannot take down the window or the host. The host reports it, fails pending
+requests truthfully, and restarts Core (see _Crash isolation_).
 
-1. **Before `ready`** — resolve the environment (`development`, `test`,
-   `production`), give it its own data folder, create the logger (console +
-   buffered rotating file sink), take the single-instance lock, enable the
-   sandbox, install web-contents hardening and process-level error handlers.
-   Any exception here shows a native error box with the real reason and the log
-   folder, then exits with code 1.
-2. **On `ready`** — harden the session (deny permissions and downloads),
-   register services and the IPC gateway, create the window (shown on
-   `ready-to-show`), then start services one by one.
-3. **Each service** reports the outcome of a real check. A thrown error becomes
-   a FAILED service with an `ErrorEnvelope` (code, category, message, next
-   step, reference) and startup continues. The UI receives every status change
-   as an event and shows a recovery notice with a working **Retry**.
-4. **Renderer failures** — a React error boundary shows the real error, logs
-   it through IPC and offers Reload. If the renderer process dies it is
-   reloaded automatically up to twice a minute; after that the person is asked.
-   A failed page load shows the real Chromium error with Try again / Quit.
+## Contract v1 (`packages/contracts`)
 
-## IPC (SET 0 surface)
+All shapes crossing a process or trust boundary are zod schemas, validated on
+both sides.
 
-| Channel                                     | Input                 | Output              |
-| ------------------------------------------- | --------------------- | ------------------- |
-| `jupiter:v0:app:get-info`                   | none                  | `AppInfo`           |
-| `jupiter:v0:runtime:get-status`             | none                  | `RuntimeStatus`     |
-| `jupiter:v0:runtime:retry-service`          | `{ serviceId }`       | `RuntimeStatus`     |
-| `jupiter:v0:renderer:report-error`          | `RendererErrorReport` | `{ correlationId }` |
-| `jupiter:v0:runtime:status-changed` (event) | —                     | `RuntimeStatus`     |
+| Schema                             | Purpose                                                                                                                                                                                       |
+| ---------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `RequestEnvelope`                  | `v`, `requestId` (UUIDv7, chosen by the caller), `kind` (`command` \| `query`), `type` (capability id), `payload`, `missionId`, `executionId`, `sentAt`. Strict: unknown fields are rejected. |
+| `ResultEnvelope`                   | `v`, `requestId`, `correlationId`, `ok`, `data` or `error` (`ErrorEnvelope`), `completedAt`                                                                                                   |
+| `ErrorEnvelope`                    | code, category (validation, permission, identity, configuration, provider, timeout, cancellation, dependency, unsupported, internal), message, user action, retryable, reference              |
+| `ProgressUpdate`                   | request id, stage, measured `completed`/`total` (both or neither), unit, message                                                                                                              |
+| `DomainEvent`                      | discriminated by `type`, with per-type payload schemas; stream, stream and global sequence (persistent events only), correlation/causation ids, actor, Mission/execution ids                  |
+| `AuditEvent`                       | actor, capability, target, decision (ALLOWED/DENIED/REJECTED), risk, outcome, redacted metadata                                                                                               |
+| `Capabilities`                     | the catalogue: kind, input schema and output schema for each capability id                                                                                                                    |
+| `GatewayStatus`, `RendererMessage` | what the host sends the renderer                                                                                                                                                              |
+| `HostToCore`, `CoreToHost`         | the host↔Core protocol (versioned separately)                                                                                                                                                 |
 
-Every reply is `{ ok: true, correlationId, data }` or
-`{ ok: false, correlationId, error: ErrorEnvelope }`. The gateway checks the
-sender, validates the input, runs the handler, validates the output (an invalid
-output is never sent) and logs the request with its correlation ID. SET 1
-replaces this minimal surface with the full versioned command/event contract.
+The **correlation model**: the request id is the correlation id. The gateway
+assigns the **actor** from the sender (never from the message); Core gives the
+capability handler a context with request id, correlation id, Mission and
+execution ids, actor, received time and an `AbortSignal` (cancel, timeout or
+shutdown). Every log line, audit record and event produced by the request
+carries the correlation id — across both processes.
+
+## IPC surface (renderer ↔ host)
+
+| Invoke channel              | Served by                         | Purpose                                              |
+| --------------------------- | --------------------------------- | ---------------------------------------------------- |
+| `jupiter:v1:request`        | Core dispatcher (via the gateway) | every command and query                              |
+| `jupiter:v1:cancel`         | gateway → Core                    | cancel a request the same window started             |
+| `jupiter:v1:subscribe`      | gateway → Core event bus          | live events with replay after a sequence             |
+| `jupiter:v1:unsubscribe`    | gateway → Core                    | close a subscription the same window owns            |
+| `jupiter:v1:gateway-status` | host                              | app info, runtime status, Core process state         |
+| `jupiter:v1:retry-service`  | host (audited)                    | Retry on a failed service — must work with Core down |
+
+Push channel `jupiter:v1:message` carries `gateway-status`, `event`,
+`progress` and `subscription-ended` messages, each validated before sending
+and only to the window that owns the request or subscription. No other channel
+is registered, so any other name is unreachable.
+
+For each call the gateway: checks the sender is the Jupiter window's top frame
+on `jupiter://app`; limits size (256 KiB of plain data — functions and other
+non-cloneable values cannot cross at all); validates the envelope; refuses
+duplicate request ids and more than 64 in-flight requests per window; assigns
+the actor; forwards to Core; audits every refusal. A window that reloads,
+navigates, crashes or closes has its requests cancelled and subscriptions
+closed.
+
+## Capability dispatcher (Core)
+
+Every command and query — including host-privileged ones — is a registered
+capability with: kind, input and output schemas, allowed actor types, risk
+level, required services, timeout, audit policy and provider (`core` or
+`host`). Dispatch order: envelope → known capability → kind matches →
+**actor allowed (deny by default)** → not a duplicate → capacity → payload
+schema → required services available → run with timeout and cancellation →
+output schema. It never throws; every outcome is a typed `ResultEnvelope`.
+Denials and rejections are always audited. Capabilities that change state or
+reach the host (`settings.update`, `database.backup`, `host.logs.reveal`,
+`runtime.report-host-status`) are audited on every call with their outcome;
+read-only queries are audited only when refused.
+
+SET 1 capabilities: `diagnostics.snapshot`, `diagnostics.report-renderer-error`,
+`settings.list`, `settings.update`, `events.list`, `audit.list`,
+`database.backup`, `host.logs.reveal` (host provider), and
+`runtime.report-host-status` (host actor only). There is no capability that
+reads files, credentials or runs commands.
+
+## Event bus
+
+- **Streams and order.** Each event belongs to a stream (`system/core`,
+  `settings/<key>`, `mission/<id>`, …). Persistent events get a gap-free stream
+  sequence and a global sequence in the same transaction, so order within one
+  Mission is total and stable, also after restarts.
+- **Persistence.** Persistent events are appended inside the caller's
+  transaction and delivered only after it commits; a rolled-back transaction
+  publishes nothing. Transient events are delivered immediately and never
+  stored. `events` and `audit_log` are append-only (triggers refuse UPDATE and
+  DELETE).
+- **Subscriptions.** A subscriber asks for events after a sequence (or the
+  latest N); replay and live delivery are joined without gaps or duplicates
+  (per-subscriber high-water mark). If the requested sequence is too old the
+  receipt says `truncated` and the client resets. A subscriber that keeps
+  failing is dropped and told so.
+- **Reconnection.** The renderer keys events by global sequence and resumes
+  after the last one it saw — after a Core restart, or from the latest events
+  after a page reload (the old subscription is released by the gateway).
+
+## Persistence (`packages/database`)
+
+- `node:sqlite` with `journal_mode=WAL`, `synchronous=FULL`, foreign keys on
+  (verified at open), `STRICT` tables and CHECK constraints.
+- Tables: `schema_migrations`, `settings`, `event_streams`, `events`,
+  `audit_log`, `service_health`.
+- **Migrations** are ordered, checksummed (sha256 of version, name and SQL) and
+  each applied atomically. Opening refuses a database newer than the app, a
+  modified or missing migration, and runs `quick_check` first (a corrupt file
+  is reported and never changed). An existing database is backed up before it
+  is migrated.
+- **Transactions**: `BEGIN IMMEDIATE`, nested work as savepoints, after-commit
+  hooks, rollback on any error; a crash mid-transaction leaves the last
+  committed state (WAL).
+- **Backups**: online SQLite backup to a `.partial` file with progress,
+  integrity and schema check of the copy, then an atomic rename. Only Jupiter's
+  own `jupiter-<time>-<reason>.db` files are ever pruned (10 kept).
+- Repository interfaces (`EventStore`, `SettingsStore`, `AuditStore`,
+  `ServiceHealthStore`, `TransactionRunner`) live in `packages/core/src/ports.ts`;
+  Core depends on those, not on SQLite.
+
+## Crash isolation, startup and shutdown
+
+- **Startup**: host services start in order (build metadata, environment,
+  storage, logging, core). The `core` service forks the utility process, sends
+  `init`, and waits (30 s) for `ready`. Inside Core the database, event bus and
+  dispatcher start under their own supervisor. A failed service is FAILED with a
+  real `ErrorEnvelope` and a working Retry; everything that does not need it
+  keeps working (`DEPENDENCY_UNAVAILABLE` for the rest).
+- **Crash of Core**: pending requests are answered with `CORE_UNAVAILABLE`,
+  subscriptions end, the `core` service becomes FAILED `CORE_CRASHED` and the
+  window stays up. Core is restarted automatically after 1 s, 3 s and 10 s; a
+  fourth crash within five minutes waits for Retry. The new Core records
+  `core.crashed` and an `error.recorded` event. A Core that stops answering the
+  15 s heartbeat within 10 s is ended and handled the same way.
+- **Shutdown**: `shutdown` message → Core stops services, checkpoints and closes
+  the database → exits; killed after 8 s if it does not. The whole app quits
+  within 12 s.
 
 ## Environments
 
-|                 | development                                           | test                       | production                             |
-| --------------- | ----------------------------------------------------- | -------------------------- | -------------------------------------- |
-| Chosen when     | unpackaged + dev server, or `JUPITER_ENV=development` | `JUPITER_ENV=test`         | packaged or previewed builds (default) |
-| Data folder     | `Jupiter (Development)`                               | explicit `--user-data-dir` | `Jupiter`                              |
-| Log level       | debug                                                 | debug                      | info                                   |
-| Console format  | readable                                              | JSON                       | JSON                                   |
-| DevTools        | allowed                                               | no                         | no                                     |
-| Renderer source | loopback dev server                                   | built files                | built files                            |
+|                 | development                                           | test                       | production                                   |
+| --------------- | ----------------------------------------------------- | -------------------------- | -------------------------------------------- |
+| Chosen when     | unpackaged + dev server, or `JUPITER_ENV=development` | `JUPITER_ENV=test`         | packaged or previewed builds (default)       |
+| Data folder     | `Jupiter (Development)`                               | explicit `--user-data-dir` | `Jupiter`                                    |
+| Log level       | debug                                                 | debug                      | info (the `logging.level` setting overrides) |
+| DevTools        | allowed                                               | no                         | no                                           |
+| Renderer source | loopback dev server                                   | `jupiter://app`            | `jupiter://app`                              |
 
-A packaged build refuses `JUPITER_ENV=development`, and never loads a dev
-server URL; the Environment service reports any ignored setting as DEGRADED.
-
-## Build metadata
-
-`apps/desktop/scripts/build-metadata.ts` runs at build time: version from
-`apps/desktop/package.json`, channel from `JUPITER_BUILD_CHANNEL` or the
-version's pre-release tag (`dev` for the dev server), commit from `GITHUB_SHA`
-or git, `builtAt` from `SOURCE_DATE_EPOCH` or now, and a build ID. The result
-is validated against `BuildMetadata` and injected into the **main** bundle only.
-At runtime the build-metadata service validates it again and checks it against
-`app.getVersion()`; the renderer receives it only through `get-info`.
+The database lives at `<data folder>/jupiter.db`, backups in
+`<data folder>/backups/`.
 
 ## Logging
 
-- JSON Lines, one `LogEntry` per line: `ts`, `level`, `event`, `message`,
-  `component`, `sessionId` (one per run), `correlationId` (one per unit of
-  work — each IPC request, each service start), optional redacted `data`.
-- Redaction before any sink: values under credential-named keys, and
-  credential formats anywhere in text (API keys, tokens, JWTs, bearer
-  credentials, private keys, URL credentials).
-- Rotation: 5 MB per file, 5 files, synchronous writes, owner-only permissions.
-- Entries logged before the file opens (or while it is broken) are buffered
-  (bounded), written on recovery, and any loss is reported with a count.
+JSON Lines as in SET 0 (`ts`, `level`, `event`, `message`, `component`,
+`sessionId`, `correlationId`, redacted `data`), rotated at 5 MB × 5 files. Core
+sends its entries to the host over the Core port; the host re-redacts them and
+owns the files, so one file holds both processes under one session id.
 
-## Not in SET 0
+## Not in SET 1
 
-Database, event bus, capability dispatcher, versioned command contract (SET 1);
-full design system, navigation state, language switch (SET 2); providers and
-credentials (SET 3); everything after that. None of these appear as working in
-the app.
+Design system, navigation state, language switch and editable settings
+(SET 2); providers and secure credential storage (SET 3); Missions (SET 4) and
+everything after that. The architecture diagram's future components are listed
+as _Coming later_ in the app and none of them is presented as working.

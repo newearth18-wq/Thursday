@@ -3,8 +3,8 @@ import type { Logger } from '@jupiter/core'
 import { colors } from '@jupiter/ui/tokens'
 import type { MainEnvironment } from './environment'
 
-export type RendererSource =
-  { readonly kind: 'url'; readonly url: URL } | { readonly kind: 'file'; readonly path: string }
+/** Where the interface is loaded from: the loopback dev server, or jupiter://app in every other case. */
+export type RendererSource = { readonly kind: 'dev-server' | 'app-protocol'; readonly url: string }
 
 interface WindowOptions {
   readonly logger: Logger
@@ -143,6 +143,5 @@ export function createMainWindow(options: WindowOptions): BrowserWindow {
 }
 
 function loadRenderer(window: BrowserWindow, renderer: RendererSource): void {
-  if (renderer.kind === 'url') void window.loadURL(renderer.url.href)
-  else void window.loadFile(renderer.path)
+  void window.loadURL(renderer.url)
 }

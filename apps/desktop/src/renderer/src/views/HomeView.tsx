@@ -1,4 +1,4 @@
-import type { AppInfo, ErrorEnvelope, RuntimeStatus, ServiceHealth } from '@jupiter/contracts'
+import type { ErrorEnvelope, GatewayStatus, RuntimeStatus, ServiceHealth } from '@jupiter/contracts'
 import { JupiterMark } from '@jupiter/ui'
 import { RecoveryNotice } from '../components/RecoveryNotice'
 import { StatusBadge } from '../components/StatusBadge'
@@ -8,8 +8,7 @@ import type { Loadable } from '../useRuntime'
 import { LoadFailure } from './LoadFailure'
 
 interface Props {
-  readonly info: Loadable<AppInfo>
-  readonly runtime: Loadable<RuntimeStatus>
+  readonly status: Loadable<GatewayStatus>
   readonly onRetry: (serviceId: string) => Promise<ErrorEnvelope | null>
   readonly onNavigate: (view: View) => void
 }
@@ -23,8 +22,12 @@ const RUNNING = new Set<ServiceHealth['status']>([
   'STOPPED'
 ])
 
-export function HomeView({ info, runtime, onRetry, onNavigate }: Props) {
+export function HomeView({ status, onRetry, onNavigate }: Props) {
   const { t } = useI18n()
+  const info: Loadable<GatewayStatus['app']> =
+    status.state === 'ready' ? { state: 'ready', value: status.value.app } : status
+  const runtime: Loadable<RuntimeStatus> =
+    status.state === 'ready' ? { state: 'ready', value: status.value.runtime } : status
   const build = info.state === 'ready' ? info.value.build : null
 
   return (

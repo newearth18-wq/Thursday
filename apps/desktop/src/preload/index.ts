@@ -1,26 +1,28 @@
 import { contextBridge, ipcRenderer, type IpcRendererEvent } from 'electron'
-import { EventChannel, InvokeChannel } from '@jupiter/contracts/channels'
+import { InvokeChannel, PushChannel } from '@jupiter/contracts/channels'
 import type { JupiterBridge } from '../shared/bridge'
 
 /**
- * Sandboxed preload. Exposes exactly five functions bound to fixed channels —
- * no generic `invoke`, no `ipcRenderer`, no Node.js. Everything passed through
- * is validated by the main process before use.
+ * Sandboxed preload. Exposes a fixed, frozen set of functions bound to fixed
+ * channels — no generic send/invoke, no ipcRenderer, no Node.js. Everything
+ * passed through is validated by the host before it is used.
  */
 const bridge: JupiterBridge = {
-  getAppInfo: () => ipcRenderer.invoke(InvokeChannel.getAppInfo),
-  getRuntimeStatus: () => ipcRenderer.invoke(InvokeChannel.getRuntimeStatus),
+  gatewayStatus: () => ipcRenderer.invoke(InvokeChannel.gatewayStatus),
   retryService: (serviceId: string) =>
     ipcRenderer.invoke(InvokeChannel.retryService, { serviceId }),
-  reportRendererError: (report: unknown) =>
-    ipcRenderer.invoke(InvokeChannel.reportRendererError, report),
-  onRuntimeStatusChanged: (listener: (payload: unknown) => void) => {
-    const handler = (_event: IpcRendererEvent, payload: unknown) => {
-      listener(payload)
+  request: (envelope: unknown) => ipcRenderer.invoke(InvokeChannel.request, envelope),
+  cancel: (requestId: string) => ipcRenderer.invoke(InvokeChannel.cancel, { requestId }),
+  subscribe: (options: unknown) => ipcRenderer.invoke(InvokeChannel.subscribe, options),
+  unsubscribe: (subscriptionId: string) =>
+    ipcRenderer.invoke(InvokeChannel.unsubscribe, { subscriptionId }),
+  onMessage: (listener: (message: unknown) => void) => {
+    const handler = (_event: IpcRendererEvent, message: unknown) => {
+      listener(message)
     }
-    ipcRenderer.on(EventChannel.runtimeStatusChanged, handler)
+    ipcRenderer.on(PushChannel.message, handler)
     return () => {
-      ipcRenderer.removeListener(EventChannel.runtimeStatusChanged, handler)
+      ipcRenderer.removeListener(PushChannel.message, handler)
     }
   }
 }

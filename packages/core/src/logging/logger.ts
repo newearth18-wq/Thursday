@@ -117,6 +117,28 @@ export class Logger {
     this.write('fatal', event, message, data)
   }
 
+  /**
+   * Write an entry produced by another process (Jupiter Core forwards its
+   * entries to the host, which owns the log files). The entry is redacted
+   * again here — redaction is idempotent — and filtered by this logger's level.
+   */
+  forward(entry: LogEntry): void {
+    if (!this.isEnabled(entry.level)) return
+    const copy: LogEntry = { ...entry, message: redactString(entry.message, 4000) }
+    if (entry.data !== undefined) copy.data = redactValue(entry.data) as Record<string, unknown>
+    this.emit(copy)
+  }
+
+  private emit(entry: LogEntry): void {
+    for (const sink of this.shared.sinks) {
+      try {
+        sink.write(entry)
+      } catch {
+        // A failing sink must never break the code that is logging.
+      }
+    }
+  }
+
   private write(level: LogLevel, event: string, message: string, data: unknown): void {
     if (!this.isEnabled(level)) return
     const entry: LogEntry = {
@@ -135,13 +157,7 @@ export class Logger {
           ? (redacted as Record<string, unknown>)
           : { value: redacted }
     }
-    for (const sink of this.shared.sinks) {
-      try {
-        sink.write(entry)
-      } catch {
-        // A failing sink must never break the code that is logging.
-      }
-    }
+    this.emit(entry)
   }
 }
 

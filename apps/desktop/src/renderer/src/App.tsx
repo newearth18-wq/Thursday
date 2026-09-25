@@ -9,7 +9,7 @@ import { SettingsView } from './views/SettingsView'
 export function App() {
   const { t } = useI18n()
   const [view, setView] = useState<View>('home')
-  const { info, runtime, retry } = useRuntime()
+  const { status, retry } = useRuntime()
   const main = useRef<HTMLElement>(null)
   const firstRender = useRef(true)
 
@@ -20,20 +20,27 @@ export function App() {
       diagnostics: `${t('diagnostics.title')} — ${t('app.name')}`
     }
     document.title = titles[view]
-    // Move focus to the new content for keyboard and screen-reader users.
-    if (firstRender.current) firstRender.current = false
-    else main.current?.focus()
+    if (firstRender.current) {
+      firstRender.current = false
+      return
+    }
+    // A new view starts at its top (the content area is shared between views), and focus
+    // moves to it for keyboard and screen-reader users.
+    main.current?.scrollTo({ top: 0 })
+    main.current?.focus({ preventScroll: true })
   }, [view, t])
+
+  const coreRunning = status.state === 'ready' && status.value.core.state === 'running'
 
   return (
     <div className="shell">
       <Sidebar view={view} onNavigate={setView} />
       <main className="content" ref={main} tabIndex={-1} data-testid={`view-${view}`}>
-        {view === 'home' ? (
-          <HomeView info={info} runtime={runtime} onRetry={retry} onNavigate={setView} />
+        {view === 'home' ? <HomeView status={status} onRetry={retry} onNavigate={setView} /> : null}
+        {view === 'diagnostics' ? (
+          <DiagnosticsView status={status} coreRunning={coreRunning} />
         ) : null}
-        {view === 'diagnostics' ? <DiagnosticsView info={info} runtime={runtime} /> : null}
-        {view === 'settings' ? <SettingsView info={info} /> : null}
+        {view === 'settings' ? <SettingsView status={status} coreRunning={coreRunning} /> : null}
       </main>
     </div>
   )

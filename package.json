@@ -2,7 +2,7 @@
   "name": "jupiter-monorepo",
   "version": "0.1.0-alpha.0",
   "private": true,
-  "description": "Jupiter \u2014 a Windows desktop AI agent. Monorepo root.",
+  "description": "Jupiter — a Windows desktop AI agent. Monorepo root.",
   "license": "MIT",
   "type": "module",
   "repository": {
@@ -47,6 +47,7 @@
     "jsdom": "^30.1.1",
     "playwright": "^1.63.0",
     "prettier": "^3.9.9",
+    "tsx": "^4.23.15",
     "typescript": "~6.0.3",
     "typescript-eslint": "^8.70.1",
     "vitest": "^5.0.2"

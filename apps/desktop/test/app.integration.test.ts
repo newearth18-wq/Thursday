@@ -1,10 +1,19 @@
-import { readFileSync, rmSync, writeFileSync } from 'node:fs'
+import { rmSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
-import { LogEntry } from '@jupiter/contracts'
 import { createTempDir, launchJupiter, removeDir, type LaunchedJupiter } from '@jupiter/testing'
 import { fakeCredentials } from '@jupiter/testing/fake-credentials'
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
-import { appDirectory, assertBuilt, headCommit, packageJson, settledOverallStatus } from './helpers'
+import {
+  appDirectory,
+  assertBuilt,
+  envelope,
+  gatewayStatus,
+  headCommit,
+  invoke,
+  packageJson,
+  readLog,
+  settledOverallStatus
+} from './helpers'
 
 /**
  * End-to-end tests against the real application: real Electron, real main
@@ -12,17 +21,18 @@ import { appDirectory, assertBuilt, headCommit, packageJson, settledOverallStatu
  * own temporary profile. Nothing inside Jupiter is stubbed.
  */
 
-const FOUNDATION = ['build-metadata', 'environment', 'storage', 'logging'] as const
-const PLANNED = ['database', 'agent-runtime', 'browser-runtime', 'plugin-runtime'] as const
-
-function readLog(userDataDir: string): { text: string; entries: LogEntry[] } {
-  const text = readFileSync(join(userDataDir, 'logs', 'jupiter.log'), 'utf8')
-  const entries = text
-    .split('\n')
-    .filter(Boolean)
-    .map((line) => LogEntry.parse(JSON.parse(line)))
-  return { text, entries }
-}
+/** Host services, then the services running inside Jupiter Core (SET 1). */
+const RUNNING = [
+  'build-metadata',
+  'environment',
+  'storage',
+  'logging',
+  'core',
+  'database',
+  'event-bus',
+  'capability-dispatcher'
+] as const
+const PLANNED = ['model-router', 'agent-runtime', 'browser-runtime', 'plugin-runtime'] as const
 
 beforeAll(() => {
   assertBuilt()
@@ -50,7 +60,8 @@ describe('Jupiter desktop shell — healthy start', () => {
     expect(await page.getByTestId('app-version').textContent()).toBe(packageJson.version)
     expect(await page.getByTestId('app-channel').textContent()).toBe('alpha')
     expect(await page.getByTestId('app-environment').textContent()).toBe('Test')
-    for (const id of FOUNDATION) {
+    expect(page.url()).toBe('jupiter://app/index.html')
+    for (const id of RUNNING) {
       expect(await page.getByTestId(`service-${id}`).getAttribute('data-status'), id).toBe(
         'HEALTHY'
       )
@@ -65,12 +76,8 @@ describe('Jupiter desktop shell — healthy start', () => {
   it('takes the version from build metadata supplied by the main process', async () => {
     const mainVersion = await jupiter.app.evaluate(({ app }) => app.getVersion())
     expect(mainVersion).toBe(packageJson.version)
-    const reply = (await jupiter.window.evaluate(() => window.jupiter?.getAppInfo())) as {
-      ok: boolean
-      data: { build: { version: string; commit: string; channel: string; productName: string } }
-    }
-    expect(reply.ok).toBe(true)
-    expect(reply.data.build).toMatchObject({
+    const status = await gatewayStatus(jupiter.window)
+    expect(status.app.build).toMatchObject({
       version: packageJson.version,
       productName: packageJson.productName,
       channel: 'alpha',
@@ -88,9 +95,17 @@ describe('Jupiter desktop shell — healthy start', () => {
     expect(await page.getByTestId('diag-electron').textContent()).toBe(electron)
     expect(await page.getByTestId('diag-logs').textContent()).toBe(join(userDataDir, 'logs'))
     expect(await page.getByTestId('diag-service-logging').textContent()).toContain('Healthy')
+    // Diagnostics is long; the next view must still open at its top.
+    const scrolled = await page.evaluate(() => {
+      const content = document.querySelector('main.content')
+      content?.scrollTo({ top: content.scrollHeight })
+      return content?.scrollTop ?? 0
+    })
+    expect(scrolled).toBeGreaterThan(0)
 
     await page.getByTestId('nav-settings').click()
     await page.getByTestId('settings-read-only').waitFor()
+    expect(await page.evaluate(() => document.querySelector('main.content')?.scrollTop)).toBe(0)
 
     const planned = page.getByTestId('nav-planned')
     expect(await planned.count()).toBe(8)
@@ -105,7 +120,7 @@ describe('Jupiter desktop shell — healthy start', () => {
     await page.getByTestId('view-home').waitFor()
   })
 
-  it('gives the renderer no Node.js integration and only the five-method bridge', async () => {
+  it('gives the renderer no Node.js integration and only the seven-function v1 bridge', async () => {
     const { window: page, app } = jupiter
     const globals = await page.evaluate(() => {
       const scope = globalThis as Record<string, unknown>
@@ -115,6 +130,8 @@ describe('Jupiter desktop shell — healthy start', () => {
         module: typeof scope.module,
         buffer: typeof scope.Buffer,
         global: typeof scope.global,
+        electron: typeof scope.electron,
+        ipcRenderer: typeof scope.ipcRenderer,
         bridge: Object.keys(window.jupiter ?? {}).sort(),
         frozen: Object.isFrozen(window.jupiter)
       }
@@ -125,12 +142,16 @@ describe('Jupiter desktop shell — healthy start', () => {
       module: 'undefined',
       buffer: 'undefined',
       global: 'undefined',
+      electron: 'undefined',
+      ipcRenderer: 'undefined',
       bridge: [
-        'getAppInfo',
-        'getRuntimeStatus',
-        'onRuntimeStatusChanged',
-        'reportRendererError',
-        'retryService'
+        'cancel',
+        'gatewayStatus',
+        'onMessage',
+        'request',
+        'retryService',
+        'subscribe',
+        'unsubscribe'
       ],
       frozen: true
     })
@@ -204,20 +225,20 @@ describe('Jupiter desktop shell — healthy start', () => {
     expect(entries.some((entry) => entry.event === 'security.window-open.blocked')).toBe(true)
   })
 
-  it('rejects malformed and unknown IPC requests with typed errors', async () => {
-    const replies = await jupiter.window.evaluate(async () => {
+  it('rejects malformed and unknown requests with typed errors', async () => {
+    const page = jupiter.window
+    const replies = await page.evaluate(async () => {
       const bridge = window.jupiter
       if (!bridge) throw new Error('bridge missing')
       return {
         wrongType: await bridge.retryService(42 as unknown as string),
         unknownService: await bridge.retryService('no-such-service'),
-        planned: await bridge.retryService('plugin-runtime'),
-        badReport: await bridge.reportRendererError({ source: 'hacker', message: 'x' })
+        planned: await bridge.retryService('plugin-runtime')
       }
     })
     expect(replies.wrongType).toMatchObject({
       ok: false,
-      error: { code: 'IPC_INVALID_INPUT', category: 'validation' }
+      error: { code: 'IPC_INVALID_REQUEST', category: 'validation' }
     })
     expect(replies.unknownService).toMatchObject({
       ok: false,
@@ -227,22 +248,24 @@ describe('Jupiter desktop shell — healthy start', () => {
       ok: false,
       error: { code: 'SERVICE_NOT_AVAILABLE', category: 'unsupported' }
     })
-    expect(replies.badReport).toMatchObject({ ok: false, error: { code: 'IPC_INVALID_INPUT' } })
+    const badReport = await invoke(
+      page,
+      envelope('diagnostics.report-renderer-error', { source: 'hacker', message: 'x' })
+    )
+    expect(badReport).toMatchObject({ ok: false, error: { code: 'INVALID_PAYLOAD' } })
   })
 
   it('writes structured JSON logs with correlation IDs and no secrets', async () => {
     const secrets = fakeCredentials().map((credential) => credential.value)
-    const reply = (await jupiter.window.evaluate(
-      (message) =>
-        window.jupiter?.reportRendererError({
-          source: 'window-error',
-          message,
-          stack: null,
-          componentStack: null
-        }),
-      `boom while calling provider with ${secrets.join(' and ')}`
-    )) as { ok: boolean; correlationId: string }
+    const request = envelope('diagnostics.report-renderer-error', {
+      source: 'window-error',
+      message: `boom while calling provider with ${secrets.join(' and ')}`,
+      stack: null,
+      componentStack: null
+    })
+    const reply = await invoke(jupiter.window, request)
     expect(reply.ok).toBe(true)
+    expect(reply.correlationId).toBe(request.requestId)
 
     const { text, entries } = readLog(userDataDir)
     for (const secret of secrets) expect(text).not.toContain(secret)
@@ -277,7 +300,7 @@ describe('Jupiter desktop shell — service startup failure', () => {
     const { window: page } = jupiter
     expect(await settledOverallStatus(page)).toBe('DEGRADED')
     expect(await page.getByTestId('service-logging').getAttribute('data-status')).toBe('FAILED')
-    for (const id of ['build-metadata', 'environment', 'storage']) {
+    for (const id of ['build-metadata', 'environment', 'storage', 'core', 'database']) {
       expect(await page.getByTestId(`service-${id}`).getAttribute('data-status'), id).toBe(
         'HEALTHY'
       )

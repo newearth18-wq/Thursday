@@ -1,0 +1,159 @@
+import { z } from 'zod'
+import { Actor } from './actor'
+import { LogLevel } from './environment'
+import { ErrorEnvelope } from './errors'
+import { OptionalReference, CONTRACT_VERSION } from './request'
+import { ServiceId, UtcTimestamp, Uuidv7 } from './primitives'
+import { ServiceStatus } from './service-health'
+
+/**
+ * Versioned domain events (contract version 1).
+ *
+ * Every event belongs to a stream. Within one stream — one Mission, one
+ * service, the settings — events are strictly ordered by `streamSequence`
+ * (1, 2, 3, … with no gaps). Persistent events also get a `globalSequence`,
+ * the position in the durable event log that clients use as a reconnection
+ * cursor. Transient events (both sequences null) are delivered live only.
+ *
+ * Every event type has its own payload schema; an event whose payload does
+ * not match its type is rejected before it is stored or delivered.
+ */
+
+export const StreamKind = z.enum(['system', 'service', 'settings', 'database', 'mission'])
+export type StreamKind = z.infer<typeof StreamKind>
+
+export const StreamRef = z
+  .object({
+    kind: StreamKind,
+    id: z
+      .string()
+      .min(1)
+      .max(64)
+      .regex(/^[A-Za-z0-9._:-]+$/)
+  })
+  .strict()
+export type StreamRef = z.infer<typeof StreamRef>
+
+const SettingValue = z.union([z.string().max(200), z.number(), z.boolean(), z.null()])
+
+export const EventPayloads = {
+  'core.started': z
+    .object({
+      coreVersion: z.string().max(64),
+      schemaVersion: z.number().int().nonnegative().nullable(),
+      pid: z.number().int().nonnegative(),
+      restarts: z.number().int().nonnegative()
+    })
+    .strict(),
+  'core.stopped': z.object({ reason: z.enum(['shutdown']) }).strict(),
+  'core.crashed': z
+    .object({
+      exitCode: z.number().int().nullable(),
+      reason: z.string().max(500),
+      detectedAt: UtcTimestamp,
+      restarts: z.number().int().nonnegative()
+    })
+    .strict(),
+  'service.status_changed': z
+    .object({
+      serviceId: ServiceId,
+      process: z.enum(['host', 'core']),
+      status: ServiceStatus,
+      previousStatus: ServiceStatus.nullable(),
+      errorCode: z.string().max(64).nullable()
+    })
+    .strict(),
+  'settings.changed': z
+    .object({
+      key: z.string().max(64),
+      previousValue: SettingValue,
+      value: SettingValue
+    })
+    .strict(),
+  'error.recorded': z
+    .object({
+      source: z.string().max(64),
+      error: ErrorEnvelope
+    })
+    .strict(),
+  'database.migrated': z
+    .object({
+      fromVersion: z.number().int().nonnegative(),
+      toVersion: z.number().int().nonnegative(),
+      applied: z
+        .array(
+          z.object({ version: z.number().int().positive(), name: z.string().max(96) }).strict()
+        )
+        .max(100),
+      backupFile: z.string().max(260).nullable()
+    })
+    .strict(),
+  'database.backup_completed': z
+    .object({
+      file: z.string().max(260),
+      bytes: z.number().int().nonnegative(),
+      pages: z.number().int().nonnegative(),
+      reason: z.enum(['manual', 'pre-migration'])
+    })
+    .strict(),
+  'logging.level_applied': z.object({ level: LogLevel }).strict()
+} as const satisfies Record<string, z.ZodType>
+
+export type DomainEventType = keyof typeof EventPayloads
+export const DomainEventType = z.enum(
+  Object.keys(EventPayloads) as [DomainEventType, ...DomainEventType[]]
+)
+export type EventPayload<T extends DomainEventType> = z.infer<(typeof EventPayloads)[T]>
+
+const EventBase = {
+  v: z.literal(CONTRACT_VERSION),
+  eventId: Uuidv7,
+  stream: StreamRef,
+  streamSequence: z.number().int().positive().nullable(),
+  globalSequence: z.number().int().positive().nullable(),
+  persistent: z.boolean(),
+  occurredAt: UtcTimestamp,
+  correlationId: Uuidv7,
+  causationId: Uuidv7.nullable(),
+  actor: Actor,
+  missionId: OptionalReference,
+  executionId: OptionalReference
+}
+
+function variant<T extends DomainEventType>(type: T) {
+  return z.object({ ...EventBase, type: z.literal(type), payload: EventPayloads[type] }).strict()
+}
+
+export const DomainEvent = z
+  .discriminatedUnion('type', [
+    variant('core.started'),
+    variant('core.stopped'),
+    variant('core.crashed'),
+    variant('service.status_changed'),
+    variant('settings.changed'),
+    variant('error.recorded'),
+    variant('database.migrated'),
+    variant('database.backup_completed'),
+    variant('logging.level_applied')
+  ])
+  .refine(
+    (event) =>
+      event.persistent
+        ? event.globalSequence !== null && event.streamSequence !== null
+        : event.globalSequence === null && event.streamSequence === null,
+    {
+      message: 'Persistent events carry both sequences; transient events carry neither'
+    }
+  )
+export type DomainEvent = z.infer<typeof DomainEvent>
+
+export const EventFilter = z
+  .object({
+    types: z.array(DomainEventType).min(1).max(20).nullable(),
+    streams: z.array(StreamRef).min(1).max(20).nullable(),
+    missionId: OptionalReference
+  })
+  .strict()
+export type EventFilter = z.infer<typeof EventFilter>
+
+export const MATCH_ALL_EVENTS: EventFilter = { types: null, streams: null, missionId: null }

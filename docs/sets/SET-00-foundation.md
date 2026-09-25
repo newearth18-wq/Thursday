@@ -1,8 +1,11 @@
 # SET 0 — Repository foundation and delivery contract
 
-- Status: **all 10 acceptance tests pass locally** (Linux). The NSIS installer
-  itself is built by the Windows CI job; see test 4.
-- Checkpoint tag once accepted: `jupiter-set-00-foundation`
+- Status: **all 10 acceptance tests pass**, locally on Linux and in CI on
+  Linux and Windows (commit `918579f`, run 36128645246).
+- Checkpoint tag: `jupiter-set-00-foundation` on `918579f` — created as an
+  annotated tag in the development environment; publishing it
+  (`git push origin jupiter-set-00-foundation`) is left to the repository owner,
+  because that environment could push branches only.
 - Environment of the recorded run: Linux x64 container (root, Xvfb), Node.js
   22.22.2, npm 10.9.7, Electron 44.4.5 (Chromium 152.0.7977.130, Node 24.21.0).
 
@@ -128,6 +131,18 @@ navigation blocking, IPC rejection, redacted logs, service-failure recovery,
 Thai UI), 5 build-output checks, 6 real-filesystem log tests and 2 secret-scan
 tests.
 
+### CI evidence (commit `918579f`)
+
+| Job                                                                                                                                                                                                                                      | Result  |
+| ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------- |
+| Linux — gates, tests, package validation                                                                                                                                                                                                 | success |
+| Windows — unit 107/107, integration 21 passed + 3 skipped (POSIX-only permission test; packaged tests run later), NSIS installer `Jupiter-Setup-0.1.0-alpha.0-x64.exe` (106.4 MB) built and validated, packaged `Jupiter.exe` launch 2/2 | success |
+| Legacy Thursday — build and 24 + 8 acceptance checks                                                                                                                                                                                     | success |
+
+The first CI run (`2997aa5`) failed only in the package validator on Windows:
+`@electron/asar` looks up archive paths with the native separator, so
+`out/main/index.js` was not found. Fixed in `918579f`.
+
 ## 8. Manual tests
 
 - Launched the built app under Xvfb and inspected screenshots at 1366×768:
@@ -141,14 +156,10 @@ tests.
 
 ## 9. Known limitations
 
-- **No NSIS installer was built locally**: electron-builder needs Wine for that
-  on Linux. The Linux run validates the unpacked Windows build (PE32+ x64 GUI,
-  embedded product name and version, asar contents, metadata, secret scan).
-  The `jupiter-windows` CI job builds `Jupiter-Setup-<version>-x64.exe` on
-  `windows-latest`, validates it, runs the E2E suite on Windows and launches
-  the packaged `Jupiter.exe`.
-- The app has not been run on a physical Windows 10/11 machine in this
-  session; Windows evidence comes from CI.
+- The NSIS installer is built on Windows only (electron-builder needs Wine on
+  Linux); the `jupiter-windows` CI job builds, validates and launches it.
+- The installer was built and launched on a Windows Server CI runner, not yet
+  installed by hand on a Windows 10/11 desktop.
 - Installer is unsigned and uses the default Electron icon (SET 20).
 - Language follows the OS; there is no in-app switch yet (SET 2).
 - Settings are read-only (SET 2). Diagnostics shows SET 0 data only; database

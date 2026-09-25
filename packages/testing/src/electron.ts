@@ -42,7 +42,7 @@ export function sandboxArgs(): string[] {
   return isRoot || process.env.JUPITER_E2E_NO_SANDBOX === '1' ? ['--no-sandbox'] : []
 }
 
-function childEnvironment(
+export function childEnvironment(
   extra: Readonly<Record<string, string>> | undefined
 ): Record<string, string> {
   const env: Record<string, string> = {}

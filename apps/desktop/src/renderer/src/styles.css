@@ -399,3 +399,49 @@ code {
 .hero .actions {
   margin-top: var(--jp-space-lg);
 }
+
+.view-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--jp-space-md);
+}
+
+.card-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));
+  gap: var(--jp-space-lg);
+}
+
+.plain-list,
+.error-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.plain-list li {
+  padding: var(--jp-space-xs) 0;
+  overflow-wrap: anywhere;
+}
+
+.error-list li {
+  border-bottom: 1px solid rgb(157 177 199 / 0.08);
+  padding: var(--jp-space-sm) 0;
+}
+
+.error-list p {
+  margin: 0 0 var(--jp-space-xs);
+}
+
+.progress {
+  display: flex;
+  align-items: center;
+  gap: var(--jp-space-md);
+  margin-top: var(--jp-space-md);
+}
+
+.progress progress {
+  width: 240px;
+  accent-color: var(--jp-color-electric-cyan);
+}

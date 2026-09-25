@@ -3,16 +3,14 @@ import {
   AppInfo,
   BuildMetadata,
   ErrorEnvelope,
-  EVENT_CHANNELS,
+  GatewayReply,
   INVOKE_CHANNELS,
-  IpcResponseEnvelope,
   RendererErrorReport,
   RuntimeStatus,
   SemVer,
   ServiceHealth,
   Uuidv7,
-  ipcEventContract,
-  ipcInvokeContract,
+  gatewayContract,
   isInvokeChannel
 } from './index'
 
@@ -117,26 +115,26 @@ describe('ServiceHealth and RuntimeStatus (Appendix A)', () => {
   })
 })
 
-describe('IPC contract', () => {
+describe('gateway IPC contract', () => {
   it('binds every channel to an input and output schema', () => {
-    expect(Object.keys(ipcInvokeContract).sort()).toEqual([...INVOKE_CHANNELS].sort())
-    expect(Object.keys(ipcEventContract).sort()).toEqual([...EVENT_CHANNELS].sort())
-    for (const channel of INVOKE_CHANNELS) expect(channel).toMatch(/^jupiter:v0:[a-z-]+:[a-z-]+$/)
+    expect(Object.keys(gatewayContract).sort()).toEqual([...INVOKE_CHANNELS].sort())
+    for (const channel of INVOKE_CHANNELS) expect(channel).toMatch(/^jupiter:v1:[a-z-]+$/)
   })
 
   it('recognises only allowlisted channels', () => {
-    expect(isInvokeChannel('jupiter:v0:app:get-info')).toBe(true)
-    expect(isInvokeChannel('jupiter:v0:fs:read-file')).toBe(false)
+    expect(isInvokeChannel('jupiter:v1:request')).toBe(true)
+    expect(isInvokeChannel('jupiter:v1:fs-read')).toBe(false)
+    expect(isInvokeChannel('jupiter:v0:app:get-info')).toBe(false)
     expect(isInvokeChannel('toString')).toBe(false)
   })
 
-  it('rejects malformed requests', () => {
-    const retry = ipcInvokeContract['jupiter:v0:runtime:retry-service'].input
+  it('rejects malformed gateway requests', () => {
+    const retry = gatewayContract['jupiter:v1:retry-service'].input
     expect(retry.safeParse({ serviceId: 'logging' }).success).toBe(true)
     expect(retry.safeParse({ serviceId: 42 }).success).toBe(false)
     expect(retry.safeParse({ serviceId: 'logging', command: 'rm -rf /' }).success).toBe(false)
     expect(
-      ipcInvokeContract['jupiter:v0:app:get-info'].input.safeParse({ path: '/etc/passwd' }).success
+      gatewayContract['jupiter:v1:gateway-status'].input.safeParse({ path: '/etc/passwd' }).success
     ).toBe(false)
     expect(
       RendererErrorReport.safeParse({
@@ -148,18 +146,17 @@ describe('IPC contract', () => {
     ).toBe(false)
   })
 
-  it('accepts exactly two response shapes', () => {
+  it('accepts exactly two gateway reply shapes', () => {
+    expect(GatewayReply.safeParse({ ok: true, correlationId: ID, data: { any: 1 } }).success).toBe(
+      true
+    )
+    expect(GatewayReply.safeParse({ ok: false, correlationId: ID, error: envelope }).success).toBe(
+      true
+    )
     expect(
-      IpcResponseEnvelope.safeParse({ ok: true, correlationId: ID, data: { any: 1 } }).success
-    ).toBe(true)
-    expect(
-      IpcResponseEnvelope.safeParse({ ok: false, correlationId: ID, error: envelope }).success
-    ).toBe(true)
-    expect(
-      IpcResponseEnvelope.safeParse({ ok: false, correlationId: ID, error: { message: 'x' } })
-        .success
+      GatewayReply.safeParse({ ok: false, correlationId: ID, error: { message: 'x' } }).success
     ).toBe(false)
-    expect(IpcResponseEnvelope.safeParse({ ok: true, data: 1 }).success).toBe(false)
+    expect(GatewayReply.safeParse({ ok: true, data: 1 }).success).toBe(false)
   })
 
   it('never lets AppInfo carry unexpected fields', () => {

@@ -1,11 +1,21 @@
 {
   "name": "@jupiter/database",
-  "version": "0.0.0",
+  "version": "0.1.0",
   "private": true,
-  "description": "Coming later (SET 1): SQLite persistence with migrations, transactions, foreign keys, WAL mode, backup hooks and repository interfaces.",
+  "description": "SQLite persistence for Jupiter Core: migrations, transactions, backups and repositories.",
   "license": "MIT",
-  "jupiter": {
-    "status": "COMING_LATER",
-    "plannedSet": 1
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "scripts": {
+    "typecheck": "tsc -p tsconfig.json"
+  },
+  "dependencies": {
+    "@jupiter/contracts": "0.1.0",
+    "@jupiter/core": "0.1.0"
+  },
+  "devDependencies": {
+    "@jupiter/testing": "0.1.0"
   }
 }

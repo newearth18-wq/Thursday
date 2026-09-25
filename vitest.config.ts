@@ -30,6 +30,7 @@ export default defineConfig({
           name: 'integration',
           include: [
             'packages/*/src/**/*.integration.test.ts',
+            'packages/*/test/**/*.integration.test.ts',
             'apps/*/test/**/*.integration.test.ts'
           ],
           environment: 'node',

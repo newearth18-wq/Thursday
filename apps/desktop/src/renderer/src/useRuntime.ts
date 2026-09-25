@@ -1,20 +1,14 @@
 import { useCallback, useEffect, useState } from 'react'
-import type { AppInfo, ErrorEnvelope, RuntimeStatus } from '@jupiter/contracts'
+import type { ErrorEnvelope, GatewayStatus } from '@jupiter/contracts'
 import { createErrorEnvelope } from '@jupiter/core'
-import {
-  BridgeError,
-  fetchAppInfo,
-  fetchRuntimeStatus,
-  retryService,
-  subscribeRuntimeStatus
-} from './api'
+import { BridgeError, fetchGatewayStatus, onGatewayStatus, retryService } from './api'
 
 export type Loadable<T> =
   | { readonly state: 'loading' }
   | { readonly state: 'ready'; readonly value: T }
   | { readonly state: 'error'; readonly error: ErrorEnvelope }
 
-function envelopeOf(error: unknown): ErrorEnvelope {
+export function envelopeOf(error: unknown): ErrorEnvelope {
   if (error instanceof BridgeError) return error.envelope
   return createErrorEnvelope({
     code: 'UNEXPECTED_INTERFACE_ERROR',
@@ -25,42 +19,34 @@ function envelopeOf(error: unknown): ErrorEnvelope {
   })
 }
 
-/** Keep whichever status is newer: pushed events and fetch replies can arrive in either order. */
-function newer(previous: Loadable<RuntimeStatus>, next: RuntimeStatus): Loadable<RuntimeStatus> {
-  if (previous.state === 'ready' && previous.value.updatedAt > next.updatedAt) return previous
+/** Keep whichever status is newer: pushed updates and fetch replies can arrive in either order. */
+function newer(previous: Loadable<GatewayStatus>, next: GatewayStatus): Loadable<GatewayStatus> {
+  if (previous.state === 'ready' && previous.value.runtime.updatedAt > next.runtime.updatedAt)
+    return previous
   return { state: 'ready', value: next }
 }
 
 export interface RuntimeData {
-  readonly info: Loadable<AppInfo>
-  readonly runtime: Loadable<RuntimeStatus>
+  readonly status: Loadable<GatewayStatus>
   /** Resolves to null on success, or the reason the retry request itself failed. */
   readonly retry: (serviceId: string) => Promise<ErrorEnvelope | null>
 }
 
+/** Gateway status: app info, runtime health and Jupiter Core's process state. Works even when Core is down. */
 export function useRuntime(): RuntimeData {
-  const [info, setInfo] = useState<Loadable<AppInfo>>({ state: 'loading' })
-  const [runtime, setRuntime] = useState<Loadable<RuntimeStatus>>({ state: 'loading' })
+  const [status, setStatus] = useState<Loadable<GatewayStatus>>({ state: 'loading' })
 
   useEffect(() => {
     let active = true
-    const unsubscribe = subscribeRuntimeStatus((status) => {
-      if (active) setRuntime((previous) => newer(previous, status))
+    const unsubscribe = onGatewayStatus((next) => {
+      if (active) setStatus((previous) => newer(previous, next))
     })
-    fetchAppInfo().then(
+    fetchGatewayStatus().then(
       (value) => {
-        if (active) setInfo({ state: 'ready', value })
+        if (active) setStatus((previous) => newer(previous, value))
       },
       (error: unknown) => {
-        if (active) setInfo({ state: 'error', error: envelopeOf(error) })
-      }
-    )
-    fetchRuntimeStatus().then(
-      (value) => {
-        if (active) setRuntime((previous) => newer(previous, value))
-      },
-      (error: unknown) => {
-        if (active) setRuntime({ state: 'error', error: envelopeOf(error) })
+        if (active) setStatus({ state: 'error', error: envelopeOf(error) })
       }
     )
     return () => {
@@ -71,13 +57,13 @@ export function useRuntime(): RuntimeData {
 
   const retry = useCallback(async (serviceId: string) => {
     try {
-      const status = await retryService(serviceId)
-      setRuntime((previous) => newer(previous, status))
+      const next = await retryService(serviceId)
+      setStatus((previous) => newer(previous, next))
       return null
     } catch (error) {
       return envelopeOf(error)
     }
   }, [])
 
-  return { info, runtime, retry }
+  return { status, retry }
 }

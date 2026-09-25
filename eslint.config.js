@@ -15,6 +15,7 @@ const TS_PROJECTS = [
   './tsconfig.json',
   './packages/contracts/tsconfig.json',
   './packages/core/tsconfig.json',
+  './packages/database/tsconfig.json',
   './packages/security/tsconfig.json',
   './packages/testing/tsconfig.json',
   './packages/ui/tsconfig.json',
