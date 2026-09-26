@@ -320,7 +320,18 @@ describe.runIf(onWindows)('SET 8 — Windows Computer Agent on the real desktop'
         { type: 'MANAGE_WINDOW', window: notepad, operation: 'resize', width: 520, height: 400 },
         ...writeHello('after-resolution-change.txt', 'Resolution changed').slice(1)
       ])
-      expect(task.status, `${explain(task)}\n${attempts.join('; ')}`).toBe('SUCCEEDED')
+      // On failure, also say which windows the runtime sees now (process, title, bounds).
+      const seen =
+        task.status === 'SUCCEEDED'
+          ? ''
+          : JSON.stringify(
+              (
+                (await host.call({ op: 'listWindows', params: {} })) as {
+                  windows: { processName: string; title: string; bounds: unknown }[]
+                }
+              ).windows.map((window) => [window.processName, window.title, window.bounds])
+            )
+      expect(task.status, `${explain(task)}\n${attempts.join('; ')}\n${seen}`).toBe('SUCCEEDED')
       expect(
         readFileSync(join(folder, 'after-resolution-change.txt'), 'utf8').replace(/^\uFEFF/, '')
       ).toBe('Resolution changed')

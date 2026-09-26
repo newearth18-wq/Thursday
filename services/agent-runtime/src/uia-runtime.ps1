@@ -31,6 +31,19 @@ public static class JupiterNative {
   [DllImport("user32.dll", CharSet = CharSet.Unicode)] static extern IntPtr SendMessage(IntPtr h, uint msg, IntPtr w, StringBuilder l);
   [DllImport("user32.dll", CharSet = CharSet.Unicode)] static extern IntPtr SendMessage(IntPtr h, uint msg, IntPtr w, string l);
   [DllImport("user32.dll")] static extern IntPtr SendMessage(IntPtr h, uint msg, IntPtr w, IntPtr l);
+  [DllImport("user32.dll")] static extern bool AttachThreadInput(uint from, uint to, bool attach);
+  [DllImport("user32.dll")] static extern IntPtr SetFocus(IntPtr h);
+  [DllImport("user32.dll")] static extern IntPtr GetFocus();
+  [DllImport("kernel32.dll")] static extern uint GetCurrentThreadId();
+  // Gives keyboard focus to a control of another process's window (its window must be in front).
+  public static bool FocusControl(IntPtr h) {
+    uint processId;
+    uint target = GetWindowThreadProcessId(h, out processId);
+    uint self = GetCurrentThreadId();
+    bool attached = target != self && AttachThreadInput(self, target, true);
+    try { SetFocus(h); return GetFocus() == h; }
+    finally { if (attached) AttachThreadInput(self, target, false); }
+  }
   // Visible top-level windows, straight from the window manager.
   public static long[] TopLevelWindows() {
     var found = new List<long>();
@@ -371,7 +384,17 @@ function Op-TypeText($p) {
     Fail 'ELEMENT_NOT_EDITABLE' "The control ($(Describe-Query $p.query)) does not take keyboard input."
   }
   Focus-Window $p.handle
-  $element.SetFocus()
+  $edit = Win32-Edit $element
+  if ($edit -ne 0) {
+    # A classic Win32 edit box that UI Automation cannot focus takes focus the Win32 way.
+    $focused = $false
+    try { $element.SetFocus(); $focused = $true } catch { }
+    if (-not $focused -and -not [JupiterNative]::FocusControl([IntPtr]$edit)) {
+      Fail 'FOCUS_FAILED' "The control ($(Describe-Query $p.query)) could not be given keyboard focus."
+    }
+  } else {
+    $element.SetFocus()
+  }
   [System.Windows.Forms.SendKeys]::SendWait((Escape-SendKeys ([string]$p.text)))
   return [ordered]@{ element = Element-Info $element }
 }
