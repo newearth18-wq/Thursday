@@ -110,14 +110,17 @@ const notepad: AppAdapter = {
           userAction: 'Look at Notepad, answer or cancel its dialog, then try again.'
         }
       )
-    // Notepad has saved when its title names the file (it writes the file as the dialog returns).
-    const name = path.split(/[\\/]/).pop() ?? path
+    // Notepad has saved when its title names the file (it writes the file as the dialog
+    // returns). Its title shows the name with or without the extension ("hello - Notepad"),
+    // as Windows is set to show extensions or not.
+    const name = (path.split(/[\\/]/).pop() ?? path).toLowerCase()
+    const stem = name.replace(/\.[^.]*$/, '')
     let title = ''
     const saved = await waitFor(context, 10_000, async () => {
       const { windows } = await driver.call('listWindows', {})
-      const own = windows.find((item) => item.handle === window.handle)
-      title = own?.title ?? ''
-      return own?.title.toLowerCase().includes(name.toLowerCase()) ? true : null
+      title = windows.find((item) => item.handle === window.handle)?.title ?? ''
+      const shown = title.toLowerCase()
+      return shown.startsWith(`${name} - `) || shown.startsWith(`${stem} - `) ? true : null
     })
     if (!saved) {
       const { windows } = await driver.call('listWindows', {})
