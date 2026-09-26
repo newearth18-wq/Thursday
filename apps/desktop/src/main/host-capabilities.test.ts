@@ -298,6 +298,15 @@ describe('computer host operations (SET 8)', () => {
       ok: false,
       error: { code: 'COMPUTER_UNAVAILABLE', category: 'unsupported' }
     })
+    // A control role is Core's to resolve; the host acts only on concrete queries.
+    const role = await capabilities.execute(
+      call(
+        'host.computer.call',
+        { op: 'findElement', params: { handle: 5, query: { role: 'editor' } } },
+        core
+      )
+    )
+    expect(role).toMatchObject({ ok: false, error: { code: 'INVALID_QUERY' } })
     // Parameters are checked before anything else.
     const invalid = await capabilities.execute(
       call('host.computer.call', { op: 'launch', params: { app: 'cmd' } }, core)

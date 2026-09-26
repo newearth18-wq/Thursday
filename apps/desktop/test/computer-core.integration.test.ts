@@ -25,7 +25,7 @@ import { FAKE_DESKTOP_FOLDER, FakeDesktop } from './fake-desktop'
 useCoreHarness('jupiter-computer-core')
 
 const notepad = { app: 'notepad' as const }
-const editor = { controlType: 'Document' as const }
+const editor = { role: 'editor' as const }
 
 function writeHello(fileName = 'hello.txt', text = 'Hello Jupiter'): ComputerAction[] {
   return [

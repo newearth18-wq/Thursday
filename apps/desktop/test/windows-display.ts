@@ -10,6 +10,7 @@ import { execFileSync } from 'node:child_process'
 const NATIVE = `
 Add-Type -TypeDefinition @'
 using System;
+using System.Collections.Generic;
 using System.Runtime.InteropServices;
 public static class JupiterTestDisplay {
   [StructLayout(LayoutKind.Sequential, CharSet = CharSet.Ansi)]
@@ -25,9 +26,25 @@ public static class JupiterTestDisplay {
     public int dmMediaType; public int dmDitherType; public int dmReserved1; public int dmReserved2;
     public int dmPanningWidth; public int dmPanningHeight;
   }
-  [DllImport("user32.dll")] public static extern bool EnumDisplaySettings(string name, int mode, ref DEVMODE devMode);
-  [DllImport("user32.dll")] public static extern int ChangeDisplaySettings(ref DEVMODE devMode, int flags);
-  public static DEVMODE Current() { var m = new DEVMODE(); m.dmSize = (short)Marshal.SizeOf(m); EnumDisplaySettings(null, -1, ref m); return m; }
+  [DllImport("user32.dll", CharSet = CharSet.Ansi)] static extern bool EnumDisplaySettings(string name, int mode, ref DEVMODE devMode);
+  [DllImport("user32.dll", CharSet = CharSet.Ansi)] static extern int ChangeDisplaySettings(ref DEVMODE devMode, int flags);
+  static DEVMODE Fresh() { var m = new DEVMODE(); m.dmSize = (short)Marshal.SizeOf(typeof(DEVMODE)); return m; }
+  public static string Current() { var m = Fresh(); EnumDisplaySettings(null, -1, ref m); return m.dmPelsWidth + "x" + m.dmPelsHeight; }
+  public static string Modes() {
+    var seen = new List<string>();
+    var m = Fresh();
+    for (int i = 0; EnumDisplaySettings(null, i, ref m); i++) {
+      var key = m.dmPelsWidth + "x" + m.dmPelsHeight;
+      if (!seen.Contains(key)) seen.Add(key);
+      m = Fresh();
+    }
+    return String.Join(",", seen.ToArray());
+  }
+  public static int Set(int width, int height) {
+    var m = Fresh(); EnumDisplaySettings(null, -1, ref m);
+    m.dmPelsWidth = width; m.dmPelsHeight = height; m.dmFields = 0x80000 | 0x100000;
+    return ChangeDisplaySettings(ref m, 0);
+  }
 }
 '@
 `
@@ -35,7 +52,15 @@ public static class JupiterTestDisplay {
 function powershell(script: string): string {
   return execFileSync(
     'powershell.exe',
-    ['-NoLogo', '-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass', '-Command', script],
+    [
+      '-NoLogo',
+      '-NoProfile',
+      '-NonInteractive',
+      '-ExecutionPolicy',
+      'Bypass',
+      '-Command',
+      `${NATIVE}\n${script}`
+    ],
     { encoding: 'utf8', windowsHide: true, timeout: 60_000 }
   ).trim()
 }
@@ -45,35 +70,33 @@ export interface DisplayMode {
   readonly height: number
 }
 
-export function currentMode(): DisplayMode {
-  const [width, height] = powershell(
-    `${NATIVE}; $m = [JupiterTestDisplay]::Current(); "$($m.dmPelsWidth)x$($m.dmPelsHeight)"`
-  )
-    .split('x')
-    .map(Number)
+function parse(text: string): DisplayMode {
+  const [width, height] = text.trim().split('x').map(Number)
   return { width: width ?? 0, height: height ?? 0 }
 }
 
-export function availableModes(): DisplayMode[] {
-  const out = powershell(`${NATIVE}
-$m = New-Object JupiterTestDisplay+DEVMODE; $m.dmSize = [int16][Runtime.InteropServices.Marshal]::SizeOf($m)
-$i = 0; $seen = @{}
-while ([JupiterTestDisplay]::EnumDisplaySettings($null, $i, [ref]$m)) { $seen["$($m.dmPelsWidth)x$($m.dmPelsHeight)"] = 1; $i++ }
-$seen.Keys -join ','`)
-  return out
-    .split(',')
-    .filter(Boolean)
-    .map((item) => {
-      const [width, height] = item.split('x').map(Number)
-      return { width: width ?? 0, height: height ?? 0 }
-    })
+export function currentMode(): DisplayMode {
+  return parse(powershell('[JupiterTestDisplay]::Current()'))
 }
 
-/** Returns ChangeDisplaySettings' result: 0 means the new resolution is in effect. */
+export function availableModes(): DisplayMode[] {
+  return powershell('[JupiterTestDisplay]::Modes()').split(',').filter(Boolean).map(parse)
+}
+
+/** ChangeDisplaySettings' result: 0 means the new resolution is in effect. */
 export function setMode(mode: DisplayMode): number {
   return Number(
-    powershell(`${NATIVE}
-$m = [JupiterTestDisplay]::Current(); $m.dmPelsWidth = ${String(mode.width)}; $m.dmPelsHeight = ${String(mode.height)}; $m.dmFields = 0x180000
-[JupiterTestDisplay]::ChangeDisplaySettings([ref]$m, 0)`)
+    powershell(`[JupiterTestDisplay]::Set(${String(mode.width)}, ${String(mode.height)})`)
   )
 }
+
+/** Common resolutions to try when the driver lists only the current one. */
+export const COMMON_MODES: readonly DisplayMode[] = [
+  { width: 1280, height: 1024 },
+  { width: 1280, height: 800 },
+  { width: 1280, height: 720 },
+  { width: 1366, height: 768 },
+  { width: 1600, height: 900 },
+  { width: 1920, height: 1080 },
+  { width: 800, height: 600 }
+]

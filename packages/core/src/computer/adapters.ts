@@ -28,8 +28,11 @@ export interface AppAdapter {
   readonly name: string
   /** Is this window one of the application's main windows? */
   owns(window: WindowInfo): boolean
-  /** The control that holds the document's text, if the application has one. */
-  readonly editor: ElementQuery | null
+  /**
+   * Where the document's text is, if the application has one: the queries
+   * that find it, tried in order (application versions expose it differently).
+   */
+  readonly editor: readonly ElementQuery[]
   /** Saves the open document under a full path the host chose; null if the app cannot. */
   readonly save:
     ((context: AdapterContext, window: WindowInfo, path: string) => Promise<SaveOutcome>) | null
@@ -50,8 +53,12 @@ const notepad: AppAdapter = {
   app: 'notepad',
   name: 'Notepad',
   owns: genericOwns(['notepad']),
-  // Classic and current Notepad both expose their text as the window's Document control.
-  editor: { controlType: 'Document' },
+  // Classic Notepad exposes its text as an Edit control; the current Notepad as a Document.
+  editor: [
+    { controlType: 'Edit', className: 'Edit' },
+    { controlType: 'Document' },
+    { className: 'RichEditD2DPT' }
+  ],
   async save(context, window, path) {
     const { driver } = context
     const before = new Set(
@@ -113,7 +120,7 @@ const explorer: AppAdapter = {
     window.processName.toLowerCase() === 'explorer' &&
     window.title.trim().length > 0 &&
     window.title !== 'Program Manager',
-  editor: null,
+  editor: [],
   save: null
 }
 

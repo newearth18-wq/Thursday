@@ -1598,7 +1598,7 @@ export class MissionManager {
       allowCoordinateFallback: false,
       actions: [
         { type: 'OPEN_APP', app: 'notepad' },
-        { type: 'TYPE_TEXT', window: notepad, element: { controlType: 'Document' }, text },
+        { type: 'TYPE_TEXT', window: notepad, element: { role: 'editor' }, text },
         { type: 'SAVE_FILE', window: notepad, fileName, expectedText: text },
         { type: 'CLOSE_APP', window: notepad }
       ]

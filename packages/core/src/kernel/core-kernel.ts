@@ -375,8 +375,9 @@ export class CoreKernel {
         await this.supervisor.retry('model-router')
         await this.supervisor.retry('mission-manager')
         await this.supervisor.retry('permission-engine')
-        await this.supervisor.retry('skill-registry')
+        // Quick services first, so none is left FAILED while the Skill health checks run.
         await this.supervisor.retry('computer-agent')
+        await this.supervisor.retry('skill-registry')
       }
       return null
     } catch (error) {

@@ -102,16 +102,23 @@ export const ElementQuery = z
     controlType: UiControlType.optional(),
     className: z.string().min(1).max(200).optional(),
     /** Which match, when several match (0 = first). */
-    index: z.number().int().min(0).max(50).optional()
+    index: z.number().int().min(0).max(50).optional(),
+    /**
+     * A control by its role in the application, found by the application's
+     * adapter (e.g. Notepad's editor, whatever Notepad version exposes it).
+     * Resolved in Core into a concrete query; never sent to the runtime.
+     */
+    role: z.enum(['editor']).optional()
   })
   .strict()
   .refine(
     (query) =>
+      query.role !== undefined ||
       query.automationId !== undefined ||
       query.name !== undefined ||
       query.controlType !== undefined ||
       query.className !== undefined,
-    { message: 'Name at least one of automationId, name, controlType or className' }
+    { message: 'Name at least one of role, automationId, name, controlType or className' }
   )
 export type ElementQuery = z.infer<typeof ElementQuery>
 

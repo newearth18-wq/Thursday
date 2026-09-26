@@ -78,7 +78,11 @@ export function PermissionRequestDialog({
     >
       {request ? (
         <>
-          <dl className="facts facts-stacked" data-testid="permission-facts">
+          <dl
+            className="facts facts-stacked"
+            data-testid="permission-facts"
+            data-request-id={request.requestId}
+          >
             <div>
               <dt>{t('permission.summary')}</dt>
               <dd>

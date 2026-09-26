@@ -8,6 +8,7 @@ import type {
   ComputerTask,
   ComputerTaskRequest,
   DomainEventType,
+  ElementQuery,
   ErrorEnvelope,
   EventPayload,
   InteractionMethod,
@@ -576,11 +577,8 @@ export class ComputerAgent {
       }
       case 'CLICK_ELEMENT': {
         const window = await this.resolve(action.window, windows, signal)
-        const { element } = await driver.call(
-          'invoke',
-          { handle: window.handle, query: action.element },
-          signal
-        )
+        const query = await this.concrete(action.window.app, window, action.element, signal)
+        const { element } = await driver.call('invoke', { handle: window.handle, query }, signal)
         return {
           target: `${label(window)} › ${describeElement(element)}`,
           method: 'semantic',
@@ -604,11 +602,12 @@ export class ComputerAgent {
       }
       case 'SCROLL': {
         const window = await this.resolve(action.window, windows, signal)
+        const query = await this.concrete(action.window.app, window, action.element, signal)
         const { element } = await driver.call(
           'scroll',
           {
             handle: window.handle,
-            query: action.element,
+            query,
             direction: action.direction,
             amount: action.amount
           },
@@ -622,11 +621,8 @@ export class ComputerAgent {
       }
       case 'SELECT_ELEMENT': {
         const window = await this.resolve(action.window, windows, signal)
-        const { element } = await driver.call(
-          'select',
-          { handle: window.handle, query: action.element },
-          signal
-        )
+        const query = await this.concrete(action.window.app, window, action.element, signal)
+        const { element } = await driver.call('select', { handle: window.handle, query }, signal)
         return {
           target: `${label(window)} › ${describeElement(element)}`,
           method: 'semantic',
@@ -680,7 +676,7 @@ export class ComputerAgent {
   ): Promise<Outcome> {
     const { driver } = this.options
     const window = await this.resolve(action.window, windows, signal)
-    const query = action.element
+    const query = await this.concrete(action.window.app, window, action.element, signal)
     const { element } = await driver.call('findElement', { handle: window.handle, query }, signal)
     const before = (await driver.call('readText', { handle: window.handle, query }, signal)).text
     let method: InteractionMethod
@@ -727,7 +723,7 @@ export class ComputerAgent {
   ): Promise<Outcome> {
     const { driver } = this.options
     const adapter = ADAPTERS[action.window.app]
-    if (!adapter.save || !adapter.editor)
+    if (!adapter.save || adapter.editor.length === 0)
       throw new JupiterError('SAVE_UNSUPPORTED', `${adapter.name} has no document to save.`, {
         category: 'unsupported',
         userAction: null
@@ -746,7 +742,16 @@ export class ComputerAgent {
       )
     const expected =
       action.expectedText ??
-      (await driver.call('readText', { handle: window.handle, query: adapter.editor }, signal)).text
+      (
+        await driver.call(
+          'readText',
+          {
+            handle: window.handle,
+            query: await this.concrete(action.window.app, window, { role: 'editor' }, signal)
+          },
+          signal
+        )
+      ).text
     const saved = await adapter.save(context, window, target.path)
     const check = await driver.call('verifyFile', { fileName: action.fileName, expected }, signal)
     if (!check.exists)
@@ -766,6 +771,38 @@ export class ComputerAgent {
       observation: `${saved.observation} Verified: ${check.path} exists (${String(check.bytes)} bytes) and its content equals the expected text.`,
       evidence: { kind: 'file', path: check.path, bytes: check.bytes, sha256: check.sha256 }
     }
+  }
+
+  /**
+   * A query as the runtime understands it. A role (`editor`) is resolved
+   * through the application's adapter: its candidate queries are tried in
+   * order, and the first control that exists is the one acted on.
+   */
+  private async concrete(
+    app: ComputerAppId,
+    window: WindowInfo,
+    query: ElementQuery,
+    signal: AbortSignal
+  ): Promise<ElementQuery> {
+    if (query.role === undefined) return query
+    const adapter = ADAPTERS[app]
+    for (const candidate of adapter.editor) {
+      try {
+        await this.options.driver.call(
+          'findElement',
+          { handle: window.handle, query: candidate },
+          signal
+        )
+        return candidate
+      } catch (error) {
+        if (!(error instanceof JupiterError) || error.code !== 'ELEMENT_NOT_FOUND') throw error
+      }
+    }
+    throw new JupiterError(
+      'ELEMENT_NOT_FOUND',
+      `${adapter.name} has no ${query.role} control in "${window.title}"${adapter.editor.length ? ` (looked for ${adapter.editor.map(describeQuery).join('; ')})` : ''}.`,
+      { category: 'dependency', userAction: null }
+    )
   }
 
   /**
@@ -909,6 +946,12 @@ function describeAction(action: ComputerAction | undefined): string {
     default:
       return `${action.type.toLowerCase().replace(/_/g, ' ')} in ${ADAPTERS[action.window.app].name}`
   }
+}
+
+function describeQuery(query: ElementQuery): string {
+  return Object.entries(query)
+    .map(([key, value]) => `${key}=${String(value)}`)
+    .join(', ')
 }
 
 function describeElement(element: {

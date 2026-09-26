@@ -111,6 +111,13 @@ export class ComputerHost {
         }
       )
     const { op } = parsed.data
+    const query = (parsed.data.params as { query?: { role?: unknown } }).query
+    if (query?.role !== undefined)
+      throw new JupiterError(
+        'INVALID_QUERY',
+        'A control role is resolved by Jupiter Core into a concrete query; the host acts only on concrete queries.',
+        { category: 'validation', userAction: null }
+      )
     const result = await this.perform(op, parsed.data.params)
     // What goes back to Core is checked like everything else crossing a boundary.
     return AutomationOps[op].result.parse(result)

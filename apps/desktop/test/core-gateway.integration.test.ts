@@ -700,7 +700,8 @@ describe('SET 1 — AT9: a failed Core service is reported and recovers on Retry
         serviceStatus(current, 'database') === 'HEALTHY' &&
         serviceStatus(current, 'event-bus') === 'HEALTHY'
     )
-    expect(await settledOverallStatus(page)).toBe('HEALTHY')
+    // The services that need the database are retried one after another; wait until all are.
+    await expect.poll(() => settledOverallStatus(page), { timeout: 60_000 }).toBe('HEALTHY')
     const recovered = await query(page, 'diagnostics.snapshot')
     expect(recovered.database?.schemaVersion).toBe(JUPITER_MIGRATIONS.length)
     const events = await query(page, 'events.list', {

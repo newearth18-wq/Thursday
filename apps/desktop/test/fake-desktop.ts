@@ -249,7 +249,12 @@ export class FakeDesktop {
 
   private element(window: FakeWindow, query: ElementQuery): ElementInfo {
     const base = { bounds: { x: 0, y: 0, width: 100, height: 20 }, enabled: true, className: '' }
-    if (window.kind === 'notepad' && query.controlType === 'Document' && !this.faults.noEditor)
+    if (
+      window.kind === 'notepad' &&
+      query.controlType === 'Document' &&
+      query.role === undefined &&
+      !this.faults.noEditor
+    )
       return {
         ...base,
         automationId: '15',

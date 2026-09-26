@@ -185,8 +185,18 @@ describe('SET 8 — Windows Computer Agent, in the real application', () => {
           await evidence('02-permission-request')
           first = false
         }
+        const answered = await prompt
+          .getByTestId('permission-facts')
+          .getAttribute('data-request-id')
         await prompt.getByTestId('permission-allow-once').click()
-        await prompt.waitFor({ state: 'hidden' })
+        // The dialog either closes or shows the next waiting request.
+        await expect
+          .poll(async () =>
+            (await prompt.isVisible())
+              ? await prompt.getByTestId('permission-facts').getAttribute('data-request-id')
+              : 'closed'
+          )
+          .not.toBe(answered)
       }
 
       // 2–8. The Mission completes only when the file on disk is verified.

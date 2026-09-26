@@ -6,7 +6,13 @@ import { createTempDir, removeDir } from '@jupiter/testing'
 import { afterAll, afterEach, beforeAll, describe, expect, it } from 'vitest'
 import { ComputerHost } from '../src/main/computer-host'
 import { call, standard, startCore, stopCore, useCoreHarness, type Running } from './core-harness'
-import { availableModes, currentMode, setMode, type DisplayMode } from './windows-display'
+import {
+  COMMON_MODES,
+  availableModes,
+  currentMode,
+  setMode,
+  type DisplayMode
+} from './windows-display'
 
 /**
  * SET 8 acceptance tests against the REAL Windows desktop: the real host
@@ -61,7 +67,7 @@ afterEach(async () => {
 })
 
 const notepad = { app: 'notepad' as const }
-const editor = { controlType: 'Document' as const }
+const editor = { role: 'editor' as const }
 
 async function start(): Promise<Running> {
   return startCore(standard(), new Map(), [], {}, (input) => host.call(input))
@@ -218,27 +224,39 @@ describe.runIf(onWindows)('SET 8 — Windows Computer Agent on the real desktop'
 
   it('AT8: a screen-resolution change does not break semantic interaction', async () => {
     const before = currentMode()
-    const other = availableModes().find(
-      (mode: DisplayMode) =>
-        (mode.width !== before.width || mode.height !== before.height) &&
-        mode.width >= 800 &&
-        mode.height >= 600
+    const same = (a: DisplayMode, b: DisplayMode) => a.width === b.width && a.height === b.height
+    const candidates = [...availableModes(), ...COMMON_MODES].filter(
+      (mode, index, all) =>
+        !same(mode, before) && all.findIndex((other) => same(other, mode)) === index
     )
+    // Change the resolution for real: the first mode Windows accepts and reports back.
+    const attempts: string[] = []
+    let changed: DisplayMode | null = null
+    for (const mode of candidates) {
+      const result = setMode(mode)
+      const now = currentMode()
+      attempts.push(
+        `${String(mode.width)}x${String(mode.height)} → ${String(result)} (now ${String(now.width)}x${String(now.height)})`
+      )
+      if (result === 0 && same(now, mode)) {
+        changed = mode
+        break
+      }
+    }
     expect(
-      other,
-      `no other display mode than ${String(before.width)}x${String(before.height)} is available`
-    ).toBeDefined()
-    if (!other) return
+      changed,
+      `Windows accepted no other resolution than ${String(before.width)}x${String(before.height)}: ${attempts.join('; ')}`
+    ).not.toBeNull()
     const running = await start()
     try {
-      expect(setMode(other)).toBe(0)
-      expect(currentMode()).toEqual(other)
+      // The window is also moved and resized: positions change, semantic interaction must not care.
       const task = await granted(running, [
-        ...writeHello('after-resolution-change.txt', 'Resolution changed').slice(0, 1),
-        { type: 'MANAGE_WINDOW', window: notepad, operation: 'move', x: 20, y: 20 },
+        { type: 'OPEN_APP', app: 'notepad' },
+        { type: 'MANAGE_WINDOW', window: notepad, operation: 'move', x: 10, y: 10 },
+        { type: 'MANAGE_WINDOW', window: notepad, operation: 'resize', width: 520, height: 400 },
         ...writeHello('after-resolution-change.txt', 'Resolution changed').slice(1)
       ])
-      expect(task.status, explain(task)).toBe('SUCCEEDED')
+      expect(task.status, `${explain(task)}\n${attempts.join('; ')}`).toBe('SUCCEEDED')
       expect(
         readFileSync(join(folder, 'after-resolution-change.txt'), 'utf8').replace(/^\uFEFF/, '')
       ).toBe('Resolution changed')
