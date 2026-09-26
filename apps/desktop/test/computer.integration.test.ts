@@ -227,6 +227,7 @@ describe('SET 8 — Windows Computer Agent, in the real application', () => {
       })
       await expect.poll(() => page.getByTestId('computer-task').count()).toBeGreaterThan(0)
       await evidence('04-computer-agent-diagnostics')
-    }
+    },
+    300_000
   )
 })

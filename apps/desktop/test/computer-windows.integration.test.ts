@@ -1,3 +1,4 @@
+import { execFileSync } from 'node:child_process'
 import { existsSync, mkdirSync, readFileSync } from 'node:fs'
 import { join } from 'node:path'
 import type { ComputerAction, ComputerTask } from '@jupiter/contracts'
@@ -127,6 +128,69 @@ function writeHello(fileName: string, text = 'Hello Jupiter'): ComputerAction[] 
 }
 
 describe.runIf(onWindows)('SET 8 — Windows Computer Agent on the real desktop', () => {
+  it('records what this Windows exposes for Notepad (diagnostic evidence)', async () => {
+    // Printed to the CI log: the windows, the Notepad process and its UI Automation tree.
+    const launched = (await host.call({ op: 'launch', params: { app: 'notepad' } })) as {
+      processId: number
+    }
+    let notepadWindow: { handle: number; title: string; processName: string } | undefined
+    for (let attempt = 0; attempt < 40 && !notepadWindow; attempt++) {
+      await new Promise((resolve) => setTimeout(resolve, 250))
+      const { windows } = (await host.call({ op: 'listWindows', params: {} })) as {
+        windows: { handle: number; title: string; processName: string; processId: number }[]
+      }
+      notepadWindow = windows.find((window) => window.processName.toLowerCase() === 'notepad')
+      if (attempt === 39 || notepadWindow)
+        console.log(
+          '[SET 8 diagnostics] windows:',
+          JSON.stringify(
+            windows.map((window) => [window.processName, window.processId, window.title])
+          )
+        )
+    }
+    console.log(
+      '[SET 8 diagnostics] launched process',
+      launched.processId,
+      'window',
+      JSON.stringify(notepadWindow)
+    )
+    const os = execFileSync(
+      'powershell.exe',
+      [
+        '-NoProfile',
+        '-Command',
+        '(Get-CimInstance Win32_OperatingSystem).Caption + " " + (Get-CimInstance Win32_OperatingSystem).Version; Get-Process notepad | Select-Object Id, Path, @{n="Version";e={$_.MainModule.FileVersionInfo.FileVersion}} | Format-List | Out-String'
+      ],
+      { encoding: 'utf8' }
+    )
+    console.log('[SET 8 diagnostics] system and Notepad:', os)
+    expect(notepadWindow).toBeDefined()
+    if (!notepadWindow) return
+    await new Promise((resolve) => setTimeout(resolve, 1_500))
+    const tree = (await host.call({
+      op: 'readTree',
+      params: { handle: notepadWindow.handle, depth: 8, maxNodes: 300 }
+    })) as {
+      nodes: {
+        depth: number
+        controlType: string
+        name: string
+        automationId: string
+        className: string
+      }[]
+    }
+    console.log(
+      '[SET 8 diagnostics] UI tree:\n' +
+        tree.nodes
+          .map(
+            (node) =>
+              `${'  '.repeat(node.depth)}${node.controlType} name="${node.name}" id="${node.automationId}" class="${node.className}"`
+          )
+          .join('\n')
+    )
+    expect(tree.nodes.length).toBeGreaterThan(0)
+  })
+
   it('AT1–AT4: opens the real Notepad, types the text, saves it semantically, and the file is verified on disk', async () => {
     const running = await start()
     const status = await call(running, 'computer.status', {})

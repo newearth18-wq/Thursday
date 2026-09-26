@@ -313,7 +313,30 @@ describe('Workflow Engine', () => {
       stallAfter: 1
     })
     const missionId = await modelMission(running, 'Too slow')
-    const failed = await settled(running, missionId, 'FAILED')
+    // On failure, say where the Mission stood and what the model server saw.
+    await expect
+      .poll(async () => (await detail(running, missionId)).mission.status)
+      .toBe('FAILED')
+      .catch(async (error: unknown) => {
+        const now = await detail(running, missionId)
+        throw new Error(
+          `${String(error)}\n${JSON.stringify(
+            {
+              mission: now.mission.status,
+              steps: now.steps.map((item) => [item.stepId, item.status, item.error?.code]),
+              attempts: now.stepAttempts.map((item) => [
+                item.outcome,
+                item.startedAt,
+                item.endedAt
+              ]),
+              posts: posts().map((item) => [item.receivedAt, item.abortedAt])
+            },
+            null,
+            2
+          )}`
+        )
+      })
+    const failed = await detail(running, missionId)
     const [slow] = failed.steps
     expect(slow).toMatchObject({ status: 'FAILED', timeoutMs: 5_000 })
     expect(slow?.error).toMatchObject({ code: 'STEP_TIMEOUT', category: 'timeout' })

@@ -86,6 +86,8 @@ interface Running {
 }
 
 const OPEN_TIMEOUT_MS = 15_000
+const RESOLVE_ATTEMPTS = 4
+const RESOLVE_PAUSE_MS = 400
 
 export class ComputerAgent {
   private readonly running = new Map<string, Running>()
@@ -816,19 +818,26 @@ export class ComputerAgent {
     signal: AbortSignal
   ): Promise<WindowInfo> {
     const adapter = ADAPTERS[ref.app]
-    const { windows: listed } = await this.options.driver.call('listWindows', {}, signal)
-    const candidates = listed.filter(
-      (item) =>
-        adapter.owns(item) &&
-        (ref.titleContains === undefined || item.title.includes(ref.titleContains))
-    )
+    let listed: WindowInfo[] = []
+    let candidates: WindowInfo[] = []
+    // UI Automation can miss a window for a moment (just moved, resized, or the display changed): look again briefly.
+    for (let attempt = 0; attempt < RESOLVE_ATTEMPTS; attempt++) {
+      if (attempt > 0) await this.sleep(RESOLVE_PAUSE_MS)
+      listed = (await this.options.driver.call('listWindows', {}, signal)).windows
+      candidates = listed.filter(
+        (item) =>
+          adapter.owns(item) &&
+          (ref.titleContains === undefined || item.title.includes(ref.titleContains))
+      )
+      if (candidates.length > 0) break
+    }
     const known = windows.get(ref.app)
     const same = candidates.find((item) => item.handle === known)
     const chosen = same ?? candidates.find((item) => item.active) ?? candidates[0]
     if (!chosen)
       throw new JupiterError(
         'WINDOW_NOT_FOUND',
-        `No ${adapter.name} window${ref.titleContains ? ` with "${ref.titleContains}" in its title` : ''} is open.`,
+        `No ${adapter.name} window${ref.titleContains ? ` with "${ref.titleContains}" in its title` : ''} is open (${String(listed.length)} other windows are).`,
         { category: 'dependency', userAction: `Open ${adapter.name} first.` }
       )
     if (known !== undefined && chosen.handle !== known)
