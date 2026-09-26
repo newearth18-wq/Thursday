@@ -17,6 +17,7 @@ import {
   type LogSink
 } from '@jupiter/core'
 import { JupiterDatabase } from '@jupiter/database'
+import { installedAdapters } from './adapters'
 
 /**
  * Jupiter Core process entry (Electron utility process).
@@ -119,7 +120,8 @@ async function initialise(config: CoreConfig): Promise<void> {
     },
     onLogLevel: (level) => {
       send({ ...base, kind: 'log-level', level })
-    }
+    },
+    adapters: installedAdapters()
   })
   kernel = created
   await created.start()

@@ -1,5 +1,25 @@
 import { z } from 'zod'
 import { ActorType, RiskLevel } from './actor'
+import {
+  AdapterId,
+  AdapterInfo,
+  ApiKeyInput,
+  ModelCapability,
+  ModelId,
+  ProviderBaseUrl,
+  ProviderId,
+  ProviderInfo,
+  RouteDecision,
+  SecureStorageStatus
+} from './ai'
+import {
+  ChatMessage,
+  Conversation,
+  ConversationId,
+  ConversationRouting,
+  MessageId,
+  UserMessageText
+} from './chat'
 import { AuditEvent } from './audit'
 import { BackupInfo, DatabaseInfo } from './database'
 import { ErrorEnvelope } from './errors'
@@ -117,7 +137,15 @@ export const SettingUpdate = z.discriminatedUnion('key', [
   settingUpdate('ui.compact'),
   settingUpdate('ui.reduceMotion'),
   settingUpdate('ui.avatar'),
-  settingUpdate('notifications.desktop')
+  settingUpdate('notifications.desktop'),
+  settingUpdate('ai.routingMode'),
+  settingUpdate('ai.fallbackPolicy'),
+  settingUpdate('ai.costLatency'),
+  settingUpdate('ai.preferredProvider'),
+  settingUpdate('ai.preferredChatModel'),
+  settingUpdate('ai.preferredReasoningModel'),
+  settingUpdate('ai.preferredVisionModel'),
+  settingUpdate('ai.preferredEmbeddingModel')
 ])
 export type SettingUpdate = z.infer<typeof SettingUpdate>
 
@@ -129,6 +157,24 @@ export const EventsListInput = z
   })
   .strict()
 export type EventsListInput = z.infer<typeof EventsListInput>
+
+const ProviderName = z.string().trim().min(1).max(80)
+const ProviderRef = z.object({ providerId: ProviderId }).strict()
+const CapabilityList = z.array(ModelCapability).min(1).max(6)
+
+export const ChatExchange = z
+  .object({
+    conversation: Conversation,
+    userMessage: ChatMessage,
+    assistantMessage: ChatMessage
+  })
+  .strict()
+export type ChatExchange = z.infer<typeof ChatExchange>
+
+export const RoutePreview = z
+  .object({ route: RouteDecision.nullable(), problem: ErrorEnvelope.nullable() })
+  .strict()
+export type RoutePreview = z.infer<typeof RoutePreview>
 
 export const Capabilities = {
   'diagnostics.snapshot': { kind: 'query', input: Empty, output: DiagnosticsSnapshot },
@@ -182,6 +228,149 @@ export const Capabilities = {
     kind: 'command',
     input: z.object({ services: z.array(ServiceHealth).min(1).max(32) }).strict(),
     output: z.object({ recorded: z.number().int().nonnegative() }).strict()
+  },
+
+  // ---- AI providers, models and routing (SET 3) ----
+  /** The provider adapters installed in this build. */
+  'ai.adapters.list': {
+    kind: 'query',
+    input: Empty,
+    output: z.object({ adapters: z.array(AdapterInfo).max(32) }).strict()
+  },
+  'ai.providers.list': {
+    kind: 'query',
+    input: Empty,
+    output: z.object({ providers: z.array(ProviderInfo).max(50) }).strict()
+  },
+  'ai.providers.add': {
+    kind: 'command',
+    input: z
+      .object({ adapterId: AdapterId, displayName: ProviderName, baseUrl: ProviderBaseUrl })
+      .strict(),
+    output: ProviderInfo
+  },
+  'ai.providers.update': {
+    kind: 'command',
+    input: z
+      .object({
+        providerId: ProviderId,
+        displayName: ProviderName.optional(),
+        baseUrl: ProviderBaseUrl.optional(),
+        enabled: z.boolean().optional()
+      })
+      .strict()
+      .refine(
+        (input) =>
+          input.displayName !== undefined ||
+          input.baseUrl !== undefined ||
+          input.enabled !== undefined,
+        { message: 'Nothing to change' }
+      ),
+    output: ProviderInfo
+  },
+  'ai.providers.remove': {
+    kind: 'command',
+    input: ProviderRef,
+    output: z.object({ removed: z.literal(true), providerId: ProviderId }).strict()
+  },
+  /** Contact the provider now: health, key and model list. */
+  'ai.providers.check': { kind: 'command', input: ProviderRef, output: ProviderInfo },
+  /** Save an API key in the operating system's secure storage. The key is never returned. */
+  'ai.credentials.set': {
+    kind: 'command',
+    input: z.object({ providerId: ProviderId, apiKey: ApiKeyInput }).strict(),
+    output: ProviderInfo
+  },
+  'ai.credentials.remove': { kind: 'command', input: ProviderRef, output: ProviderInfo },
+  /** Add a model by hand (for providers that do not list their models). */
+  'ai.models.add': {
+    kind: 'command',
+    input: z
+      .object({ providerId: ProviderId, modelId: ModelId, capabilities: CapabilityList })
+      .strict(),
+    output: ProviderInfo
+  },
+  'ai.models.update': {
+    kind: 'command',
+    input: z
+      .object({
+        providerId: ProviderId,
+        modelId: ModelId,
+        enabled: z.boolean().optional(),
+        capabilities: CapabilityList.optional()
+      })
+      .strict()
+      .refine((input) => input.enabled !== undefined || input.capabilities !== undefined, {
+        message: 'Nothing to change'
+      }),
+    output: ProviderInfo
+  },
+  /** Which model a request would use now, or why none can. */
+  'ai.route.preview': {
+    kind: 'query',
+    input: z
+      .object({ capability: ModelCapability, conversationId: ConversationId.nullable() })
+      .strict(),
+    output: RoutePreview
+  },
+  /** Whether this computer offers OS-backed secure storage for API keys. */
+  'host.credentials.status': { kind: 'query', input: Empty, output: SecureStorageStatus },
+
+  // ---- Chat (SET 3) ----
+  'chat.conversations.list': {
+    kind: 'query',
+    input: z.object({ limit: z.number().int().min(1).max(200) }).strict(),
+    output: z.object({ conversations: z.array(Conversation).max(200) }).strict()
+  },
+  'chat.conversations.update': {
+    kind: 'command',
+    input: z
+      .object({
+        conversationId: ConversationId,
+        title: z.string().trim().min(1).max(120).optional(),
+        routing: ConversationRouting.optional()
+      })
+      .strict()
+      .refine((input) => input.title !== undefined || input.routing !== undefined, {
+        message: 'Nothing to change'
+      }),
+    output: Conversation
+  },
+  'chat.conversations.delete': {
+    kind: 'command',
+    input: z.object({ conversationId: ConversationId }).strict(),
+    output: z.object({ deleted: z.literal(true), conversationId: ConversationId }).strict()
+  },
+  'chat.messages.list': {
+    kind: 'query',
+    input: z.object({ conversationId: ConversationId }).strict(),
+    output: z
+      .object({ conversation: Conversation, messages: z.array(ChatMessage).max(500) })
+      .strict()
+  },
+  /** Send a message. The answer streams as `chat.message.delta` events on the conversation's stream. */
+  'chat.send': {
+    kind: 'command',
+    input: z.object({ conversationId: ConversationId.nullable(), text: UserMessageText }).strict(),
+    output: ChatExchange
+  },
+  /** Stop an answer that is being written. What arrived so far is kept. */
+  'chat.stop': {
+    kind: 'command',
+    input: z.object({ messageId: MessageId }).strict(),
+    output: z.object({ stopped: z.boolean() }).strict()
+  },
+  /** Ask again for the last answer; the earlier answer is kept as superseded. */
+  'chat.retry': {
+    kind: 'command',
+    input: z.object({ messageId: MessageId }).strict(),
+    output: ChatExchange
+  },
+  /** Replace a message you sent and get a new answer; the earlier messages are kept as superseded. */
+  'chat.edit': {
+    kind: 'command',
+    input: z.object({ messageId: MessageId, text: UserMessageText }).strict(),
+    output: ChatExchange
   }
 } as const satisfies Record<string, { kind: RequestKind; input: z.ZodType; output: z.ZodType }>
 

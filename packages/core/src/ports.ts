@@ -2,6 +2,13 @@ import type {
   Actor,
   AuditEvent,
   BackupInfo,
+  ChatMessage,
+  Conversation,
+  ConversationRouting,
+  CredentialInfo,
+  ErrorEnvelope,
+  ModelCapability,
+  ModelInfo,
   DatabaseInfo,
   DomainEvent,
   DomainEventType,
@@ -76,6 +83,97 @@ export interface ServiceHealthStore {
   list(): (ServiceHealth & { process: 'host' | 'core' })[]
 }
 
+/** The last real check of a provider, as stored. Other states are derived when read. */
+export type StoredCheckState = 'not-checked' | 'ready' | 'failed'
+
+export interface StoredProvider {
+  readonly providerId: string
+  readonly adapterId: string
+  readonly displayName: string
+  readonly baseUrl: string
+  readonly enabled: boolean
+  readonly checkState: StoredCheckState
+  readonly error: ErrorEnvelope | null
+  readonly checkedAt: string | null
+  /** Where the key lives in the host's secure storage. The key itself is never in the database. */
+  readonly credentialId: string | null
+  readonly credentialFingerprint: string | null
+  readonly credentialSavedAt: string | null
+  readonly credentialValidation: CredentialInfo['validation']
+  readonly credentialValidatedAt: string | null
+  readonly createdAt: string
+  readonly updatedAt: string
+}
+
+/** A model as the provider's model list reports it. */
+export interface DiscoveredModel {
+  readonly modelId: string
+  readonly displayName: string | null
+  /** Capabilities the provider itself reports; null when it does not say. */
+  readonly capabilities: readonly ModelCapability[] | null
+  readonly contextWindow: number | null
+  readonly inputCostPerMillion: number | null
+  readonly outputCostPerMillion: number | null
+}
+
+export interface ProviderStore {
+  list(): StoredProvider[]
+  get(providerId: string): StoredProvider | null
+  insert(provider: StoredProvider): void
+  update(
+    providerId: string,
+    changes: Partial<Omit<StoredProvider, 'providerId' | 'createdAt'>>
+  ): void
+  /** Removes the provider and its models. */
+  remove(providerId: string): boolean
+  models(providerId: string): ModelInfo[]
+  model(providerId: string, modelId: string): ModelInfo | null
+  putModel(model: ModelInfo): void
+  /**
+   * Record the provider's current model list. New models are added disabled;
+   * what the person chose for known models (enabled, capabilities) is kept.
+   * Models that disappeared from the list stay, so nothing the person set up
+   * is lost silently. Returns how many models were new.
+   */
+  mergeDiscovered(providerId: string, models: readonly DiscoveredModel[], at: string): number
+  recordLatency(providerId: string, modelId: string, latencyMs: number, at: string): void
+}
+
+export interface NewConversation {
+  readonly conversationId: string
+  readonly title: string
+  readonly routing: ConversationRouting
+  readonly createdAt: string
+}
+
+export type MessageChanges = Partial<
+  Pick<
+    ChatMessage,
+    'parts' | 'status' | 'route' | 'usage' | 'finishReason' | 'error' | 'completedAt'
+  >
+>
+
+export interface ChatStore {
+  listConversations(limit: number): Conversation[]
+  conversation(conversationId: string): Conversation | null
+  insertConversation(conversation: NewConversation): void
+  updateConversation(
+    conversationId: string,
+    changes: { title?: string; routing?: ConversationRouting; updatedAt: string }
+  ): void
+  /** Removes the conversation and its messages. Only ever called for an explicit request. */
+  deleteConversation(conversationId: string): boolean
+  /** The most recent `limit` messages, oldest first. */
+  messages(conversationId: string, limit: number): ChatMessage[]
+  message(messageId: string): ChatMessage | null
+  nextSeq(conversationId: string): number
+  insertMessage(message: ChatMessage): void
+  updateMessage(messageId: string, changes: MessageChanges): void
+  supersede(messageIds: readonly string[], by: string): void
+  /** Messages still marked `streaming` (after a crash). */
+  streaming(): ChatMessage[]
+}
+
 export interface BackupOptions {
   readonly signal?: AbortSignal
   readonly onProgress?: (copiedPages: number, totalPages: number) => void
@@ -87,6 +185,8 @@ export interface DatabasePort {
   readonly settings: SettingsStore
   readonly audit: AuditStore
   readonly serviceHealth: ServiceHealthStore
+  readonly providers: ProviderStore
+  readonly chat: ChatStore
   info(): DatabaseInfo
   backup(reason: BackupInfo['reason'], options?: BackupOptions): Promise<BackupInfo>
   close(): void

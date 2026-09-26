@@ -21,6 +21,7 @@
     "@jupiter/contracts": "0.1.0",
     "@jupiter/core": "0.1.0",
     "@jupiter/database": "0.1.0",
+    "@jupiter/providers": "0.1.0",
     "@jupiter/security": "0.1.0",
     "@jupiter/testing": "0.1.0",
     "@jupiter/ui": "0.1.0",

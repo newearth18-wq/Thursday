@@ -36,11 +36,18 @@ export {
 export type {
   AuditStore,
   BackupOptions,
+  ChatStore,
   DatabasePort,
+  DiscoveredModel,
   EventStore,
+  MessageChanges,
+  NewConversation,
   NewPersistentEvent,
+  ProviderStore,
   ServiceHealthStore,
   SettingsStore,
+  StoredCheckState,
+  StoredProvider,
   StoredSetting,
   TransactionRunner
 } from './ports'
@@ -68,3 +75,27 @@ export {
   type HostPort,
   type OpenedDatabasePort
 } from './kernel/core-kernel'
+export {
+  PROVIDER_ERROR_CODES,
+  ProviderError,
+  TRANSIENT_PROVIDER_ERRORS,
+  invalidResponse,
+  providerErrorFromStatus,
+  type AdapterContentPart,
+  type AdapterContext,
+  type AdapterMessage,
+  type AdapterToolCall,
+  type ChatChunk,
+  type ChatRequest,
+  type EmbeddingRequest,
+  type EmbeddingResult,
+  type ProviderAdapter,
+  type ProviderErrorCode,
+  type ToolSpec,
+  type Transport,
+  type TransportRequest
+} from './ai/adapter'
+export { sanitizeProviderText } from './ai/sanitize'
+export { createTransport, privacyBlocked, type FetchLike } from './ai/transport'
+export { selectRoute, type RouteInput, type RouteResult, type RouterProvider } from './ai/router'
+export type { CredentialVault } from './ai/providers'

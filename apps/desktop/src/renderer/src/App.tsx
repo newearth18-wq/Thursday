@@ -13,9 +13,11 @@ import { usePreferences } from './preferences'
 import { useView } from './router'
 import { useShortcuts } from './useShortcuts'
 import { useRuntimeContext, type Loadable } from './useRuntime'
+import { ChatView } from './views/ChatView'
 import { DiagnosticsView } from './views/DiagnosticsView'
 import { FeatureView } from './views/FeatureViews'
 import { HomeView } from './views/HomeView'
+import { ModelsView } from './views/ModelsView'
 import { SettingsView } from './views/SettingsView'
 
 /** How long the interface waits for saved preferences before showing defaults. */
@@ -187,6 +189,10 @@ function ViewContent({
       return <SettingsView status={status} coreRunning={coreRunning} />
     case 'diagnostics':
       return <DiagnosticsView status={status} coreRunning={coreRunning} />
+    case 'chat':
+      return <ChatView onNavigate={onNavigate} />
+    case 'models':
+      return <ModelsView />
     default:
       return <FeatureView view={view} />
   }

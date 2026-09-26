@@ -16,6 +16,7 @@ const TS_PROJECTS = [
   './packages/contracts/tsconfig.json',
   './packages/core/tsconfig.json',
   './packages/database/tsconfig.json',
+  './packages/providers/tsconfig.json',
   './packages/security/tsconfig.json',
   './packages/testing/tsconfig.json',
   './packages/ui/tsconfig.json',
@@ -117,6 +118,39 @@ export default tseslint.config(
         { name: 'require', message: 'The renderer has no Node.js access.' },
         { name: 'process', message: 'The renderer has no Node.js access.' },
         { name: '__dirname', message: 'The renderer has no Node.js access.' }
+      ]
+    }
+  },
+  {
+    // Provider adapters reach the network only through the guarded transport Core hands them,
+    // which enforces Local only mode, refuses redirects and never sends a key unencrypted.
+    files: ['packages/providers/src/**/*.ts'],
+    ignores: ['packages/providers/src/**/*.test.ts'],
+    rules: {
+      'no-restricted-globals': [
+        'error',
+        { name: 'fetch', message: 'Use context.transport.request: it enforces the routing mode.' },
+        { name: 'XMLHttpRequest', message: 'Use context.transport.request.' },
+        { name: 'WebSocket', message: 'Use context.transport.request.' }
+      ],
+      'no-restricted-imports': [
+        'error',
+        {
+          paths: [
+            'http',
+            'https',
+            'net',
+            'tls',
+            'node:http',
+            'node:https',
+            'node:net',
+            'node:tls',
+            'undici'
+          ].map((name) => ({
+            name,
+            message: 'Adapters reach the network only through context.transport.'
+          }))
+        }
       ]
     }
   },

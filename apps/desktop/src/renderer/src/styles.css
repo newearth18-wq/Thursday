@@ -636,10 +636,22 @@ kbd {
   margin-top: var(--jp-space-sm);
 }
 
-.composer-footer p {
+.composer-footer p,
+.composer-status {
   margin: 0;
   flex: 1;
   min-width: 12rem;
+}
+
+.composer-status {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--jp-space-xs) var(--jp-space-md);
+}
+
+.composer-count {
+  color: var(--jp-color-warning);
 }
 
 /* -------------------------------------------------------------- feature */
@@ -1449,4 +1461,518 @@ kbd {
   :focus-visible {
     outline-color: Highlight;
   }
+}
+
+/* ------------------------------------------------------ shared controls (SET 3) */
+
+.input {
+  min-height: var(--ui-control-height);
+  width: 100%;
+  max-width: 32rem;
+  background: var(--jp-color-graphite-black);
+  color: var(--ui-text);
+  border: 1px solid var(--ui-border-strong);
+  border-radius: var(--jp-radius-md);
+  padding: var(--jp-space-xs) var(--jp-space-md);
+  font: inherit;
+}
+
+.input:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+/* Destructive actions: never the accent colour. */
+.button-danger {
+  color: var(--jp-color-error);
+  border-color: color-mix(in srgb, var(--jp-color-error) 45%, transparent);
+}
+
+.button-danger:hover:not(:disabled) {
+  background: color-mix(in srgb, var(--jp-color-error) 8%, transparent);
+  border-color: var(--jp-color-error);
+}
+
+.link-button {
+  border: 0;
+  padding: 0;
+  background: none;
+  color: var(--jp-color-electric-cyan);
+  font: inherit;
+  text-decoration: underline;
+  cursor: pointer;
+}
+
+.dialog-form {
+  display: flex;
+  flex-direction: column;
+  gap: var(--jp-space-md);
+}
+
+.capability-chips {
+  border: 0;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--jp-space-xs);
+}
+
+.capability-chips legend {
+  font-weight: var(--jp-font-weight-semibold);
+  margin-bottom: var(--jp-space-xs);
+}
+
+.chip {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--jp-space-xs);
+  border: 1px solid var(--ui-border-strong);
+  border-radius: var(--jp-radius-pill);
+  padding: 0 var(--jp-space-sm);
+  font-size: var(--jp-font-size-xs);
+  line-height: var(--jp-line-height-body);
+  cursor: pointer;
+}
+
+.chip:has(input:checked) {
+  border-color: var(--jp-color-electric-cyan);
+  color: var(--jp-color-ice-blue);
+}
+
+.chip input {
+  accent-color: var(--jp-color-electric-cyan);
+  margin: 0;
+}
+
+/* The model that answers: model, provider, and where it runs. */
+.route-badge {
+  display: inline-flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--jp-space-xs) var(--jp-space-sm);
+}
+
+.route-model,
+.route-fallback {
+  display: inline-flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--jp-space-xs);
+}
+
+.route-fallback {
+  color: var(--jp-color-warning);
+}
+
+/* ------------------------------------------------------------ AI Models */
+
+.storage-notice {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--jp-space-sm);
+  margin: 0;
+}
+
+.provider-list {
+  display: flex;
+  flex-direction: column;
+  gap: var(--jp-space-lg);
+}
+
+.provider {
+  border: 1px solid var(--ui-border);
+  border-radius: var(--jp-radius-md);
+  padding: var(--jp-space-lg);
+  display: flex;
+  flex-direction: column;
+  gap: var(--jp-space-sm);
+  min-width: 0;
+}
+
+.provider p {
+  margin: 0;
+}
+
+.provider h3,
+.provider h4 {
+  margin: 0;
+}
+
+/* A provider's name is a name, not a section label. */
+.provider h3 {
+  font-size: var(--jp-font-size-lg);
+  color: var(--ui-text);
+  text-transform: none;
+  letter-spacing: normal;
+  overflow-wrap: anywhere;
+}
+
+.provider h4 {
+  display: flex;
+  align-items: center;
+  gap: var(--jp-space-xs);
+  margin-top: var(--jp-space-sm);
+  font-size: var(--jp-font-size-md);
+}
+
+.provider-header {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: space-between;
+  gap: var(--jp-space-sm) var(--jp-space-lg);
+}
+
+.provider-header code {
+  overflow-wrap: anywhere;
+}
+
+.provider-badges {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-start;
+  gap: var(--jp-space-xs);
+}
+
+.provider-badges .badge {
+  gap: var(--jp-space-xs);
+}
+
+.provider-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--jp-space-sm) var(--jp-space-lg);
+}
+
+.key-section,
+.models,
+.add-model,
+.key-form {
+  display: flex;
+  flex-direction: column;
+  gap: var(--jp-space-sm);
+}
+
+.key-section,
+.models {
+  border-top: 1px solid var(--ui-border);
+  padding-top: var(--jp-space-sm);
+}
+
+.key-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--jp-space-sm);
+}
+
+.key-row .input {
+  flex: 1;
+  min-width: 12rem;
+}
+
+.key-form label {
+  font-weight: var(--jp-font-weight-semibold);
+}
+
+.models-table td .field-switch {
+  align-items: center;
+}
+
+.models-table .field-switch label {
+  /* The row names the model; the label stays for screen readers only. */
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+}
+
+.models-table p {
+  margin: var(--jp-space-xs) 0 0;
+}
+
+.model-name {
+  display: block;
+  font-weight: var(--jp-font-weight-semibold);
+  overflow-wrap: anywhere;
+}
+
+.model-id {
+  display: block;
+  overflow-wrap: anywhere;
+}
+
+.add-model {
+  border: 1px dashed var(--ui-border-strong);
+  border-radius: var(--jp-radius-md);
+  padding: var(--jp-space-md);
+}
+
+.add-model > label {
+  font-weight: var(--jp-font-weight-semibold);
+}
+
+.route-previews {
+  display: flex;
+  flex-direction: column;
+  gap: var(--jp-space-sm);
+  margin-bottom: var(--jp-space-lg);
+}
+
+.route-preview {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--jp-space-xs) var(--jp-space-md);
+}
+
+.route-capability {
+  min-width: 8rem;
+  font-weight: var(--jp-font-weight-semibold);
+}
+
+.routing-settings {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 20rem), 1fr));
+  gap: var(--jp-space-lg);
+}
+
+/* ----------------------------------------------------------------- Chat */
+
+.view-chat {
+  max-width: none;
+  height: 100%;
+  min-height: 32rem;
+}
+
+.chat-layout {
+  flex: 1;
+  min-height: 0;
+  display: grid;
+  grid-template-columns: minmax(12rem, 17rem) minmax(0, 1fr);
+  gap: var(--ui-gap);
+}
+
+@container content (max-width: 52rem) {
+  .chat-layout {
+    grid-template-columns: minmax(0, 1fr);
+    grid-template-rows: auto minmax(0, 1fr);
+  }
+
+  .conversation-list {
+    max-height: 9rem;
+  }
+}
+
+.conversation-list {
+  min-height: 0;
+  overflow-y: auto;
+  border: 1px solid var(--ui-border);
+  border-radius: var(--jp-radius-lg);
+  background: var(--ui-panel);
+  padding: var(--jp-space-sm);
+}
+
+.conversation-list ul {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--jp-space-xs);
+}
+
+.conversation-item {
+  width: 100%;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 2px;
+  text-align: start;
+  border: 1px solid transparent;
+  border-radius: var(--jp-radius-md);
+  background: transparent;
+  color: var(--ui-text);
+  padding: var(--jp-space-sm) var(--jp-space-md);
+  font: inherit;
+  cursor: pointer;
+}
+
+.conversation-item:hover {
+  background: var(--jp-surface-hover);
+}
+
+.conversation-item[aria-current='page'] {
+  background: var(--jp-surface-selected);
+  border-color: var(--ui-border-strong);
+}
+
+.conversation-title {
+  font-weight: var(--jp-font-weight-semibold);
+  overflow-wrap: anywhere;
+}
+
+.chat-main {
+  min-height: 0;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--jp-space-md);
+}
+
+.chat-empty {
+  flex: 1;
+}
+
+.conversation {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--jp-space-sm);
+}
+
+.conversation-toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: var(--jp-space-sm) var(--jp-space-lg);
+}
+
+.conversation-heading {
+  margin: 0;
+  overflow-wrap: anywhere;
+}
+
+.conversation-options > summary {
+  cursor: pointer;
+  color: var(--jp-color-electric-cyan);
+}
+
+.conversation-options-body {
+  display: flex;
+  flex-direction: column;
+  gap: var(--jp-space-md);
+  margin-top: var(--jp-space-sm);
+  padding: var(--jp-space-md);
+  border: 1px solid var(--ui-border);
+  border-radius: var(--jp-radius-md);
+  background: var(--ui-panel);
+}
+
+.conversation-options-body p {
+  margin: 0;
+}
+
+.messages {
+  flex: 1;
+  min-height: 12rem;
+  overflow-y: auto;
+  list-style: none;
+  margin: 0;
+  padding: var(--jp-space-sm);
+  display: flex;
+  flex-direction: column;
+  gap: var(--jp-space-md);
+  border: 1px solid var(--ui-border);
+  border-radius: var(--jp-radius-lg);
+}
+
+.message {
+  display: flex;
+  flex-direction: column;
+  gap: var(--jp-space-xs);
+  max-width: min(100%, 52rem);
+  padding: var(--jp-space-md);
+  border-radius: var(--jp-radius-md);
+  border: 1px solid var(--ui-border);
+  background: var(--ui-panel);
+}
+
+.message-user {
+  align-self: flex-end;
+  background: var(--jp-surface-selected);
+  border-color: var(--ui-border-strong);
+}
+
+.message[data-replaced='true'] {
+  opacity: 0.7;
+  border-style: dashed;
+}
+
+.message-meta {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--jp-space-sm);
+}
+
+.message-author {
+  font-weight: var(--jp-font-weight-semibold);
+}
+
+/* Model output is plain text: shown as written, never interpreted as markup. */
+.message-text {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.message p {
+  margin: 0;
+}
+
+.message-route {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--jp-space-xs) var(--jp-space-md);
+  color: var(--ui-text-muted);
+}
+
+.message-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--jp-space-sm);
+}
+
+.message-actions .button {
+  min-height: 2rem;
+  padding: 0 var(--jp-space-md);
+}
+
+.tool-call {
+  border: 1px solid var(--ui-border-strong);
+  border-radius: var(--jp-radius-md);
+  padding: var(--jp-space-sm) var(--jp-space-md);
+}
+
+.tool-call summary {
+  display: flex;
+  align-items: center;
+  gap: var(--jp-space-xs);
+  cursor: pointer;
+}
+
+.tool-arguments {
+  margin: var(--jp-space-sm) 0;
+  max-height: 16rem;
+  overflow: auto;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.attachment {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--jp-space-xs);
+}
+
+.edit-form {
+  display: flex;
+  flex-direction: column;
+  gap: var(--jp-space-sm);
 }

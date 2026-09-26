@@ -1,6 +1,17 @@
 import { describe, expect, it } from 'vitest'
+import { z } from 'zod'
 import {
   AppInfo,
+  Capabilities,
+  ChatMessage,
+  DomainEvent,
+  HostOperations,
+  ModelRef,
+  ProviderBaseUrl,
+  isProtectedTransport,
+  localityOf,
+  modelRef,
+  parseModelRef,
   BuildMetadata,
   DesktopNotification,
   ErrorEnvelope,
@@ -202,5 +213,139 @@ describe('settings', () => {
     expect(
       DesktopNotification.safeParse({ tone: 'info', title: 'a', body: '', onClick: 'x' }).success
     ).toBe(false)
+  })
+})
+
+describe('AI providers and routing (SET 3)', () => {
+  it('treats only loopback addresses as this device', () => {
+    expect(localityOf('http://127.0.0.1:11434/v1')).toBe('this-device')
+    expect(localityOf('http://127.8.9.10/v1')).toBe('this-device')
+    expect(localityOf('http://localhost:1234/v1')).toBe('this-device')
+    expect(localityOf('http://[::1]:8080/v1')).toBe('this-device')
+    // Other machines, even on the local network, cannot be verified: they count as cloud.
+    expect(localityOf('http://192.168.1.20:11434/v1')).toBe('cloud')
+    expect(localityOf('http://10.0.0.5/v1')).toBe('cloud')
+    expect(localityOf('https://api.example.test/v1')).toBe('cloud')
+    expect(localityOf('http://127.0.0.1.example.test/v1')).toBe('cloud')
+    expect(localityOf('http://localhost.example.test/v1')).toBe('cloud')
+    expect(localityOf('not a url')).toBe('cloud')
+  })
+
+  it('calls a transport protected only when it is https or stays on this computer', () => {
+    expect(isProtectedTransport('https://api.example.test/v1')).toBe(true)
+    expect(isProtectedTransport('http://127.0.0.1:8080/v1')).toBe(true)
+    expect(isProtectedTransport('http://192.168.1.20:11434/v1')).toBe(false)
+  })
+
+  it('accepts provider addresses without secrets, queries or fragments', () => {
+    expect(ProviderBaseUrl.safeParse('https://api.example.test/v1').success).toBe(true)
+    expect(ProviderBaseUrl.safeParse('  http://127.0.0.1:11434/v1  ').data).toBe(
+      'http://127.0.0.1:11434/v1'
+    )
+    for (const bad of [
+      'ftp://example.test/v1',
+      // Assembled at runtime so the repository's secret scan stays meaningful.
+      ['https://', 'user:pass', '@example.test/v1'].join(''),
+      'https://example.test/v1?key=abc',
+      'https://example.test/v1#x',
+      'file:///C:/models',
+      'javascript:alert(1)'
+    ]) {
+      expect(ProviderBaseUrl.safeParse(bad).success, bad).toBe(false)
+    }
+  })
+
+  it('round-trips model references, including model ids with slashes and colons', () => {
+    const ref = modelRef(ID, 'org/llama-3.1:8b')
+    expect(ModelRef.safeParse(ref).success).toBe(true)
+    expect(parseModelRef(ref)).toEqual({ providerId: ID, modelId: 'org/llama-3.1:8b' })
+    expect(parseModelRef('not-a-ref')).toBeNull()
+    expect(parseModelRef(`${ID}:has space`)).toBeNull()
+  })
+
+  it('never lets a capability return a secret, and keeps key operations out of the catalogue', () => {
+    for (const [id, capability] of Object.entries(Capabilities)) {
+      const output = JSON.stringify(z.toJSONSchema(capability.output, { unrepresentable: 'any' }))
+      expect(output, id).not.toMatch(/"(secret|apiKey|api_key|password|token)"/i)
+    }
+    for (const operation of Object.keys(HostOperations)) {
+      expect(Object.hasOwn(Capabilities, operation), operation).toBe(false)
+    }
+    // The one capability that accepts a key takes it as input only.
+    expect(Object.keys(Capabilities).filter((id) => id.startsWith('host.credentials.'))).toEqual([
+      'host.credentials.status'
+    ])
+  })
+
+  it('keeps message text out of persistent events and bounds streamed chunks', () => {
+    const changed = {
+      v: 1,
+      eventId: ID,
+      type: 'chat.message.changed',
+      stream: { kind: 'conversation', id: ID },
+      streamSequence: 1,
+      globalSequence: 1,
+      persistent: true,
+      occurredAt: NOW,
+      correlationId: ID,
+      causationId: null,
+      actor: { type: 'core', id: 'core' },
+      missionId: null,
+      executionId: null,
+      payload: {
+        conversationId: ID,
+        messageId: ID,
+        role: 'user',
+        status: 'complete',
+        change: 'created'
+      }
+    }
+    expect(DomainEvent.safeParse(changed).success).toBe(true)
+    expect(
+      DomainEvent.safeParse({ ...changed, payload: { ...changed.payload, text: 'hello' } }).success
+    ).toBe(false)
+    const delta = {
+      ...changed,
+      type: 'chat.message.delta',
+      streamSequence: null,
+      globalSequence: null,
+      persistent: false,
+      payload: { conversationId: ID, messageId: ID, offset: 0, text: 'Hel' }
+    }
+    expect(DomainEvent.safeParse(delta).success).toBe(true)
+    expect(
+      DomainEvent.safeParse({ ...delta, payload: { ...delta.payload, text: 'x'.repeat(16_001) } })
+        .success
+    ).toBe(false)
+  })
+
+  it('stores tool calls as structured parts and has no field for hidden reasoning', () => {
+    const message = {
+      messageId: ID,
+      conversationId: ID,
+      seq: 2,
+      role: 'assistant',
+      parts: [
+        { type: 'text', text: 'Checking.' },
+        { type: 'tool-call', callId: 'call_1', name: 'lookup', arguments: '{"q":"x"}' }
+      ],
+      status: 'complete',
+      route: null,
+      usage: { inputTokens: 10, outputTokens: 5, reasoningTokens: 40 },
+      finishReason: 'tool-calls',
+      error: null,
+      supersededBy: null,
+      editedFrom: null,
+      createdAt: NOW,
+      completedAt: NOW
+    }
+    expect(ChatMessage.safeParse(message).success).toBe(true)
+    expect(
+      ChatMessage.safeParse({
+        ...message,
+        parts: [{ type: 'reasoning', text: 'hidden chain of thought' }]
+      }).success
+    ).toBe(false)
+    expect(ChatMessage.safeParse({ ...message, reasoning: 'hidden' }).success).toBe(false)
   })
 })

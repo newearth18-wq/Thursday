@@ -11,7 +11,9 @@ import {
 } from '@jupiter/core'
 import { applyMigrations, planMigrations, type Migration, type MigrationReport } from './migrations'
 import { SqliteAuditStore } from './repositories/audit'
+import { SqliteChatStore } from './repositories/chat'
 import { SqliteEventStore } from './repositories/events'
+import { SqliteProviderStore } from './repositories/providers'
 import { SqliteServiceHealthStore } from './repositories/service-health'
 import { SqliteSettingsStore } from './repositories/settings'
 import { JUPITER_MIGRATIONS } from './schema'
@@ -55,6 +57,8 @@ export class JupiterDatabase implements DatabasePort {
   readonly settings: SqliteSettingsStore
   readonly audit: SqliteAuditStore
   readonly serviceHealth: SqliteServiceHealthStore
+  readonly providers: SqliteProviderStore
+  readonly chat: SqliteChatStore
   private integrity = 'not checked'
   private closed = false
 
@@ -80,6 +84,8 @@ export class JupiterDatabase implements DatabasePort {
     this.settings = new SqliteSettingsStore(db)
     this.audit = new SqliteAuditStore(db)
     this.serviceHealth = new SqliteServiceHealthStore(db)
+    this.providers = new SqliteProviderStore(db)
+    this.chat = new SqliteChatStore(db)
   }
 
   static async open(input: OpenDatabaseOptions): Promise<OpenedDatabase> {
@@ -208,10 +214,12 @@ export class JupiterDatabase implements DatabasePort {
         }
       })
       if (options.signal?.aborted) throw new Error('Backup cancelled')
+      this.makeSelfContained(partial)
       this.verifyBackup(partial)
       renameSync(partial, target)
     } catch (error) {
-      rmSync(partial, { force: true })
+      for (const leftover of [partial, `${partial}-wal`, `${partial}-shm`])
+        rmSync(leftover, { force: true })
       if (options.signal?.aborted) {
         throw new JupiterError(
           'BACKUP_CANCELLED',
@@ -279,6 +287,21 @@ export class JupiterDatabase implements DatabasePort {
     const rows = this.db.prepare('PRAGMA quick_check').all()
     const results = rows.map((row) => String(Object.values(row)[0]))
     return results.length === 1 && results[0] === 'ok' ? 'ok' : results.slice(0, 5).join('; ')
+  }
+
+  /**
+   * The copy inherits WAL mode from the live database. Switch it to a plain
+   * rollback journal so the backup is one self-contained file: no `-wal` or
+   * `-shm` companions are created now (by the verification) or later (by
+   * whoever opens it to restore).
+   */
+  private makeSelfContained(path: string): void {
+    const copy = new DatabaseSync(path)
+    try {
+      copy.exec('PRAGMA journal_mode = DELETE')
+    } finally {
+      copy.close()
+    }
   }
 
   private verifyBackup(path: string): void {

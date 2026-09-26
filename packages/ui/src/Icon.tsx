@@ -130,7 +130,36 @@ const PATHS = {
     </>
   ),
   folder: <path d="M3 6h6l2 2h10v11H3z" />,
-  chevronDown: <path d="m6 9 6 6 6-6" />
+  chevronDown: <path d="m6 9 6 6 6-6" />,
+  send: <path d="M4 12 20 4l-5 16-3-7zM12 13l8-9" />,
+  stop: <rect x="6.5" y="6.5" width="11" height="11" rx="1.5" />,
+  retry: <path d="M19 12a7 7 0 1 1-2.1-5M19 4v4h-4" />,
+  edit: <path d="M4 20h4L19 9l-4-4L4 16zM13.5 6.5l4 4" />,
+  add: <path d="M12 5v14M5 12h14" />,
+  remove: <path d="M5 7h14M10 7V4.5h4V7M7 7l1 13h8l1-13" />,
+  key: (
+    <>
+      <circle cx="8" cy="15" r="4" />
+      <path d="m11 12 8-8M16 7l2.5 2.5M14 9l2 2" />
+    </>
+  ),
+  lock: (
+    <>
+      <rect x="5" y="11" width="14" height="9" rx="2" />
+      <path d="M8 11V8a4 4 0 0 1 8 0v3" />
+    </>
+  ),
+  cloud: <path d="M7 18h10.5a4 4 0 0 0 .4-8A6 6 0 0 0 6.3 11 3.6 3.6 0 0 0 7 18z" />,
+  thisDevice: (
+    <>
+      <rect x="3" y="4.5" width="18" height="12" rx="1.5" />
+      <path d="M9 20h6M12 16.5V20" />
+    </>
+  ),
+  attach: (
+    <path d="m20 11.5-7.8 7.8a5 5 0 0 1-7.1-7.1l8-8a3.3 3.3 0 0 1 4.7 4.7l-8 8a1.7 1.7 0 0 1-2.4-2.4l7.4-7.4" />
+  ),
+  tool: <path d="M14.5 5.5a4 4 0 0 0 4.9 5.2L11 19a2.1 2.1 0 0 1-3-3l8.3-8.4a4 4 0 0 1-1.8-2.1z" />
 } as const satisfies Record<string, ReactElement>
 
 export type IconName = keyof typeof PATHS

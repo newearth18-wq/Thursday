@@ -21,13 +21,13 @@ export interface Destination {
 
 export const DESTINATIONS: readonly Destination[] = [
   main('home', 'nav.home', 'home', null, '1'),
-  main('chat', 'nav.chat', 'chat', '3', '2'),
+  main('chat', 'nav.chat', 'chat', null, '2'),
   main('missions', 'nav.missions', 'missions', '4', '3'),
   main('skills', 'nav.skills', 'skills', '6', '4'),
   main('memory', 'nav.memory', 'memory', '11', '5'),
   main('files', 'nav.files', 'files', '10', '6'),
   main('automations', 'nav.automations', 'automations', '18', '7'),
-  main('models', 'nav.aiModels', 'models', '3', '8'),
+  main('models', 'nav.aiModels', 'models', null, '8'),
   main('devices', 'nav.devices', 'devices', '12–13', '9'),
   main('plugins', 'nav.plugins', 'plugins', '15', null),
   {

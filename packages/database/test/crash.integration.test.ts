@@ -1,7 +1,7 @@
 import { spawn } from 'node:child_process'
 import { join } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
-import { JupiterDatabase } from '../src'
+import { JUPITER_MIGRATIONS, JupiterDatabase } from '../src'
 import { integrityOf, raw, tempDirectory } from './support/helpers'
 
 /**
@@ -93,8 +93,8 @@ describe('interrupted work never corrupts the database', () => {
     const version = db.prepare('SELECT max(version) AS v FROM schema_migrations').get()?.v
     const probe = db.prepare("SELECT name FROM sqlite_master WHERE name = 'crash_probe'").get()
     db.close()
-    // Migrations 1-2 committed; migration 3 was either never started or rolled back as a whole.
-    expect(version).toBe(2)
+    // Jupiter's migrations committed; the slow one was rolled back as a whole.
+    expect(version).toBe(JUPITER_MIGRATIONS.length)
     expect(probe).toBeUndefined()
 
     const { database, migration } = await JupiterDatabase.open({
@@ -102,7 +102,10 @@ describe('interrupted work never corrupts the database', () => {
       backupDirectory: join(dir, 'backups')
     })
     expect(migration.applied).toEqual([])
-    expect(database.info()).toMatchObject({ schemaVersion: 2, integrity: 'ok' })
+    expect(database.info()).toMatchObject({
+      schemaVersion: JUPITER_MIGRATIONS.length,
+      integrity: 'ok'
+    })
     database.close()
   })
 })

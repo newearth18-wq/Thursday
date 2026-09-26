@@ -4,8 +4,8 @@
  *
  *   transaction  — commits a baseline, then starts a large transaction, writes
  *                  half of it and waits to be killed before committing.
- *   migration    — applies migrations 1-2, then a slow migration 3, and is
- *                  killed while migration 3 is half-applied.
+ *   migration    — applies Jupiter's migrations, then a slow extra one, and
+ *                  is killed while that one is half-applied.
  */
 import { writeSync } from 'node:fs'
 import { uuidv7 } from '@jupiter/core'
@@ -52,15 +52,15 @@ if (mode === 'transaction') {
   })
 } else if (mode === 'migration') {
   const slow: Migration = {
-    version: 3,
-    name: '0003_slow_migration',
+    version: JUPITER_MIGRATIONS.length + 1,
+    name: '9999_slow_migration',
     sql: `
       CREATE TABLE crash_probe (id INTEGER PRIMARY KEY, note TEXT);
       WITH RECURSIVE n(x) AS (SELECT 1 UNION ALL SELECT x + 1 FROM n WHERE x < 200000)
       INSERT INTO crash_probe (note) SELECT 'row ' || x FROM n;
     `
   }
-  // Apply migrations 1-2 first, so the kill cannot land while the file is still being created.
+  // Apply Jupiter's migrations first, so the kill cannot land while the file is still being created.
   // Then signal the parent right before the slow migration starts, and keep it busy long
   // enough to be killed inside it.
   const current = await JupiterDatabase.open({ path, backupDirectory })

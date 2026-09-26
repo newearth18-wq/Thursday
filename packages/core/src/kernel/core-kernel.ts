@@ -11,6 +11,7 @@ import {
   type DomainEventType,
   type ErrorEnvelope,
   type EventsListInput,
+  type HostOperationName,
   type LogLevel,
   type ProgressUpdate,
   type RecordedError,
@@ -34,6 +35,10 @@ import {
   type RequestContext
 } from '../dispatch/dispatcher'
 import { EventBus, type EventDelivery, type PublishInput } from '../events/event-bus'
+import type { ProviderAdapter } from '../ai/adapter'
+import { ChatService } from '../ai/chat'
+import { ProviderService, type CredentialVault } from '../ai/providers'
+import type { FetchLike } from '../ai/transport'
 import { coreCapabilities } from './capabilities'
 
 /**
@@ -85,16 +90,27 @@ export interface CoreKernelOptions {
   }
   readonly onStatus: (services: ServiceHealth[]) => void
   readonly onLogLevel: (level: LogLevel) => void
+  /**
+   * The provider adapters installed in this build. Core knows adapters only
+   * through the adapter port; which ones exist is decided by whoever
+   * assembles Core, so adding or removing one never changes Core.
+   */
+  readonly adapters?: readonly ProviderAdapter[]
+  /** Network access for provider adapters, always wrapped in the guarded transport. */
+  readonly fetch?: FetchLike
   readonly now?: () => Date
 }
 
 const CORE_ACTOR: Actor = { type: 'core', id: 'core' }
 const MAX_BUFFERED_AUDIT = 500
+const HOST_OPERATION_TIMEOUT_MS = 15_000
 const RENDERER_ERRORS_PER_MINUTE = 20
 
 export class CoreKernel {
   readonly bus: EventBus
   readonly dispatcher: CapabilityDispatcher
+  readonly providers: ProviderService
+  readonly chat: ChatService
   private readonly supervisor: ServiceSupervisor
   private readonly logger: Logger
   private readonly now: () => Date
@@ -125,6 +141,50 @@ export class CoreKernel {
       onInternalError: (error, context) => {
         this.recordError(error, `capability:${context.capability}`, context.correlationId)
       },
+      now: this.now
+    })
+    const vault: CredentialVault = {
+      store: async (credentialId, secret, correlationId) => {
+        const output = await this.hostOperation(
+          'host.credentials.store',
+          { credentialId, secret },
+          correlationId
+        )
+        return (output as { fingerprint: string }).fingerprint
+      },
+      read: async (credentialId, correlationId, signal) => {
+        const output = await this.hostOperation(
+          'host.credentials.read',
+          { credentialId },
+          correlationId,
+          signal
+        )
+        return (output as { secret: string }).secret
+      },
+      remove: async (credentialId, correlationId) => {
+        const output = await this.hostOperation(
+          'host.credentials.delete',
+          { credentialId },
+          correlationId
+        )
+        return (output as { deleted: boolean }).deleted
+      }
+    }
+    this.providers = new ProviderService({
+      database: () => this.requireDatabase(),
+      adapters: options.adapters ?? [],
+      fetch: options.fetch ?? ((input, init) => fetch(input, init)),
+      vault,
+      setting: (key) => this.validSettingValue(key, this.database?.settings.get(key)?.value),
+      bus: this.bus,
+      logger: this.logger.child({ component: 'model-router' }),
+      now: this.now
+    })
+    this.chat = new ChatService({
+      database: () => this.requireDatabase(),
+      providers: this.providers,
+      bus: this.bus,
+      logger: this.logger.child({ component: 'chat' }),
       now: this.now
     })
     for (const capability of coreCapabilities(this)) this.dispatcher.register(capability)
@@ -188,7 +248,10 @@ export class CoreKernel {
   async retryService(serviceId: string): Promise<ErrorEnvelope | null> {
     try {
       await this.supervisor.retry(serviceId)
-      if (serviceId === 'database') await this.supervisor.retry('event-bus')
+      if (serviceId === 'database') {
+        await this.supervisor.retry('event-bus')
+        await this.supervisor.retry('model-router')
+      }
       return null
     } catch (error) {
       return toErrorEnvelope(error, {
@@ -377,6 +440,56 @@ export class CoreKernel {
     return this.options.host.call(capability, input, context.request, context.signal)
   }
 
+  /**
+   * A host operation Core performs for itself (reading or storing a key).
+   * Never reachable through the dispatcher: there is no capability for it.
+   */
+  private async hostOperation(
+    operation: HostOperationName,
+    input: unknown,
+    correlationId: string,
+    signal?: AbortSignal
+  ): Promise<unknown> {
+    if (!this.options.config.hostCapabilities.includes(operation)) {
+      throw new JupiterError(
+        'SECURE_STORAGE_UNAVAILABLE',
+        'The host does not offer secure storage for API keys.',
+        { category: 'dependency', userAction: null }
+      )
+    }
+    const controller = new AbortController()
+    const timer = setTimeout(() => {
+      controller.abort()
+    }, HOST_OPERATION_TIMEOUT_MS)
+    const forward = () => {
+      controller.abort()
+    }
+    signal?.addEventListener('abort', forward, { once: true })
+    const now = this.now()
+    try {
+      return await this.options.host.call(
+        operation,
+        input,
+        {
+          requestId: uuidv7(),
+          correlationId,
+          kind: 'command',
+          capability: operation,
+          missionId: null,
+          executionId: null,
+          actor: CORE_ACTOR,
+          sentAt: now.toISOString(),
+          receivedAt: now.toISOString(),
+          deadline: new Date(now.getTime() + HOST_OPERATION_TIMEOUT_MS).toISOString()
+        },
+        controller.signal
+      )
+    } finally {
+      clearTimeout(timer)
+      signal?.removeEventListener('abort', forward)
+    }
+  }
+
   recordHostStatus(services: readonly ServiceHealth[], correlationId: string): number {
     let changed = 0
     for (const service of services) {
@@ -499,6 +612,34 @@ export class CoreKernel {
     })
 
     this.supervisor.register({
+      id: 'model-router',
+      version: null,
+      capabilities: ['ai.providers', 'ai.route', 'ai.chat'],
+      critical: false,
+      retryable: true,
+      start: () => {
+        if (!this.database)
+          throw new JupiterError(
+            'DEPENDENCY_UNAVAILABLE',
+            'The model router needs the database, which is not available.',
+            {
+              category: 'dependency',
+              userAction: 'Fix the Database service, then press Retry on it.',
+              retryable: true
+            }
+          )
+        const recovered = this.chat.recoverInterrupted()
+        if (recovered > 0)
+          this.logger.warn(
+            'chat.answers.interrupted',
+            `${String(recovered)} answers were interrupted by a stop of Jupiter Core and are marked failed`
+          )
+        return undefined
+      },
+      stop: () => this.chat.stopAll()
+    })
+
+    this.supervisor.register({
       id: 'capability-dispatcher',
       version: null,
       capabilities: ['dispatch.validate', 'dispatch.authorize', 'dispatch.audit'],
@@ -601,7 +742,16 @@ export class CoreKernel {
     'ui.compact': () => undefined,
     'ui.reduceMotion': () => undefined,
     'ui.avatar': () => undefined,
-    'notifications.desktop': () => undefined
+    'notifications.desktop': () => undefined,
+    // Model router settings: read afresh for every routing decision.
+    'ai.routingMode': () => undefined,
+    'ai.fallbackPolicy': () => undefined,
+    'ai.costLatency': () => undefined,
+    'ai.preferredProvider': () => undefined,
+    'ai.preferredChatModel': () => undefined,
+    'ai.preferredReasoningModel': () => undefined,
+    'ai.preferredVisionModel': () => undefined,
+    'ai.preferredEmbeddingModel': () => undefined
   }
 
   private applyLogLevel(level: LogLevel, correlationId: string): void {

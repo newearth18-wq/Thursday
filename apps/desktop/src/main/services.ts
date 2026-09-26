@@ -3,6 +3,7 @@ import { JupiterError, describeError, type ServiceSupervisor } from '@jupiter/co
 import { probeWritableDirectory, type RotatingFileSink } from '@jupiter/core/node'
 import { readBuildMetadata } from './build-metadata'
 import type { CoreProcessManager } from './core-process'
+import type { CredentialVault } from './credential-vault'
 import type { MainEnvironment } from './environment'
 
 /**
@@ -17,13 +18,13 @@ interface ServiceDependencies {
   readonly env: MainEnvironment
   readonly fileSink: RotatingFileSink
   readonly core: CoreProcessManager
+  readonly vault: CredentialVault
   /** Set by the restart policy so the next Core start is counted as an automatic restart. */
   readonly takeAutomaticRestart: () => boolean
 }
 
 /** Jupiter Core modules and isolated runtimes that later SETs deliver. Never started, never shown as working. */
 export const PLANNED_SERVICES = [
-  { id: 'model-router', availability: 'COMING_LATER', plannedSet: 3, capabilities: ['ai.route'] },
   {
     id: 'mission-manager',
     availability: 'COMING_LATER',
@@ -191,6 +192,25 @@ export function registerServices(supervisor: ServiceSupervisor, deps: ServiceDep
     },
     stop() {
       fileSink.close()
+    }
+  })
+
+  supervisor.register({
+    id: 'secure-storage',
+    version: null,
+    capabilities: ['credentials.store', 'credentials.read'],
+    critical: false,
+    retryable: true,
+    start() {
+      const status = deps.vault.status()
+      if (status.available) return undefined
+      return {
+        status: 'DEGRADED',
+        code: 'SECURE_STORAGE_UNAVAILABLE',
+        message: `API keys cannot be stored: ${status.reason ?? 'no secure storage is available'}`,
+        userAction:
+          'Providers without a key (for example on this computer) still work. Fix secure storage, then press Retry.'
+      }
     }
   })
 

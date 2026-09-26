@@ -25,6 +25,7 @@ import {
   settledOverallStatus,
   waitForGateway
 } from './helpers'
+import { JUPITER_MIGRATIONS } from '@jupiter/database'
 
 /**
  * SET 1 acceptance tests against the real application: the renderer talks to
@@ -104,7 +105,7 @@ describe('SET 1 — typed gateway, authorization and persistence (real app)', ()
     })
     if (!result.ok) throw new Error('unreachable')
     const snapshot = DiagnosticsSnapshot.parse(result.data)
-    expect(snapshot.database?.schemaVersion).toBe(2)
+    expect(snapshot.database?.schemaVersion).toBe(JUPITER_MIGRATIONS.length)
     expect(snapshot.database?.journalMode).toBe('wal')
     expect(snapshot.dispatcher.capabilities.map((capability) => capability.id).sort()).toEqual(
       SET_1_CAPABILITIES
@@ -484,14 +485,16 @@ describe('SET 1 — typed gateway, authorization and persistence (real app)', ()
     expect(served.encodedSlash.status).toBe(404)
     expect(served.otherHost.status).toBe(404)
 
-    // No capability reads files or credentials; asking for one is refused.
+    // No capability reads files or returns credentials. SET 3 added three that store or remove
+    // an API key (input only) or say whether secure storage exists; none returns a secret (the
+    // contract test checks every output schema, the SET 3 E2E suite checks the running app).
     const snapshot = await query(page, 'diagnostics.snapshot')
     expect(snapshot.dispatcher.capabilities.map((capability) => capability.id).sort()).toEqual(
       SET_1_CAPABILITIES
     )
     expect(
-      SET_1_CAPABILITIES.some((id) => /file|fs\.|credential|secret|keychain|shell|exec/.test(id))
-    ).toBe(false)
+      SET_1_CAPABILITIES.filter((id) => /file|fs\.|credential|secret|keychain|shell|exec/.test(id))
+    ).toEqual(['ai.credentials.remove', 'ai.credentials.set', 'host.credentials.status'])
 
     // Nothing the interface can ask for returns a secret from the environment.
     const replies = JSON.stringify([
@@ -692,7 +695,7 @@ describe('SET 1 — AT9: a failed Core service is reported and recovers on Retry
     )
     expect(await settledOverallStatus(page)).toBe('HEALTHY')
     const recovered = await query(page, 'diagnostics.snapshot')
-    expect(recovered.database?.schemaVersion).toBe(2)
+    expect(recovered.database?.schemaVersion).toBe(JUPITER_MIGRATIONS.length)
     const events = await query(page, 'events.list', {
       afterSequence: 0,
       limit: 200,

@@ -1,5 +1,15 @@
 import { useCallback, useEffect, useState } from 'react'
-import { DEFAULT_VIEW, hashForView, viewFromHash, type ViewId } from '../../shared/views'
+import {
+  DEFAULT_VIEW,
+  conversationFromHash,
+  hashForConversation,
+  hashForView,
+  viewFromHash,
+  type ViewId
+} from '../../shared/views'
+
+/** The conversation last open in Chat, for this window only (it is never stored). */
+let lastConversation: string | null = null
 
 /**
  * Hash routing: the selected view lives in the URL fragment
@@ -35,8 +45,39 @@ export function useView(): { view: ViewId; navigate: (view: ViewId) => void } {
       setView(next)
       return
     }
-    window.location.hash = hashForView(next)
+    // Chat reopens the conversation that was open last in this window.
+    window.location.hash =
+      next === 'chat' ? hashForConversation(lastConversation) : hashForView(next)
   }, [])
 
   return { view, navigate }
+}
+
+/** The conversation open in Chat (`#/chat/<id>`), or null for a new one. */
+export function useConversationRoute(): {
+  conversationId: string | null
+  openConversation: (conversationId: string | null) => void
+} {
+  const [conversationId, setConversationId] = useState<string | null>(() =>
+    conversationFromHash(window.location.hash)
+  )
+  useEffect(() => {
+    if (viewFromHash(window.location.hash) === 'chat') lastConversation = conversationId
+  }, [conversationId])
+  useEffect(() => {
+    const sync = () => {
+      if (viewFromHash(window.location.hash) === 'chat')
+        setConversationId(conversationFromHash(window.location.hash))
+    }
+    window.addEventListener('hashchange', sync)
+    return () => {
+      window.removeEventListener('hashchange', sync)
+    }
+  }, [])
+  const openConversation = useCallback((next: string | null) => {
+    const hash = hashForConversation(next)
+    if (window.location.hash !== hash) window.location.hash = hash
+    setConversationId(next)
+  }, [])
+  return { conversationId, openConversation }
 }

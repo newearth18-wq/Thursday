@@ -7,6 +7,7 @@ import { MissionCard } from '../components/MissionCard'
 import { RecoveryNotice } from '../components/RecoveryNotice'
 import { StatusBadge } from '../components/StatusBadge'
 import { useI18n, type MessageKey } from '../i18n'
+import { useConversationRoute } from '../router'
 import { coreSessionOf, type Loadable } from '../useRuntime'
 import { LoadFailure } from './LoadFailure'
 
@@ -32,6 +33,7 @@ const RUNNING = new Set<ServiceHealth['status']>([
 
 export function HomeView({ status, onRetry, onNavigate }: Props) {
   const { t } = useI18n()
+  const { openConversation } = useConversationRoute()
   const info = status.state === 'ready' ? status.value.app : null
   const build = info?.build ?? null
 
@@ -72,7 +74,13 @@ export function HomeView({ status, onRetry, onNavigate }: Props) {
       <div className="home-grid">
         <div className="home-main">
           <JupiterStage status={status} />
-          <ChatComposer />
+          <ChatComposer
+            conversationId={null}
+            onSent={(exchange) => {
+              openConversation(exchange.conversation.conversationId)
+            }}
+            onNavigate={onNavigate}
+          />
         </div>
         <div className="home-side">
           <MissionCard mission={null} />

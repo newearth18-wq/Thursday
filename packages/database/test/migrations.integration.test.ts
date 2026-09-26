@@ -41,8 +41,8 @@ describe('migrations on a new database', () => {
     expect(preMigrationBackup).toBeNull()
     const info = database.info()
     expect(info).toMatchObject({
-      schemaVersion: 2,
-      latestKnownVersion: 2,
+      schemaVersion: JUPITER_MIGRATIONS.length,
+      latestKnownVersion: JUPITER_MIGRATIONS.length,
       journalMode: 'wal',
       foreignKeys: true,
       integrity: 'ok'
@@ -79,15 +79,15 @@ describe('migrations on a new database', () => {
 })
 
 describe('upgrading the previous schema fixture', () => {
-  it('backs up, migrates v1 → v2 and keeps every existing row', async () => {
+  it('backs up, migrates v1 to the latest version and keeps every existing row', async () => {
     const path = join(dir, 'jupiter.db')
     createFixtureDatabase(path)
     const { database, migration, preMigrationBackup } = await open(path)
 
     expect(migration).toEqual({
       fromVersion: 1,
-      toVersion: 2,
-      applied: [{ version: 2, name: '0002_audit_and_service_health' }]
+      toVersion: JUPITER_MIGRATIONS.length,
+      applied: JUPITER_MIGRATIONS.slice(1).map(({ version, name }) => ({ version, name }))
     })
     expect(preMigrationBackup?.reason).toBe('pre-migration')
 
@@ -119,8 +119,8 @@ describe('refusing unsafe databases (nothing is modified)', () => {
     ;(await open(path)).database.close()
     const db = raw(path)
     db.prepare(
-      "INSERT INTO schema_migrations VALUES (3, '0003_from_the_future', ?, '2027-01-01T00:00:00.000Z')"
-    ).run('f'.repeat(64))
+      "INSERT INTO schema_migrations VALUES (?, '9999_from_the_future', ?, '2027-01-01T00:00:00.000Z')"
+    ).run(JUPITER_MIGRATIONS.length + 1, 'f'.repeat(64))
     db.close()
     const before = hash(path)
     await expect(open(path)).rejects.toMatchObject({
@@ -143,8 +143,8 @@ describe('refusing unsafe databases (nothing is modified)', () => {
     const path = join(dir, 'jupiter.db')
     ;(await open(path)).database.close()
     const broken: Migration = {
-      version: 3,
-      name: '0003_broken',
+      version: JUPITER_MIGRATIONS.length + 1,
+      name: '9999_broken',
       sql: 'CREATE TABLE half_done (id INTEGER); INSERT INTO no_such_table VALUES (1);'
     }
     await expect(open(path, [...JUPITER_MIGRATIONS, broken])).rejects.toMatchObject({
@@ -154,7 +154,9 @@ describe('refusing unsafe databases (nothing is modified)', () => {
     expect(
       db.prepare("SELECT name FROM sqlite_master WHERE name = 'half_done'").get()
     ).toBeUndefined()
-    expect(db.prepare('SELECT max(version) AS v FROM schema_migrations').get()?.v).toBe(2)
+    expect(db.prepare('SELECT max(version) AS v FROM schema_migrations').get()?.v).toBe(
+      JUPITER_MIGRATIONS.length
+    )
     db.close()
     expect(integrityOf(path)).toEqual(['ok'])
   })

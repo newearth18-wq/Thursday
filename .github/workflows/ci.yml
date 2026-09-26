@@ -34,10 +34,13 @@ jobs:
       - name: Install dependencies from the lockfile
         run: npm ci
 
-      - name: Install the system libraries Electron needs, and xvfb
+      # gnome-keyring + libsecret: the OS secure storage Jupiter keeps API keys in (SET 3).
+      # scripts/with-display.mjs runs each test in a private D-Bus session with a
+      # throwaway, unlocked keyring, under xvfb.
+      - name: Install the system libraries Electron needs, xvfb and a secret service
         run: |
           npx playwright install-deps chromium
-          sudo apt-get install -y --no-install-recommends xvfb
+          sudo apt-get install -y --no-install-recommends xvfb dbus gnome-keyring libsecret-1-0
 
       - name: Formatting
         run: npm run format:check
@@ -55,13 +58,13 @@ jobs:
         run: npm run build
 
       - name: Integration and Electron E2E tests
-        run: xvfb-run -a -s "-screen 0 4096x2304x24" npx vitest run --project integration
+        run: node scripts/with-display.mjs npx vitest run --project integration
 
       - name: Secret scan (sources and build output)
         run: node scripts/check-secrets.mjs --include-build
 
       - name: Development mode launches the app
-        run: xvfb-run -a -s "-screen 0 4096x2304x24" node scripts/dev-smoke.mjs
+        run: node scripts/with-display.mjs node scripts/dev-smoke.mjs
 
       - name: Windows unpacked build and validation
         run: |
@@ -72,7 +75,7 @@ jobs:
         run: |
           npm run package:linux:dir
           node scripts/validate-package.mjs --platform linux
-          xvfb-run -a -s "-screen 0 4096x2304x24" npx vitest run --project integration apps/desktop/test/packaged.integration.test.ts
+          node scripts/with-display.mjs npx vitest run --project integration apps/desktop/test/packaged.integration.test.ts
         env:
           JUPITER_PACKAGED_EXECUTABLE: apps/desktop/dist/linux-unpacked/jupiter
 

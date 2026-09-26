@@ -37,15 +37,16 @@ Jupiter is developed one SET at a time from the _Jupiter Complete Master Prompt_
 
 ## Where things go
 
-| Change                                              | Place                |
-| --------------------------------------------------- | -------------------- |
-| Data shapes crossing a process or trust boundary    | `packages/contracts` |
-| Framework-independent logic (no Electron, no React) | `packages/core`      |
-| SQLite schema, migrations, repositories             | `packages/database`  |
-| Redaction, secret detection                         | `packages/security`  |
-| Design tokens, shared visual components             | `packages/ui`        |
-| Electron host, Core entry, preload, renderer        | `apps/desktop`       |
-| Isolated runtimes (future SETs)                     | `services/*`         |
+| Change                                               | Place                |
+| ---------------------------------------------------- | -------------------- |
+| Data shapes crossing a process or trust boundary     | `packages/contracts` |
+| Framework-independent logic (no Electron, no React)  | `packages/core`      |
+| AI provider adapters (implement Core's adapter port) | `packages/providers` |
+| SQLite schema, migrations, repositories              | `packages/database`  |
+| Redaction, secret detection                          | `packages/security`  |
+| Design tokens, shared visual components              | `packages/ui`        |
+| Electron host, Core entry, preload, renderer         | `apps/desktop`       |
+| Isolated runtimes (future SETs)                      | `services/*`         |
 
 Do not modify `legacy/thursday-browser` unless a task is explicitly about it.
 
@@ -63,6 +64,16 @@ Do not modify `legacy/thursday-browser` unless a task is explicitly about it.
 - Something that happened is a **domain event**: add its payload schema to
   `packages/contracts/src/events.ts` and publish it through the event bus inside
   the same transaction as the change it describes.
+- A new AI provider protocol is an **adapter** in `packages/providers`
+  implementing the port in `packages/core/src/ai/adapter.ts`, listed in
+  `apps/desktop/src/core/adapters.ts`. Core must not change, and must never
+  name a provider. Adapters use only `context.transport` (never `fetch`; lint
+  enforces it), drop hidden reasoning, and pass provider error text through
+  `sanitizeProviderText`. Test them against `@jupiter/testing/protocol-servers`.
+- Secrets reach Core only through the host vault (`host.credentials.*` host
+  operations, Core actor only). Never return a key, put one in an event, log,
+  error or the database, or keep one in renderer state longer than the request
+  that sends it.
 - Schema changes are new migrations at the end of `JUPITER_MIGRATIONS`; never
   edit a migration that has shipped (see `packages/database/README.md`).
 
@@ -90,8 +101,10 @@ npm run verify      # format, lint, typecheck, unit, build, E2E, secrets, dev sm
 ```
 
 On Linux without a display the Electron tests run under `xvfb-run`
-automatically. As root (containers) Chromium needs `--no-sandbox`; the test
-helpers add it only in that case.
+automatically, and always in a private D-Bus session with a throwaway, unlocked
+GNOME Keyring (install `dbus` and `gnome-keyring`), so API-key tests use real
+OS-backed storage and never your own keyring. As root (containers) Chromium
+needs `--no-sandbox`; the test helpers add it only in that case.
 
 ## Writing tests
 

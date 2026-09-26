@@ -1,8 +1,18 @@
 import {
   AvailabilityStatus,
+  CostLatencyPreference,
+  CredentialInfo,
+  EventPayloads,
+  FallbackPolicy,
   JupiterEnvironment,
+  Locality,
+  MessageRole,
+  MessageStatus,
+  ModelCapability,
   OverallRuntimeStatus,
+  ProviderState,
   RiskLevel,
+  RoutingMode,
   RunningServiceStatus,
   SettingKey
 } from '@jupiter/contracts'
@@ -72,6 +82,25 @@ describe('keys built at runtime', () => {
       'settingName.': SettingKey.options,
       'errorCode.': KNOWN_CODES,
       'feature.': VIEW_IDS.filter((view) => !['home', 'settings', 'diagnostics'].includes(view)),
+      'locality.': Locality.options,
+      'capability.': ModelCapability.options,
+      'capabilitySource.': ['provider', 'user', 'none'],
+      'routing.mode.': RoutingMode.options,
+      'routing.modeHint.': RoutingMode.options,
+      'routing.fallback.': FallbackPolicy.options,
+      'routing.fallbackHint.': FallbackPolicy.options,
+      'routing.cost.': CostLatencyPreference.options,
+      'providerState.': ProviderState.options,
+      'providerStateHint.': ProviderState.options,
+      'keyValidation.': CredentialInfo.shape.validation.options,
+      'models.keyRequirement.': ['required', 'optional', 'none'],
+      'models.localityHint.': Locality.options,
+      'models.preferred.': ['chat', 'reasoning', 'vision', 'embeddings'],
+      'activity.provider.': EventPayloads['ai.provider.changed'].shape.change.options,
+      'activity.conversation.': EventPayloads['chat.conversation.changed'].shape.change.options,
+      'activity.answer.': MessageStatus.options,
+      'chat.announce.': MessageStatus.options,
+      'chat.role.': MessageRole.options.filter((role) => role !== 'user'),
       'stage.': STAGE_STATES,
       'indicators.core.': ['running', 'starting', 'stopped', 'unknown'],
       'activity.state.': ['live', 'connecting', 'waiting-for-core', 'error'],
@@ -95,7 +124,8 @@ describe('keys built at runtime', () => {
         'browser-runtime',
         'artifact-manager',
         'identity-gateway',
-        'plugin-runtime'
+        'plugin-runtime',
+        'secure-storage'
       ]
     }
     for (const [prefix, values] of Object.entries(families)) {

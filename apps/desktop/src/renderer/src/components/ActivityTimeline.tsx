@@ -59,6 +59,45 @@ export function describeEvent(event: DomainEvent, t: Translate): Omit<TimelineEn
         tone: 'info',
         title: t('activity.logLevel', { level: event.payload.level })
       }
+    case 'ai.provider.changed':
+      return {
+        ...base,
+        tone: event.payload.state === 'failed' ? 'warning' : 'info',
+        title: t(`activity.provider.${event.payload.change}`)
+      }
+    case 'ai.route.fallback':
+      return {
+        ...base,
+        tone: 'warning',
+        title: t('activity.routeFallback', { code: event.payload.from.errorCode })
+      }
+    case 'ai.route.blocked':
+      return {
+        ...base,
+        tone: 'warning',
+        title: t('activity.routeBlocked', { mode: t(`routing.mode.${event.payload.mode}`) })
+      }
+    case 'chat.conversation.changed':
+      return { ...base, tone: 'info', title: t(`activity.conversation.${event.payload.change}`) }
+    case 'chat.message.changed':
+      return {
+        ...base,
+        tone:
+          event.payload.status === 'failed'
+            ? 'error'
+            : event.payload.status === 'cancelled'
+              ? 'warning'
+              : 'info',
+        title:
+          event.payload.change === 'superseded'
+            ? t('activity.message.superseded')
+            : event.payload.role === 'user'
+              ? t('activity.message.sent')
+              : t(`activity.answer.${event.payload.status}`)
+      }
+    case 'chat.message.delta':
+      // Transient: never part of the stored event log.
+      return { ...base, tone: 'info', title: t('activity.answer.streaming') }
   }
 }
 

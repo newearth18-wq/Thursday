@@ -1,7 +1,8 @@
-# Jupiter architecture — after SET 2
+# Jupiter architecture — after SET 3
 
-This document describes what exists after SET 2 (product shell, design system
-and accessible interface) on top of SET 1 (Core architecture, IPC, events and
+This document describes what exists after SET 3 (AI providers, Model Router
+and Chat) on top of SET 2 (product shell, design system and accessible
+interface), SET 1 (Core architecture, IPC, events and
 database) and the SET 0 foundation. Later SETs extend it;
 each section says what is deliberately not here yet. Decisions and their
 alternatives are in [docs/decisions/](decisions/).
@@ -11,13 +12,14 @@ alternatives are in [docs/decisions/](decisions/).
 npm workspaces, one lockfile, strict TypeScript everywhere.
 
 ```text
-apps/desktop          ── depends on ──▶ contracts, core, database, security, ui   (bundled, nothing external at runtime)
+apps/desktop          ── depends on ──▶ contracts, core, database, providers, security, ui   (bundled, nothing external at runtime)
+packages/providers    ── depends on ──▶ contracts, core, zod   (adapters; installed only in the Core entry)
 packages/database     ── depends on ──▶ contracts, core            (node:sqlite, built into Electron's Node.js)
 packages/core         ── depends on ──▶ contracts, security, zod
 packages/security     ── no dependencies (patterns file is dependency-free on purpose)
 packages/contracts    ── depends on ──▶ zod
 packages/ui           ── depends on ──▶ @fontsource fonts (React is a peer)
-packages/testing      ── depends on ──▶ playwright            (tests only)
+packages/testing      ── depends on ──▶ playwright            (tests only; also provider protocol test servers)
 services/*, plugins/  placeholders: no code, labelled Coming later
 legacy/thursday-browser                   separate npm project, own lockfile, not a workspace
 ```
@@ -38,8 +40,9 @@ React. The Core bundle imports only `node:crypto`, `node:fs`, `node:path` and
 ```text
 ┌─────────────────────────────────────────────┐
 │ Renderer (React 19) — jupiter://app#/<view> │  sandboxed, contextIsolation, no Node.js,
-│ 12 destinations: Home · Settings ·          │  strict CSP, validates every reply and push
-│   Diagnostics work; 9 are Coming later      │
+│ 12 destinations: Home · Chat · AI Models ·  │  strict CSP, validates every reply and push
+│   Settings · Diagnostics work; 7 are        │
+│   Coming later                              │
 └───────────────────┬─────────────────────────┘
                     │ window.jupiter — 7 frozen functions (contract v1)
 ┌───────────────────┴─────────────────────────┐
@@ -52,7 +55,11 @@ React. The Core bundle imports only `node:crypto`, `node:fs`, `node:path` and
 │  Host gateway (sender check, size, schema,  │
 │    actor assignment, ownership, audit)      │
 │  Host services: build-metadata, environment,│
-│    storage, logging, core (supervisor)      │
+│    storage, logging, secure-storage,        │
+│    core (supervisor)                        │
+│  Credential vault (safeStorage: DPAPI /     │
+│    Keychain / Secret Service), host ops     │
+│    host.credentials.* for Core only         │
 │  Host capabilities (logs.reveal,            │
 │    notifications.status/show) — run only    │
 │    when Core's dispatcher asks              │
@@ -67,13 +74,16 @@ React. The Core bundle imports only `node:crypto`, `node:fs`, `node:path` and
 │  Event bus (per-stream order, persistence,  │
 │    replay-safe subscriptions)               │
 │  Services: database · event-bus ·           │
-│    capability-dispatcher                    │
+│    model-router · capability-dispatcher     │
+│  Providers + router + chat; adapters reach  │
+│    the network only via the guarded         │
+│    transport (Local only, no redirects)     │
 │  SQLite (WAL, FULL sync, FKs, STRICT tables,│
 │    append-only events and audit, backups)   │
 └─────────────────────────────────────────────┘
    Mission Manager, Workflow Engine, Skill Registry, Permission Engine,
-   Identity Gateway, Model Router, Artifact Manager, Agent/Browser/Plugin
-   runtimes: COMING_LATER (SET 3–15). They will register capabilities with
+   Identity Gateway, Artifact Manager, Agent/Browser/Plugin
+   runtimes: COMING_LATER (SET 4–15). They will register capabilities with
    the dispatcher and publish on the event bus; nothing reaches the host
    without going through the dispatcher.
 ```
@@ -176,7 +186,9 @@ reads files, credentials or runs commands.
 - `node:sqlite` with `journal_mode=WAL`, `synchronous=FULL`, foreign keys on
   (verified at open), `STRICT` tables and CHECK constraints.
 - Tables: `schema_migrations`, `settings`, `event_streams`, `events`,
-  `audit_log`, `service_health`.
+  `audit_log`, `service_health`; since migration 3 (SET 3) `ai_providers`
+  (credential id and fingerprint only — never a key), `ai_models`,
+  `chat_conversations` and `chat_messages`.
 - **Migrations** are ordered, checksummed (sha256 of version, name and SQL) and
   each applied atomically. Opening refuses a database newer than the app, a
   modified or missing migration, and runs `quick_check` first (a corrupt file
@@ -237,15 +249,15 @@ Decisions and alternatives: [ADR 0003](decisions/0003-product-shell-preferences-
 - **Destinations.** Twelve screens, each at its own address
   (`#/home`, `#/chat`, … `#/diagnostics`); an unknown address opens Home.
   `destinations.ts` states for each one whether it works and which SET builds
-  it. Home (Command Center), Settings and Diagnostics work. Chat, Missions,
-  Skills, Memory, Files, Automations, AI Models, Devices and Plugins open a
-  screen labelled _Coming later_ with its SET, and have no enabled controls,
-  progress or motion.
+  it. Home (Command Center), Chat, AI Models (both since SET 3), Settings and
+  Diagnostics work. Missions, Skills, Memory, Files, Automations, Devices and
+  Plugins open a screen labelled _Coming later_ with its SET, and have no
+  enabled controls, progress or motion.
 - **Command Center.** The Jupiter stage (mark + status) is driven only by
   Core's real state as the host reports it: idle, attention (a service
   degraded or failed), starting, connecting, or unavailable (Core stopped). It
   never shows "thinking" or "working". Next to it: the chat composer
-  (disabled, says why), the current-Mission card (says no Mission is running),
+  (working since SET 3 when a model is set up; otherwise disabled and says why), the current-Mission card (says no Mission is running),
   recent activity from the event bus, and System health.
 - **Shell.** Skip link; a sidebar that collapses to icons (compact mode or
   Ctrl+B); a top bar with the Jupiter menu (keyboard shortcuts, About), the
@@ -283,10 +295,43 @@ Decisions and alternatives: [ADR 0003](decisions/0003-product-shell-preferences-
   catalogues have the same keys and placeholders, and a unit test parses the
   renderer and fails on literal copy in components.
 
-## Not in SET 2
+## AI providers, Model Router and Chat (SET 3)
 
-Providers, the Model Router, chat and secure credential storage (SET 3);
-Missions (SET 4) and everything after that; the animated avatar engine
-(SET 16). The architecture diagram's future components, and the nine
-unfinished destinations, are shown as _Coming later_ in the app, and none of
-them is presented as working.
+Decisions and alternatives: [ADR 0004](decisions/0004-providers-router-credentials-and-chat.md).
+
+- **Adapter port.** `packages/core/src/ai/adapter.ts` defines what an adapter
+  does (describe itself, list models, stream chat, optionally embed) and the
+  provider error codes. `@jupiter/providers` implements the OpenAI-compatible
+  and Anthropic protocols. `apps/desktop/src/core/adapters.ts` is the only
+  place that lists them; Core never names a provider.
+- **Network guard.** `ai/transport.ts` is the only way adapters reach the
+  network: locality from the address (loopback = this device), Local only
+  blocks cloud addresses before connecting, redirects are refused, and a key
+  is never sent over plain `http` off this computer.
+- **Router.** `ai/router.ts` (pure) picks a model by capability, mode (Auto,
+  Cloud, Hybrid, Local only), conversation pin, preferences and cost/latency,
+  with fallbacks only as the policy allows (`never`, `same-locality`,
+  `allowed-by-mode`). `ai.route.preview` shows the result in the interface.
+- **Keys.** The host `CredentialVault` encrypts each key with `safeStorage`
+  into `<data folder>/credentials/<id>.bin` (0600) and refuses to store keys
+  without OS protection. Core reads keys through host operations for the Core
+  actor only; the renderer only ever sees a fingerprint.
+- **Chat.** `ai/chat.ts` stores the question and a `streaming` answer, streams
+  text as transient `chat.message.delta` events (40 ms batches, with offsets),
+  and stores the finished answer once as complete, cancelled or failed.
+  Stop aborts the provider request; retry and edit supersede, never delete;
+  answers interrupted by a Core stop are marked failed at the next start.
+- **Interface.** _AI Models_ (providers, keys, models, routing and a live
+  route preview per capability) and _Chat_ (conversations, streaming, Stop,
+  Ask again, Edit, per-conversation mode and model, the model shown on every
+  answer, tool calls shown and never run). The Home composer sends into a new
+  conversation. With no usable model, composers are disabled and say _Not
+  configured_ or _Unavailable_ with the reason and a link to AI Models.
+
+## Not in SET 3
+
+Missions (SET 4), tools and their execution (SET 6), approvals (SET 7),
+attachments through the Artifact Manager (SET 10; the message format already
+has an attachment part, and the composer labels it _Coming later_), and
+everything after that. The seven unfinished destinations are shown as _Coming
+later_ in the app, and none of them is presented as working.

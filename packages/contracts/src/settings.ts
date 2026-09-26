@@ -1,5 +1,6 @@
 import { z } from 'zod'
 import { Actor } from './actor'
+import { CostLatencyPreference, FallbackPolicy, ModelRef, ProviderId, RoutingMode } from './ai'
 import { UtcTimestamp } from './primitives'
 
 /**
@@ -11,6 +12,8 @@ import { UtcTimestamp } from './primitives'
  * - `logging.level` is applied by Jupiter Core (SET 1).
  * - `ui.*` and `notifications.*` are interface preferences (SET 2): Core
  *   stores them; the interface applies them.
+ * - `ai.*` configure the model router (SET 3); Core reads them for every
+ *   routing decision.
  */
 export const SettingDefinitions = {
   /** Minimum level written to the log files. `null` means the environment's default. */
@@ -28,7 +31,18 @@ export const SettingDefinitions = {
   /** How Jupiter's central avatar is shown. */
   'ui.avatar': z.enum(['animated', 'static', 'hidden']),
   /** Also show important results as Windows notifications while Jupiter is in the background. */
-  'notifications.desktop': z.boolean()
+  'notifications.desktop': z.boolean(),
+  /** Which providers the router may use. `LOCAL_ONLY` blocks every endpoint that is not on this computer. */
+  'ai.routingMode': RoutingMode,
+  /** What happens when the chosen model fails before answering. */
+  'ai.fallbackPolicy': FallbackPolicy,
+  /** Tie-breaker where cost or measured latency is known. */
+  'ai.costLatency': CostLatencyPreference,
+  'ai.preferredProvider': ProviderId.nullable(),
+  'ai.preferredChatModel': ModelRef.nullable(),
+  'ai.preferredReasoningModel': ModelRef.nullable(),
+  'ai.preferredVisionModel': ModelRef.nullable(),
+  'ai.preferredEmbeddingModel': ModelRef.nullable()
 } as const satisfies Record<string, z.ZodType>
 
 export type SettingKey = keyof typeof SettingDefinitions
@@ -44,7 +58,15 @@ export const SettingDefaults: { readonly [K in SettingKey]: SettingValue<K> } = 
   'ui.compact': false,
   'ui.reduceMotion': 'system',
   'ui.avatar': 'animated',
-  'notifications.desktop': true
+  'notifications.desktop': true,
+  'ai.routingMode': 'AUTO',
+  'ai.fallbackPolicy': 'never',
+  'ai.costLatency': 'balanced',
+  'ai.preferredProvider': null,
+  'ai.preferredChatModel': null,
+  'ai.preferredReasoningModel': null,
+  'ai.preferredVisionModel': null,
+  'ai.preferredEmbeddingModel': null
 }
 
 export const SettingRecord = z

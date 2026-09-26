@@ -8,6 +8,7 @@ import {
   Menu,
   nativeTheme,
   Notification,
+  safeStorage,
   session,
   shell,
   webContents
@@ -42,6 +43,7 @@ import { CoreProcessManager } from './core-process'
 import { prepareEnvironment, type MainEnvironment } from './environment'
 import { HostGateway } from './gateway'
 import { HOST_CAPABILITIES, HostCapabilities } from './host-capabilities'
+import { CredentialVault } from './credential-vault'
 import { createMainLogging, type MainLogging } from './logging'
 import { hardenSession, hardenWebContents } from './security'
 import { registerServices } from './services'
@@ -126,9 +128,16 @@ async function start(environment: MainEnvironment, mainLogging: MainLogging): Pr
   let automaticRestartPending = false
   const restartTimes: number[] = []
 
+  const vault = new CredentialVault(
+    join(environment.userDataDir, 'credentials'),
+    safeStorage,
+    process.platform,
+    logger
+  )
   const hostCapabilities = new HostCapabilities({
     logger,
     logsDirectory: environment.logsDir,
+    vault,
     openPath: (path) => shell.openPath(path),
     notifier: {
       isSupported: () => Notification.isSupported(),
@@ -350,6 +359,7 @@ async function start(environment: MainEnvironment, mainLogging: MainLogging): Pr
     env: environment,
     fileSink,
     core,
+    vault,
     takeAutomaticRestart: () => {
       const pending = automaticRestartPending
       automaticRestartPending = false
@@ -404,6 +414,16 @@ async function start(environment: MainEnvironment, mainLogging: MainLogging): Pr
 }
 
 function main(): void {
+  if (
+    process.platform === 'linux' &&
+    !process.argv.some((argument) => argument.startsWith('--password-store'))
+  ) {
+    // Linux is for development and CI only. Ask Chromium for the Secret Service explicitly —
+    // first thing, and even when a launcher (such as a test harness) preset its unprotected
+    // `basic` store; only a --password-store the person passed on the command line is kept.
+    // Without a secret service Jupiter refuses to store API keys.
+    app.commandLine.appendSwitch('password-store', 'gnome-libsecret')
+  }
   env = prepareEnvironment()
   logging = createMainLogging(env, sessionId)
   const environment = env

@@ -8,6 +8,7 @@ import {
 } from '@jupiter/testing'
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
 import { gatewayStatus, packageJson, query, serviceStatus, settledOverallStatus } from './helpers'
+import { JUPITER_MIGRATIONS } from '@jupiter/database'
 
 /**
  * Launch a packaged Jupiter build (the output of electron-builder) and check
@@ -61,7 +62,7 @@ describe.skipIf(!executablePath)('packaged Jupiter build', () => {
       expect(serviceStatus(status, id), id).toBe('HEALTHY')
     }
     const snapshot = await query(page, 'diagnostics.snapshot')
-    expect(snapshot.database?.schemaVersion).toBe(2)
+    expect(snapshot.database?.schemaVersion).toBe(JUPITER_MIGRATIONS.length)
     expect(snapshot.database?.journalMode).toBe('wal')
     expect(existsSync(join(userDataDir, 'jupiter.db'))).toBe(true)
   })

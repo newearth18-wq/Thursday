@@ -1,16 +1,32 @@
-import { existsSync, mkdtempSync, rmSync } from 'node:fs'
+import { existsSync, mkdtempSync, readdirSync, readFileSync, rmSync, statSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { CORE_PROTOCOL_VERSION, type DesktopNotification } from '@jupiter/contracts'
 import { Logger, MemorySink, uuidv7 } from '@jupiter/core'
+import { fakeCredentials } from '@jupiter/testing/fake-credentials'
 import { afterEach, describe, expect, it, vi } from 'vitest'
+import { CredentialVault, type SafeStorageLike } from './credential-vault'
 import { HostCapabilities, type HostCall } from './host-capabilities'
+
+/** Stands in for Electron's safeStorage: reversible, and never stores the plaintext. */
+function fakeSafeStorage(state: { available: boolean; backend?: string }): SafeStorageLike {
+  const scramble = (buffer: Buffer) => Buffer.from(buffer.map((byte) => byte ^ 0x5a))
+  return {
+    isEncryptionAvailable: () => state.available,
+    encryptString: (text) =>
+      Buffer.concat([Buffer.from('v10'), scramble(Buffer.from(text, 'utf8'))]),
+    decryptString: (data) => scramble(data.subarray(3)).toString('utf8'),
+    getSelectedStorageBackend: () => state.backend ?? 'gnome_libsecret'
+  }
+}
 
 const roots: string[] = []
 
 function setup(
   openPath: (path: string) => Promise<string>,
-  notifications: { supported: boolean } = { supported: true }
+  notifications: { supported: boolean } = { supported: true },
+  storage: { available: boolean; backend?: string } = { available: true },
+  platform: NodeJS.Platform = 'linux'
 ) {
   const root = mkdtempSync(join(tmpdir(), 'jupiter-host-capabilities-'))
   roots.push(root)
@@ -18,8 +34,12 @@ function setup(
   const open = vi.fn(openPath)
   const shown: DesktopNotification[] = []
   let now = 1_000_000
+  const logs = new MemorySink()
+  const logger = Logger.create({ sessionId: uuidv7(), level: 'debug', sinks: [logs] })
+  const credentialsDirectory = join(root, 'credentials')
   const capabilities = new HostCapabilities({
-    logger: Logger.create({ sessionId: uuidv7(), level: 'debug', sinks: [new MemorySink()] }),
+    logger,
+    vault: new CredentialVault(credentialsDirectory, fakeSafeStorage(storage), platform, logger),
     logsDirectory,
     openPath: open,
     notifier: {
@@ -30,6 +50,8 @@ function setup(
   })
   return {
     capabilities,
+    credentialsDirectory,
+    logs,
     logsDirectory,
     open,
     shown,
@@ -39,7 +61,11 @@ function setup(
   }
 }
 
-function call(capability: string, input: unknown = {}): HostCall {
+function call(
+  capability: string,
+  input: unknown = {},
+  actor: HostCall['actor'] = { type: 'user-interface', id: 'window:1' }
+): HostCall {
   return {
     protocol: CORE_PROTOCOL_VERSION,
     kind: 'host-call',
@@ -48,7 +74,7 @@ function call(capability: string, input: unknown = {}): HostCall {
     input,
     requestId: uuidv7(),
     correlationId: uuidv7(),
-    actor: { type: 'user-interface', id: 'window:1' }
+    actor
   }
 }
 
@@ -141,5 +167,93 @@ describe('HostCapabilities', () => {
       error: { code: 'NOTIFICATIONS_UNAVAILABLE', category: 'unsupported' }
     })
     expect(shown).toHaveLength(0)
+  })
+})
+
+describe('secure storage for API keys (SET 3)', () => {
+  const core = { type: 'core' as const, id: 'core' }
+  const key = fakeCredentials().find((item) => item.patternId === 'openai-api-key')?.value ?? ''
+
+  it('stores keys encrypted, one owner-only file each, and gives them back only to Jupiter Core', async () => {
+    const { capabilities, credentialsDirectory, logs } = setup(() => Promise.resolve(''))
+    const credentialId = uuidv7()
+    expect(
+      await capabilities.execute(
+        call('host.credentials.store', { credentialId, secret: key }, core)
+      )
+    ).toEqual({
+      ok: true,
+      data: { stored: true, fingerprint: expect.stringMatching(/^[0-9a-f]{8}$/) as unknown }
+    })
+    const files = readdirSync(credentialsDirectory)
+    expect(files).toEqual([`${credentialId}.bin`])
+    const file = join(credentialsDirectory, files[0] ?? '')
+    const stored = readFileSync(file)
+    expect(stored.toString('utf8')).not.toContain(key)
+    expect(stored.toString('latin1')).not.toContain(key)
+    if (process.platform !== 'win32') expect(statSync(file).mode & 0o777).toBe(0o600)
+
+    expect(
+      await capabilities.execute(call('host.credentials.read', { credentialId }, core))
+    ).toEqual({
+      ok: true,
+      data: { secret: key }
+    })
+    // Any other caller is refused, whatever it asks.
+    for (const operation of [
+      'host.credentials.read',
+      'host.credentials.store',
+      'host.credentials.delete'
+    ]) {
+      const refused = await capabilities.execute(call(operation, { credentialId, secret: key }))
+      expect(refused).toMatchObject({ ok: false, error: { code: 'PERMISSION_DENIED' } })
+    }
+    expect(
+      await capabilities.execute(call('host.credentials.delete', { credentialId }, core))
+    ).toEqual({
+      ok: true,
+      data: { deleted: true }
+    })
+    expect(readdirSync(credentialsDirectory)).toEqual([])
+    expect(JSON.stringify(logs.entries)).not.toContain(key)
+  })
+
+  it('reports whether OS-backed storage exists, and refuses unprotected fallbacks', async () => {
+    const windows = setup(() => Promise.resolve(''), undefined, { available: true }, 'win32')
+    expect(await windows.capabilities.execute(call('host.credentials.status'))).toEqual({
+      ok: true,
+      data: { available: true, backend: 'dpapi', reason: null }
+    })
+    const linux = setup(() => Promise.resolve(''), undefined, {
+      available: true,
+      backend: 'gnome_libsecret'
+    })
+    expect(await linux.capabilities.execute(call('host.credentials.status'))).toMatchObject({
+      data: { available: true, backend: 'gnome_libsecret' }
+    })
+    for (const storage of [{ available: true, backend: 'basic_text' }, { available: false }]) {
+      const none = setup(() => Promise.resolve(''), undefined, storage)
+      expect(await none.capabilities.execute(call('host.credentials.status'))).toMatchObject({
+        data: { available: false, backend: 'unavailable' }
+      })
+      const refused = await none.capabilities.execute(
+        call('host.credentials.store', { credentialId: uuidv7(), secret: key }, core)
+      )
+      expect(refused).toMatchObject({ ok: false, error: { code: 'SECURE_STORAGE_UNAVAILABLE' } })
+      expect(existsSync(none.credentialsDirectory)).toBe(false)
+    }
+  })
+
+  it('never echoes a key in its errors, and never lets an id reach outside its folder', async () => {
+    const { capabilities } = setup(() => Promise.resolve(''))
+    const invalid = await capabilities.execute(
+      call('host.credentials.store', { credentialId: '../../evil', secret: key }, core)
+    )
+    expect(invalid).toMatchObject({ ok: false, error: { code: 'INVALID_PAYLOAD' } })
+    expect(JSON.stringify(invalid)).not.toContain(key)
+    const missing = await capabilities.execute(
+      call('host.credentials.read', { credentialId: uuidv7() }, core)
+    )
+    expect(missing).toMatchObject({ ok: false, error: { code: 'CREDENTIAL_NOT_FOUND' } })
   })
 })

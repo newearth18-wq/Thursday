@@ -25,13 +25,11 @@ import {
 
 const EVIDENCE = join(appDirectory, '..', '..', 'test-results', 'set-02')
 const UNFINISHED: readonly ViewId[] = [
-  'chat',
   'missions',
   'skills',
   'memory',
   'files',
   'automations',
-  'models',
   'devices',
   'plugins'
 ]
@@ -515,11 +513,14 @@ describe('SET 2 — navigation, persistence and language (real app)', () => {
       expect(report, view).toMatchObject({ enabled: 0, progress: 0, animations: 0 })
       for (const badge of report?.badges ?? []) expect(TRUTHFUL_LABELS, view).toContain(badge)
     }
-    // The chat composer exists but is disabled and says why.
+    // With no AI model set up (SET 3), the chat composer is disabled and says why.
     await open(page, 'chat')
     expect(await page.getByTestId('chat-view-composer').locator('textarea').isDisabled()).toBe(true)
+    await expect
+      .poll(() => page.getByTestId('chat-view-composer').getAttribute('data-availability'))
+      .toBe('NOT_CONFIGURED')
     expect(await page.getByTestId('chat-view-composer-reason').textContent()).toContain(
-      'Coming later'
+      'Not configured'
     )
     // On Home, the Mission card and composer say the same.
     await open(page, 'home')

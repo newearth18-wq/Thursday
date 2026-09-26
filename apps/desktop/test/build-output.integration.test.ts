@@ -64,8 +64,12 @@ describe('production build output', () => {
     const shared = readdirSync(chunksDirectory).map((file) =>
       readFileSync(join(chunksDirectory, file), 'utf8')
     )
+    // Static imports sit at the start of a line; dynamic ones are import("…").
     const imports = (source: string) =>
-      [...source.matchAll(/(?:from|import)\s*\(?\s*"([^"]+)"/g)].map((match) => match[1] ?? '')
+      [
+        ...source.matchAll(/^import\b[^"\n]*?"([^"]+)";?\s*$/gm),
+        ...source.matchAll(/\bimport\(\s*"([^"]+)"\s*\)/g)
+      ].map((match) => match[1] ?? '')
     const external = [core, ...shared]
       .flatMap(imports)
       .filter((specifier) => !specifier.startsWith('./'))

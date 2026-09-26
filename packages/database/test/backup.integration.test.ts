@@ -3,7 +3,7 @@ import { join } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import { uuidv7 } from '@jupiter/core'
 import { JupiterDatabase } from '../src'
-import { integrityOf, tempDirectory } from './support/helpers'
+import { integrityOf, raw, tempDirectory } from './support/helpers'
 
 let dir: string
 let cleanup: () => void
@@ -55,6 +55,11 @@ describe('database backups', () => {
     expect(info.reason).toBe('manual')
     expect(info.bytes).toBeGreaterThan(100_000)
     const path = join(dir, 'backups', info.file)
+    // One self-contained file (rollback journal), with no -wal/-shm companions.
+    expect(readdirSync(join(dir, 'backups'))).toEqual([info.file])
+    const copy = raw(path)
+    expect(copy.prepare('PRAGMA journal_mode').get()?.journal_mode).toBe('delete')
+    copy.close()
     expect(integrityOf(path)).toEqual(['ok'])
     expect(progress.length).toBeGreaterThan(1)
     for (let i = 1; i < progress.length; i++) {

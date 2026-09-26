@@ -9,10 +9,12 @@ import {
 } from '@jupiter/contracts'
 import { JupiterError } from '../errors'
 import type { CapabilityContext, CapabilityDefinition } from '../dispatch/dispatcher'
+import type { OperationContext } from '../ai/providers'
 import type { CoreKernel } from './core-kernel'
 
 /**
- * Jupiter Core's capabilities (SET 1, plus the SET 2 notification bridge). Input and output schemas come from the
+ * Jupiter Core's capabilities (SET 1, the SET 2 notification bridge, and SET 3
+ * AI providers, routing and chat). Input and output schemas come from the
  * shared capability catalogue; the policy (who may call it, risk, audit,
  * dependencies) is declared here, next to the handler.
  */
@@ -50,6 +52,19 @@ const UI_READ: Policy = {
   audit: 'denials-only',
   timeoutMs: 10_000,
   requires: []
+}
+
+/** Reads of AI configuration and chat history (SET 3). */
+const AI_READ: Policy = { ...UI_READ, requires: ['database', 'model-router'] }
+/** Changes the person makes to AI configuration or chat: always audited. */
+const AI_WRITE: Policy = { ...AI_READ, audit: 'always' }
+
+function operation(context: CapabilityContext): OperationContext {
+  return {
+    correlationId: context.request.correlationId,
+    actor: context.request.actor,
+    signal: context.signal
+  }
 }
 
 export function coreCapabilities(kernel: CoreKernel): CapabilityDefinition<never, unknown>[] {
@@ -130,6 +145,137 @@ export function coreCapabilities(kernel: CoreKernel): CapabilityDefinition<never
       (input, context) => ({
         recorded: kernel.recordHostStatus(input.services, context.request.correlationId)
       })
+    ),
+
+    // ---- AI providers, models and routing (SET 3) ----
+    define('ai.adapters.list', UI_READ, () => ({ adapters: kernel.providers.adapterList() })),
+
+    define('ai.providers.list', AI_READ, () => ({ providers: kernel.providers.list() })),
+
+    define(
+      'ai.providers.add',
+      AI_WRITE,
+      (input, context) => kernel.providers.add(input, operation(context)),
+      (input) => `provider:${input.adapterId}`
+    ),
+
+    define(
+      'ai.providers.update',
+      AI_WRITE,
+      (input, context) => kernel.providers.update(input, operation(context)),
+      (input) => `provider:${input.providerId}`
+    ),
+
+    define(
+      'ai.providers.remove',
+      { ...AI_WRITE, risk: 'MEDIUM', timeoutMs: 20_000 },
+      async (input, context) => {
+        await kernel.providers.remove(input.providerId, operation(context))
+        return { removed: true as const, providerId: input.providerId }
+      },
+      (input) => `provider:${input.providerId}`
+    ),
+
+    define(
+      'ai.providers.check',
+      { ...AI_WRITE, timeoutMs: 30_000 },
+      (input, context) => kernel.providers.check(input.providerId, operation(context)),
+      (input) => `provider:${input.providerId}`
+    ),
+
+    define(
+      'ai.credentials.set',
+      { ...AI_WRITE, risk: 'MEDIUM', timeoutMs: 45_000 },
+      (input, context) =>
+        kernel.providers.setKey(input.providerId, input.apiKey, operation(context)),
+      (input) => `provider-key:${input.providerId}`
+    ),
+
+    define(
+      'ai.credentials.remove',
+      { ...AI_WRITE, risk: 'MEDIUM', timeoutMs: 20_000 },
+      (input, context) => kernel.providers.removeKey(input.providerId, operation(context)),
+      (input) => `provider-key:${input.providerId}`
+    ),
+
+    define(
+      'ai.models.add',
+      AI_WRITE,
+      (input, context) => kernel.providers.addModel(input, operation(context)),
+      (input) => `model:${input.providerId}:${input.modelId}`.slice(0, 260)
+    ),
+
+    define(
+      'ai.models.update',
+      AI_WRITE,
+      (input, context) => kernel.providers.updateModel(input, operation(context)),
+      (input) => `model:${input.providerId}:${input.modelId}`.slice(0, 260)
+    ),
+
+    define('ai.route.preview', AI_READ, (input) =>
+      kernel.providers.preview(
+        input.capability,
+        input.conversationId ? kernel.chat.messages(input.conversationId).conversation : null
+      )
+    ),
+
+    define('host.credentials.status', { ...UI_READ, provider: 'host' }, async (input, context) =>
+      Capabilities['host.credentials.status'].output.parse(
+        await kernel.callHost('host.credentials.status', input, context)
+      )
+    ),
+
+    // ---- Chat (SET 3) ----
+    define('chat.conversations.list', AI_READ, (input) => ({
+      conversations: kernel.chat.listConversations(input.limit)
+    })),
+
+    define(
+      'chat.conversations.update',
+      AI_WRITE,
+      (input, context) => kernel.chat.updateConversation(input, operation(context)),
+      (input) => `conversation:${input.conversationId}`
+    ),
+
+    define(
+      'chat.conversations.delete',
+      { ...AI_WRITE, risk: 'MEDIUM', timeoutMs: 15_000 },
+      async (input, context) => {
+        await kernel.chat.deleteConversation(input.conversationId, operation(context))
+        return { deleted: true as const, conversationId: input.conversationId }
+      },
+      (input) => `conversation:${input.conversationId}`
+    ),
+
+    define('chat.messages.list', AI_READ, (input) => kernel.chat.messages(input.conversationId)),
+
+    define(
+      'chat.send',
+      AI_WRITE,
+      (input, context) => kernel.chat.send(input, operation(context)),
+      (input) =>
+        input.conversationId ? `conversation:${input.conversationId}` : 'conversation:new'
+    ),
+
+    define(
+      'chat.stop',
+      AI_WRITE,
+      (input) => ({ stopped: kernel.chat.stop(input.messageId) }),
+      (input) => `message:${input.messageId}`
+    ),
+
+    define(
+      'chat.retry',
+      AI_WRITE,
+      (input, context) => kernel.chat.retry(input.messageId, operation(context)),
+      (input) => `message:${input.messageId}`
+    ),
+
+    define(
+      'chat.edit',
+      AI_WRITE,
+      (input, context) => kernel.chat.edit(input.messageId, input.text, operation(context)),
+      (input) => `message:${input.messageId}`
     )
   ]
   for (const capability of capabilities) {

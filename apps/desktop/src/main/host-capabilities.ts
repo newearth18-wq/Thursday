@@ -2,10 +2,12 @@ import { mkdirSync } from 'node:fs'
 import {
   Capabilities,
   DesktopNotification,
+  HostOperations,
   type CoreToHost,
   type ErrorEnvelope
 } from '@jupiter/contracts'
-import { createErrorEnvelope, describeError, type Logger } from '@jupiter/core'
+import { JupiterError, createErrorEnvelope, describeError, type Logger } from '@jupiter/core'
+import type { CredentialVault } from './credential-vault'
 
 /**
  * Privileged host functions, executed only when Jupiter Core's capability
@@ -16,6 +18,11 @@ import { createErrorEnvelope, describeError, type Logger } from '@jupiter/core'
  *
  * SET 2 adds the Windows-notification bridge: plain-text desktop
  * notifications, limited in size (by the contract) and in rate (here).
+ *
+ * SET 3 adds secure storage for API keys. Its status is a capability the
+ * interface may query; storing, reading and deleting keys are host
+ * operations only Jupiter Core itself performs (they are not in the
+ * capability catalogue), and the host checks that the caller is Core.
  */
 
 export type HostCall = Extract<CoreToHost, { kind: 'host-call' }>
@@ -33,13 +40,18 @@ export interface HostCapabilityDependencies {
   /** Electron's shell.openPath: resolves to an empty string on success, or an error message. */
   readonly openPath: (path: string) => Promise<string>
   readonly notifier: DesktopNotifier
+  readonly vault: CredentialVault
   readonly now?: () => number
 }
 
 export const HOST_CAPABILITIES = [
   'host.logs.reveal',
   'host.notifications.status',
-  'host.notifications.show'
+  'host.notifications.show',
+  'host.credentials.status',
+  'host.credentials.store',
+  'host.credentials.read',
+  'host.credentials.delete'
 ] as const
 
 /** Desktop notifications the interface may show per minute. */
@@ -62,6 +74,12 @@ export class HostCapabilities {
         return this.notificationStatus(call)
       case 'host.notifications.show':
         return this.showNotification(call, log)
+      case 'host.credentials.status':
+        return { ok: true, data: this.deps.vault.status() }
+      case 'host.credentials.store':
+      case 'host.credentials.read':
+      case 'host.credentials.delete':
+        return this.credentialOperation(call, call.capability, log)
       default:
         log.warn('host-capability.unknown', `Refused unknown host capability ${call.capability}`)
         return this.failure(
@@ -165,6 +183,66 @@ export class HostCapabilities {
       tone: input.data.tone
     })
     return { ok: true, data: { shown: true } }
+  }
+
+  /** Keys are handled only for Jupiter Core, never for any other caller. */
+  private credentialOperation(
+    call: HostCall,
+    operation: 'host.credentials.store' | 'host.credentials.read' | 'host.credentials.delete',
+    log: Logger
+  ): HostOutcome {
+    if (call.actor.type !== 'core') {
+      log.warn('host-capability.denied', `Refused ${operation} for ${call.actor.type}`)
+      return this.failure(
+        'PERMISSION_DENIED',
+        'permission',
+        `Only Jupiter Core may use ${operation}.`,
+        null
+      )
+    }
+    try {
+      switch (operation) {
+        case 'host.credentials.store': {
+          const input = HostOperations[operation].input.safeParse(call.input)
+          if (!input.success) return this.invalid(operation)
+          const fingerprint = this.deps.vault.store(input.data.credentialId, input.data.secret)
+          return { ok: true, data: { stored: true, fingerprint } }
+        }
+        case 'host.credentials.read': {
+          const input = HostOperations[operation].input.safeParse(call.input)
+          if (!input.success) return this.invalid(operation)
+          return { ok: true, data: { secret: this.deps.vault.read(input.data.credentialId) } }
+        }
+        case 'host.credentials.delete': {
+          const input = HostOperations[operation].input.safeParse(call.input)
+          if (!input.success) return this.invalid(operation)
+          return { ok: true, data: { deleted: this.deps.vault.delete(input.data.credentialId) } }
+        }
+      }
+    } catch (error) {
+      if (error instanceof JupiterError)
+        return {
+          ok: false,
+          error: createErrorEnvelope({
+            code: error.code,
+            category: error.category,
+            message: error.message,
+            userAction: error.userAction,
+            retryable: error.retryable
+          })
+        }
+      return this.failure(
+        'HOST_ACTION_FAILED',
+        'dependency',
+        `Secure storage failed: ${describeError(error)}`,
+        null
+      )
+    }
+  }
+
+  private invalid(operation: string): HostOutcome {
+    // The reason is not included: the input may hold a key.
+    return this.failure('INVALID_PAYLOAD', 'validation', `Invalid input for ${operation}.`, null)
   }
 
   private failure(

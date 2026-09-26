@@ -1,5 +1,6 @@
 import { z } from 'zod'
 import { Actor } from './actor'
+import { FallbackPolicy, Locality, ModelId, ProviderId, ProviderState, RoutingMode } from './ai'
 import { LogLevel } from './environment'
 import { ErrorEnvelope } from './errors'
 import { OptionalReference, CONTRACT_VERSION } from './request'
@@ -19,7 +20,15 @@ import { ServiceStatus } from './service-health'
  * not match its type is rejected before it is stored or delivered.
  */
 
-export const StreamKind = z.enum(['system', 'service', 'settings', 'database', 'mission'])
+export const StreamKind = z.enum([
+  'system',
+  'service',
+  'settings',
+  'database',
+  'mission',
+  'ai',
+  'conversation'
+])
 export type StreamKind = z.infer<typeof StreamKind>
 
 export const StreamRef = z
@@ -96,7 +105,66 @@ export const EventPayloads = {
       reason: z.enum(['manual', 'pre-migration'])
     })
     .strict(),
-  'logging.level_applied': z.object({ level: LogLevel }).strict()
+  'logging.level_applied': z.object({ level: LogLevel }).strict(),
+  'ai.provider.changed': z
+    .object({
+      providerId: ProviderId,
+      change: z.enum([
+        'added',
+        'updated',
+        'removed',
+        'key-saved',
+        'key-removed',
+        'checked',
+        'models-changed'
+      ]),
+      state: ProviderState.nullable()
+    })
+    .strict(),
+  /** A model failed before answering and another one was used, as the fallback policy allows. */
+  'ai.route.fallback': z
+    .object({
+      conversationId: Uuidv7.nullable(),
+      messageId: Uuidv7.nullable(),
+      from: z
+        .object({ providerId: ProviderId, modelId: ModelId, errorCode: z.string().max(64) })
+        .strict(),
+      to: z.object({ providerId: ProviderId, modelId: ModelId }).strict(),
+      policy: FallbackPolicy
+    })
+    .strict(),
+  /** The routing mode stopped a network call before anything was sent. */
+  'ai.route.blocked': z
+    .object({
+      providerId: ProviderId.nullable(),
+      locality: Locality,
+      mode: RoutingMode,
+      operation: z.enum(['chat', 'check', 'validate-key', 'embeddings'])
+    })
+    .strict(),
+  'chat.conversation.changed': z
+    .object({ conversationId: Uuidv7, change: z.enum(['created', 'updated', 'deleted']) })
+    .strict(),
+  /** Message metadata only: message text never goes into the event log. */
+  'chat.message.changed': z
+    .object({
+      conversationId: Uuidv7,
+      messageId: Uuidv7,
+      role: z.enum(['system', 'user', 'assistant', 'tool']),
+      status: z.enum(['streaming', 'complete', 'cancelled', 'failed']),
+      change: z.enum(['created', 'completed', 'superseded'])
+    })
+    .strict(),
+  /** Streamed answer text. Transient: delivered live, never stored as an event. */
+  'chat.message.delta': z
+    .object({
+      conversationId: Uuidv7,
+      messageId: Uuidv7,
+      /** Position of this text in the answer, so a client can detect a gap. */
+      offset: z.number().int().nonnegative(),
+      text: z.string().min(1).max(16_000)
+    })
+    .strict()
 } as const satisfies Record<string, z.ZodType>
 
 export type DomainEventType = keyof typeof EventPayloads
@@ -134,7 +202,13 @@ export const DomainEvent = z
     variant('error.recorded'),
     variant('database.migrated'),
     variant('database.backup_completed'),
-    variant('logging.level_applied')
+    variant('logging.level_applied'),
+    variant('ai.provider.changed'),
+    variant('ai.route.fallback'),
+    variant('ai.route.blocked'),
+    variant('chat.conversation.changed'),
+    variant('chat.message.changed'),
+    variant('chat.message.delta')
   ])
   .refine(
     (event) =>

@@ -1,0 +1,22 @@
+{
+  "name": "@jupiter/providers",
+  "version": "0.1.0",
+  "private": true,
+  "description": "AI provider adapters (OpenAI-compatible, Anthropic) implementing Jupiter Core's adapter port. Core does not depend on this package; the Core process entry installs the adapters.",
+  "license": "MIT",
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "scripts": {
+    "typecheck": "tsc -p tsconfig.json"
+  },
+  "dependencies": {
+    "@jupiter/contracts": "0.1.0",
+    "@jupiter/core": "0.1.0",
+    "zod": "^4.6.5"
+  },
+  "devDependencies": {
+    "@jupiter/testing": "0.1.0"
+  }
+}
