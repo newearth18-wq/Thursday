@@ -21,6 +21,13 @@ import {
   UserMessageText
 } from './chat'
 import { AuditEvent } from './audit'
+import {
+  MissionDetail,
+  MissionId,
+  MissionPriority,
+  MissionRequestText,
+  MissionSummary
+} from './missions'
 import { BackupInfo, DatabaseInfo } from './database'
 import { ErrorEnvelope } from './errors'
 import { DomainEvent, EventFilter } from './events'
@@ -160,6 +167,7 @@ export type EventsListInput = z.infer<typeof EventsListInput>
 
 const ProviderName = z.string().trim().min(1).max(80)
 const ProviderRef = z.object({ providerId: ProviderId }).strict()
+const MissionRef = z.object({ missionId: MissionId }).strict()
 const CapabilityList = z.array(ModelCapability).min(1).max(6)
 
 export const ChatExchange = z
@@ -371,7 +379,43 @@ export const Capabilities = {
     kind: 'command',
     input: z.object({ messageId: MessageId, text: UserMessageText }).strict(),
     output: ChatExchange
-  }
+  },
+
+  // ---- Missions (SET 4) ----
+  /** Create a Mission from a request and start it. */
+  'missions.create': {
+    kind: 'command',
+    input: z
+      .object({
+        request: MissionRequestText,
+        title: z.string().trim().min(1).max(120).optional(),
+        priority: MissionPriority.optional()
+      })
+      .strict(),
+    output: MissionDetail
+  },
+  'missions.list': {
+    kind: 'query',
+    input: z
+      .object({ includeArchived: z.boolean(), limit: z.number().int().min(1).max(200) })
+      .strict(),
+    output: z.object({ missions: z.array(MissionSummary).max(200) }).strict()
+  },
+  'missions.get': { kind: 'query', input: MissionRef, output: MissionDetail },
+  /** The Mission's stored events, oldest first: its timeline, rebuilt from the event log. */
+  'missions.timeline': {
+    kind: 'query',
+    input: MissionRef,
+    output: z.object({ events: z.array(DomainEvent).max(1000) }).strict()
+  },
+  /** Pause at the next safe boundary (when the current step ends). */
+  'missions.pause': { kind: 'command', input: MissionRef, output: MissionDetail },
+  'missions.resume': { kind: 'command', input: MissionRef, output: MissionDetail },
+  /** Cancel: stops the active step (and its provider request) at once. */
+  'missions.cancel': { kind: 'command', input: MissionRef, output: MissionDetail },
+  /** Run again as a new execution linked to the previous one; nothing is erased. */
+  'missions.retry': { kind: 'command', input: MissionRef, output: MissionDetail },
+  'missions.archive': { kind: 'command', input: MissionRef, output: MissionDetail }
 } as const satisfies Record<string, { kind: RequestKind; input: z.ZodType; output: z.ZodType }>
 
 export type CapabilityName = keyof typeof Capabilities

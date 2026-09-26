@@ -37,6 +37,11 @@ export type {
   AuditStore,
   BackupOptions,
   ChatStore,
+  ExecutionRecord,
+  MissionChanges,
+  MissionRecord,
+  MissionStore,
+  StepChanges,
   DatabasePort,
   DiscoveredModel,
   EventStore,
@@ -99,3 +104,5 @@ export { sanitizeProviderText } from './ai/sanitize'
 export { createTransport, privacyBlocked, type FetchLike } from './ai/transport'
 export { selectRoute, type RouteInput, type RouteResult, type RouterProvider } from './ai/router'
 export type { CredentialVault } from './ai/providers'
+export { ANSWER_PLAN, MissionManager } from './missions/manager'
+export { completeText, type Completion } from './ai/complete'

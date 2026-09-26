@@ -63,7 +63,7 @@ const ROUTE_EVENTS = filter([
 const CONVERSATION_LIST_EVENTS = filter(['chat.conversation.changed', 'chat.message.changed'])
 
 /** A counter that goes up (at most once per `delayMs`) whenever `bump` is called. */
-function useBump(delayMs: number): [number, () => void] {
+export function useBump(delayMs: number): [number, () => void] {
   const [version, setVersion] = useState(0)
   const timer = useRef<ReturnType<typeof setTimeout> | null>(null)
   useEffect(
@@ -85,7 +85,7 @@ function useBump(delayMs: number): [number, () => void] {
  * Runs `load` whenever `key` changes (null: not now). A reload keeps showing
  * the previous result until the new one arrives.
  */
-function useQuery<T>(
+export function useQuery<T>(
   key: string | null,
   load: () => Promise<T>
 ): [Loadable<T>, (change: (previous: T) => T) => void] {
@@ -117,7 +117,10 @@ function useQuery<T>(
   return [state, update]
 }
 
-function keyOf(coreSession: string | null, ...parts: (string | number | null)[]): string | null {
+export function keyOf(
+  coreSession: string | null,
+  ...parts: (string | number | null)[]
+): string | null {
   return coreSession === null ? null : [coreSession, ...parts.map(String)].join('|')
 }
 

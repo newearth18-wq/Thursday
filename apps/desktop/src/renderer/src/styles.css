@@ -1976,3 +1976,140 @@ kbd {
   flex-direction: column;
   gap: var(--jp-space-sm);
 }
+
+/* ------------------------------------------------------------- Missions */
+
+.view-missions {
+  max-width: none;
+}
+
+.missions-layout {
+  display: grid;
+  grid-template-columns: minmax(14rem, 20rem) minmax(0, 1fr);
+  gap: var(--ui-gap);
+  align-items: start;
+}
+
+@container content (max-width: 56rem) {
+  .missions-layout {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+
+.mission-list-panel {
+  display: flex;
+  flex-direction: column;
+  gap: var(--jp-space-md);
+  border: 1px solid var(--ui-border);
+  border-radius: var(--jp-radius-lg);
+  background: var(--ui-panel);
+  padding: var(--jp-space-md);
+  min-width: 0;
+}
+
+.mission-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--jp-space-xs);
+}
+
+.mission-item-meta {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--jp-space-xs) var(--jp-space-sm);
+}
+
+.mission-detail-panel {
+  min-width: 0;
+}
+
+.mission-detail {
+  display: flex;
+  flex-direction: column;
+  gap: var(--jp-space-lg);
+  border: 1px solid var(--ui-border);
+  border-radius: var(--jp-radius-lg);
+  background: var(--ui-panel);
+  padding: var(--ui-pad);
+  min-width: 0;
+}
+
+.mission-detail h3 {
+  margin-top: 0;
+}
+
+.mission-detail-header {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: var(--jp-space-md);
+}
+
+.mission-badges {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--jp-space-xs);
+  margin: var(--jp-space-xs) 0 0;
+}
+
+.mission-facts {
+  margin: 0;
+}
+
+.mission-steps {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--jp-space-sm);
+  counter-reset: mission-step;
+}
+
+.mission-step {
+  display: flex;
+  flex-direction: column;
+  gap: var(--jp-space-xs);
+  border: 1px solid var(--ui-border);
+  border-radius: var(--jp-radius-md);
+  padding: var(--jp-space-sm) var(--jp-space-md);
+  counter-increment: mission-step;
+}
+
+.mission-step p {
+  margin: 0;
+}
+
+.mission-step-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--jp-space-sm);
+}
+
+.mission-step-name::before {
+  content: counter(mission-step) '. ';
+  color: var(--ui-text-muted);
+}
+
+.mission-step-name {
+  font-weight: var(--jp-font-weight-semibold);
+}
+
+.mission-step[data-status='RUNNING'] {
+  border-color: var(--jp-color-electric-cyan);
+}
+
+.mission-step-error {
+  color: var(--jp-color-error);
+  overflow-wrap: anywhere;
+}
+
+.mission-errors > summary {
+  cursor: pointer;
+}

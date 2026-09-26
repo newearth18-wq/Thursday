@@ -1,13 +1,22 @@
 import type { ErrorEnvelope, GatewayStatus, RuntimeStatus, ServiceHealth } from '@jupiter/contracts'
 import type { ViewId } from '../../../shared/views'
+import { useState } from 'react'
+import { ConfirmDialog } from '../components/InfoDialogs'
 import { ActivityTimeline } from '../components/ActivityTimeline'
 import { ChatComposer } from '../components/ChatComposer'
 import { JupiterStage } from '../components/JupiterStage'
-import { MissionCard } from '../components/MissionCard'
+import { MissionCard, type MissionCardData } from '../components/MissionCard'
 import { RecoveryNotice } from '../components/RecoveryNotice'
 import { StatusBadge } from '../components/StatusBadge'
 import { useI18n, type MessageKey } from '../i18n'
-import { useConversationRoute } from '../router'
+import { useConversationRoute, useMissionRoute } from '../router'
+import { request } from '../api'
+import { useMissionList } from '../useMissions'
+import {
+  TERMINAL_MISSION_STATUSES,
+  type MissionStatus,
+  type MissionSummary
+} from '@jupiter/contracts'
 import { coreSessionOf, type Loadable } from '../useRuntime'
 import { LoadFailure } from './LoadFailure'
 
@@ -22,6 +31,9 @@ interface Props {
   readonly onNavigate: (view: ViewId) => void
 }
 
+/** Mission statuses in which Jupiter is really working on it. */
+const WORKING = new Set<MissionStatus>(['ANALYZING', 'PLANNING', 'RUNNING', 'VERIFYING'])
+
 const RUNNING = new Set<ServiceHealth['status']>([
   'NOT_STARTED',
   'STARTING',
@@ -34,6 +46,11 @@ const RUNNING = new Set<ServiceHealth['status']>([
 export function HomeView({ status, onRetry, onNavigate }: Props) {
   const { t } = useI18n()
   const { openConversation } = useConversationRoute()
+  const missions = useMissionList(false, coreSessionOf(status))
+  const working =
+    missions.state === 'ready'
+      ? (missions.value.find((mission) => WORKING.has(mission.status)) ?? null)
+      : null
   const info = status.state === 'ready' ? status.value.app : null
   const build = info?.build ?? null
 
@@ -73,7 +90,7 @@ export function HomeView({ status, onRetry, onNavigate }: Props) {
 
       <div className="home-grid">
         <div className="home-main">
-          <JupiterStage status={status} />
+          <JupiterStage status={status} workingOn={working?.title ?? null} />
           <ChatComposer
             conversationId={null}
             onSent={(exchange) => {
@@ -83,7 +100,7 @@ export function HomeView({ status, onRetry, onNavigate }: Props) {
           />
         </div>
         <div className="home-side">
-          <MissionCard mission={null} />
+          <CurrentMission missions={missions} />
           <ActivityTimeline coreSession={coreSessionOf(status)} />
         </div>
       </div>
@@ -196,6 +213,70 @@ function RuntimeDetails({
           </ul>
         </div>
       </div>
+    </>
+  )
+}
+
+/** The most recent Mission that is not finished, with the actions its state allows. */
+function CurrentMission({ missions }: { readonly missions: Loadable<MissionSummary[]> }) {
+  const { t } = useI18n()
+  const { openMission } = useMissionRoute()
+  const [confirming, setConfirming] = useState(false)
+  const current: MissionSummary | null =
+    missions.state === 'ready'
+      ? (missions.value.find((mission) => !TERMINAL_MISSION_STATUSES.has(mission.status)) ?? null)
+      : null
+  if (!current) return <MissionCard mission={null} />
+  const data: MissionCardData = {
+    title: current.title,
+    currentAction: current.currentStepKind
+      ? t(`missionStep.${current.currentStepKind}` as MessageKey)
+      : t(`missionStatus.${current.status}` as MessageKey),
+    completed: current.progress?.done ?? null,
+    total: current.progress?.total ?? null,
+    startedAt: current.startedAt ?? current.createdAt,
+    agent: t('availability.COMING_LATER'),
+    skill: t('availability.COMING_LATER'),
+    model: current.model
+  }
+  const run = (action: 'pause' | 'cancel') => {
+    void request(`missions.${action}`, { missionId: current.missionId }).catch(() => {
+      // The Mission screen shows the reason; Home opens it.
+      openMission(current.missionId)
+    })
+  }
+  return (
+    <>
+      <MissionCard
+        mission={data}
+        {...(current.status === 'RUNNING' && !current.pauseRequested
+          ? {
+              onPause: () => {
+                run('pause')
+              }
+            }
+          : {})}
+        onCancel={() => {
+          setConfirming(true)
+        }}
+        onDetails={() => {
+          openMission(current.missionId)
+        }}
+      />
+      <ConfirmDialog
+        open={confirming}
+        title={t('missions.cancelTitle')}
+        description={t('missions.cancelConfirm')}
+        confirmLabel={t('missions.action.cancel')}
+        testId="home-mission-cancel-dialog"
+        onCancel={() => {
+          setConfirming(false)
+        }}
+        onConfirm={() => {
+          setConfirming(false)
+          run('cancel')
+        }}
+      />
     </>
   )
 }

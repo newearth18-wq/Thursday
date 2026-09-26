@@ -25,7 +25,6 @@ import {
 
 const EVIDENCE = join(appDirectory, '..', '..', 'test-results', 'set-02')
 const UNFINISHED: readonly ViewId[] = [
-  'missions',
   'skills',
   'memory',
   'files',

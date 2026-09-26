@@ -74,6 +74,10 @@ Do not modify `legacy/thursday-browser` unless a task is explicitly about it.
   operations, Core actor only). Never return a key, put one in an event, log,
   error or the database, or keep one in renderer state longer than the request
   that sends it.
+- A Mission's status changes only through `MissionManager.transition`, which
+  applies `MISSION_TRANSITIONS` from the contract. Never write a status
+  directly, and never delete or rewrite Mission history (retry adds an
+  attempt). A new step kind needs a `StepKind` entry and a real executor.
 - Schema changes are new migrations at the end of `JUPITER_MIGRATIONS`; never
   edit a migration that has shipped (see `packages/database/README.md`).
 

@@ -13,8 +13,17 @@ import type {
   DomainEvent,
   DomainEventType,
   EventFilter,
+  MissionArtifact,
+  MissionErrorRecord,
+  MissionExecution,
+  MissionPlan,
+  MissionPriority,
+  MissionStatus,
+  MissionStep,
+  MissionTransition,
   ServiceHealth,
-  StreamRef
+  StreamRef,
+  VerificationResult
 } from '@jupiter/contracts'
 
 /**
@@ -174,6 +183,66 @@ export interface ChatStore {
   streaming(): ChatMessage[]
 }
 
+export interface MissionRecord {
+  readonly missionId: string
+  readonly title: string
+  readonly userRequest: string
+  readonly priority: MissionPriority
+  readonly status: MissionStatus
+  readonly pauseRequested: boolean
+  readonly archivedAt: string | null
+  readonly plan: MissionPlan | null
+  readonly currentExecutionId: string | null
+  readonly createdAt: string
+  readonly updatedAt: string
+}
+
+export type MissionChanges = Partial<
+  Pick<
+    MissionRecord,
+    'status' | 'pauseRequested' | 'archivedAt' | 'plan' | 'currentExecutionId' | 'updatedAt'
+  >
+>
+
+export type ExecutionRecord = Omit<MissionExecution, 'steps'>
+export type StepChanges = Partial<
+  Pick<MissionStep, 'status' | 'detail' | 'route' | 'error' | 'startedAt' | 'completedAt'>
+>
+
+/**
+ * Missions and everything recorded about them. Transitions, errors,
+ * verification results and artifacts are append-only: history is never
+ * rewritten or erased.
+ */
+export interface MissionStore {
+  insertMission(mission: MissionRecord): void
+  mission(missionId: string): MissionRecord | null
+  updateMission(missionId: string, changes: MissionChanges): void
+  /** Most recently updated first. */
+  listMissions(options: { includeArchived: boolean; limit: number }): MissionRecord[]
+  /** Missions in a status that needs a live runner (after a restart, none has one). */
+  inFlight(): MissionRecord[]
+  insertExecution(execution: ExecutionRecord): void
+  updateExecution(
+    executionId: string,
+    changes: Partial<Pick<ExecutionRecord, 'status' | 'endedAt'>>
+  ): void
+  /** Oldest first. */
+  executions(missionId: string): ExecutionRecord[]
+  insertStep(step: MissionStep): void
+  updateStep(stepId: string, changes: StepChanges): void
+  /** In plan order. */
+  steps(executionId: string): MissionStep[]
+  insertTransition(transition: MissionTransition): void
+  transitions(missionId: string): MissionTransition[]
+  insertError(error: MissionErrorRecord): void
+  errors(missionId: string): MissionErrorRecord[]
+  insertVerification(result: VerificationResult): void
+  verifications(missionId: string): VerificationResult[]
+  insertArtifact(artifact: MissionArtifact): void
+  artifacts(missionId: string): MissionArtifact[]
+}
+
 export interface BackupOptions {
   readonly signal?: AbortSignal
   readonly onProgress?: (copiedPages: number, totalPages: number) => void
@@ -187,6 +256,7 @@ export interface DatabasePort {
   readonly serviceHealth: ServiceHealthStore
   readonly providers: ProviderStore
   readonly chat: ChatStore
+  readonly missions: MissionStore
   info(): DatabaseInfo
   backup(reason: BackupInfo['reason'], options?: BackupOptions): Promise<BackupInfo>
   close(): void

@@ -37,6 +37,7 @@ import {
 import { EventBus, type EventDelivery, type PublishInput } from '../events/event-bus'
 import type { ProviderAdapter } from '../ai/adapter'
 import { ChatService } from '../ai/chat'
+import { MissionManager } from '../missions/manager'
 import { ProviderService, type CredentialVault } from '../ai/providers'
 import type { FetchLike } from '../ai/transport'
 import { coreCapabilities } from './capabilities'
@@ -111,6 +112,7 @@ export class CoreKernel {
   readonly dispatcher: CapabilityDispatcher
   readonly providers: ProviderService
   readonly chat: ChatService
+  readonly missions: MissionManager
   private readonly supervisor: ServiceSupervisor
   private readonly logger: Logger
   private readonly now: () => Date
@@ -187,6 +189,13 @@ export class CoreKernel {
       logger: this.logger.child({ component: 'chat' }),
       now: this.now
     })
+    this.missions = new MissionManager({
+      database: () => this.requireDatabase(),
+      providers: this.providers,
+      bus: this.bus,
+      logger: this.logger.child({ component: 'mission-manager' }),
+      now: this.now
+    })
     for (const capability of coreCapabilities(this)) this.dispatcher.register(capability)
     this.registerServices()
     this.supervisor.onChange((status) => {
@@ -251,6 +260,7 @@ export class CoreKernel {
       if (serviceId === 'database') {
         await this.supervisor.retry('event-bus')
         await this.supervisor.retry('model-router')
+        await this.supervisor.retry('mission-manager')
       }
       return null
     } catch (error) {
@@ -637,6 +647,36 @@ export class CoreKernel {
         return undefined
       },
       stop: () => this.chat.stopAll()
+    })
+
+    this.supervisor.register({
+      id: 'mission-manager',
+      version: null,
+      capabilities: ['missions.lifecycle', 'missions.execution', 'missions.timeline'],
+      critical: false,
+      retryable: true,
+      start: () => {
+        if (!this.database)
+          throw new JupiterError(
+            'DEPENDENCY_UNAVAILABLE',
+            'The Mission manager needs the database, which is not available.',
+            {
+              category: 'dependency',
+              userAction: 'Fix the Database service, then press Retry on it.',
+              retryable: true
+            }
+          )
+        const { interrupted, started } = this.missions.recover()
+        if (interrupted > 0)
+          this.logger.warn(
+            'missions.interrupted',
+            `${String(interrupted)} Missions were interrupted by a stop of Jupiter Core and are marked failed`
+          )
+        if (started > 0)
+          this.logger.info('missions.resumed', `${String(started)} ready Missions were started`)
+        return undefined
+      },
+      stop: () => this.missions.stopAll()
     })
 
     this.supervisor.register({

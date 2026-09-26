@@ -3,13 +3,17 @@ import {
   DEFAULT_VIEW,
   conversationFromHash,
   hashForConversation,
+  hashForItem,
   hashForView,
+  itemFromHash,
   viewFromHash,
   type ViewId
 } from '../../shared/views'
 
 /** The conversation last open in Chat, for this window only (it is never stored). */
 let lastConversation: string | null = null
+/** The Mission last open in Missions, for this window only. */
+let lastMission: string | null = null
 
 /**
  * Hash routing: the selected view lives in the URL fragment
@@ -45,9 +49,13 @@ export function useView(): { view: ViewId; navigate: (view: ViewId) => void } {
       setView(next)
       return
     }
-    // Chat reopens the conversation that was open last in this window.
+    // Chat and Missions reopen the item that was open last in this window.
     window.location.hash =
-      next === 'chat' ? hashForConversation(lastConversation) : hashForView(next)
+      next === 'chat'
+        ? hashForConversation(lastConversation)
+        : next === 'missions'
+          ? hashForItem('missions', lastMission)
+          : hashForView(next)
   }, [])
 
   return { view, navigate }
@@ -80,4 +88,33 @@ export function useConversationRoute(): {
     setConversationId(next)
   }, [])
   return { conversationId, openConversation }
+}
+
+/** The Mission open in Missions (`#/missions/<id>`), or null for the list alone. */
+export function useMissionRoute(): {
+  missionId: string | null
+  openMission: (missionId: string | null) => void
+} {
+  const [missionId, setMissionId] = useState<string | null>(() =>
+    itemFromHash(window.location.hash, 'missions')
+  )
+  useEffect(() => {
+    if (viewFromHash(window.location.hash) === 'missions') lastMission = missionId
+  }, [missionId])
+  useEffect(() => {
+    const sync = () => {
+      if (viewFromHash(window.location.hash) === 'missions')
+        setMissionId(itemFromHash(window.location.hash, 'missions'))
+    }
+    window.addEventListener('hashchange', sync)
+    return () => {
+      window.removeEventListener('hashchange', sync)
+    }
+  }, [])
+  const openMission = useCallback((next: string | null) => {
+    const hash = hashForItem('missions', next)
+    if (window.location.hash !== hash) window.location.hash = hash
+    setMissionId(next)
+  }, [])
+  return { missionId, openMission }
 }

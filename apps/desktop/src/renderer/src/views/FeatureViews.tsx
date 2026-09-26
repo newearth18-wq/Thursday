@@ -11,7 +11,10 @@ import { ViewHeader } from './ViewHeader'
  * no control that could look like it works.
  */
 
-export type FeatureViewId = Exclude<ViewId, 'home' | 'settings' | 'diagnostics' | 'chat' | 'models'>
+export type FeatureViewId = Exclude<
+  ViewId,
+  'home' | 'settings' | 'diagnostics' | 'chat' | 'models' | 'missions'
+>
 
 export function FeatureView({ view }: { readonly view: FeatureViewId }) {
   const { t } = useI18n()

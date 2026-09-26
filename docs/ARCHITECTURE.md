@@ -1,7 +1,7 @@
-# Jupiter architecture — after SET 3
+# Jupiter architecture — after SET 4
 
-This document describes what exists after SET 3 (AI providers, Model Router
-and Chat) on top of SET 2 (product shell, design system and accessible
+This document describes what exists after SET 4 (Mission System) on top of
+SET 3 (AI providers, Model Router and Chat), SET 2 (product shell, design system and accessible
 interface), SET 1 (Core architecture, IPC, events and
 database) and the SET 0 foundation. Later SETs extend it;
 each section says what is deliberately not here yet. Decisions and their
@@ -40,9 +40,9 @@ React. The Core bundle imports only `node:crypto`, `node:fs`, `node:path` and
 ```text
 ┌─────────────────────────────────────────────┐
 │ Renderer (React 19) — jupiter://app#/<view> │  sandboxed, contextIsolation, no Node.js,
-│ 12 destinations: Home · Chat · AI Models ·  │  strict CSP, validates every reply and push
-│   Settings · Diagnostics work; 7 are        │
-│   Coming later                              │
+│ 12 destinations: Home · Chat · Missions ·   │  strict CSP, validates every reply and push
+│   AI Models · Settings · Diagnostics work;  │
+│   6 are Coming later                        │
 └───────────────────┬─────────────────────────┘
                     │ window.jupiter — 7 frozen functions (contract v1)
 ┌───────────────────┴─────────────────────────┐
@@ -74,16 +74,17 @@ React. The Core bundle imports only `node:crypto`, `node:fs`, `node:path` and
 │  Event bus (per-stream order, persistence,  │
 │    replay-safe subscriptions)               │
 │  Services: database · event-bus ·           │
-│    model-router · capability-dispatcher     │
+│    model-router · mission-manager ·         │
+│    capability-dispatcher                    │
 │  Providers + router + chat; adapters reach  │
 │    the network only via the guarded         │
 │    transport (Local only, no redirects)     │
 │  SQLite (WAL, FULL sync, FKs, STRICT tables,│
 │    append-only events and audit, backups)   │
 └─────────────────────────────────────────────┘
-   Mission Manager, Workflow Engine, Skill Registry, Permission Engine,
+   Workflow Engine, Skill Registry, Permission Engine,
    Identity Gateway, Artifact Manager, Agent/Browser/Plugin
-   runtimes: COMING_LATER (SET 4–15). They will register capabilities with
+   runtimes: COMING_LATER (SET 5–15). They will register capabilities with
    the dispatcher and publish on the event bus; nothing reaches the host
    without going through the dispatcher.
 ```
@@ -188,7 +189,10 @@ reads files, credentials or runs commands.
 - Tables: `schema_migrations`, `settings`, `event_streams`, `events`,
   `audit_log`, `service_health`; since migration 3 (SET 3) `ai_providers`
   (credential id and fingerprint only — never a key), `ai_models`,
-  `chat_conversations` and `chat_messages`.
+  `chat_conversations` and `chat_messages`; since migration 4 (SET 4)
+  `missions`, `mission_executions`, `mission_steps` and the append-only
+  `mission_transitions`, `mission_errors`, `mission_verifications` and
+  `mission_artifacts`.
 - **Migrations** are ordered, checksummed (sha256 of version, name and SQL) and
   each applied atomically. Opening refuses a database newer than the app, a
   modified or missing migration, and runs `quick_check` first (a corrupt file
@@ -249,10 +253,10 @@ Decisions and alternatives: [ADR 0003](decisions/0003-product-shell-preferences-
 - **Destinations.** Twelve screens, each at its own address
   (`#/home`, `#/chat`, … `#/diagnostics`); an unknown address opens Home.
   `destinations.ts` states for each one whether it works and which SET builds
-  it. Home (Command Center), Chat, AI Models (both since SET 3), Settings and
-  Diagnostics work. Missions, Skills, Memory, Files, Automations, Devices and
-  Plugins open a screen labelled _Coming later_ with its SET, and have no
-  enabled controls, progress or motion.
+  it. Home (Command Center), Chat, AI Models (since SET 3), Missions (since
+  SET 4), Settings and Diagnostics work. Skills, Memory, Files, Automations,
+  Devices and Plugins open a screen labelled _Coming later_ with its SET, and
+  have no enabled controls, progress or motion.
 - **Command Center.** The Jupiter stage (mark + status) is driven only by
   Core's real state as the host reports it: idle, attention (a service
   degraded or failed), starting, connecting, or unavailable (Core stopped). It
@@ -328,10 +332,37 @@ Decisions and alternatives: [ADR 0004](decisions/0004-providers-router-credentia
   conversation. With no usable model, composers are disabled and say _Not
   configured_ or _Unavailable_ with the reason and a link to AI Models.
 
-## Not in SET 3
+## Missions (SET 4)
 
-Missions (SET 4), tools and their execution (SET 6), approvals (SET 7),
-attachments through the Artifact Manager (SET 10; the message format already
-has an attachment part, and the composer labels it _Coming later_), and
-everything after that. The seven unfinished destinations are shown as _Coming
-later_ in the app, and none of them is presented as working.
+Decisions and alternatives: [ADR 0005](decisions/0005-mission-state-machine-and-executions.md).
+
+- **State machine.** `MISSION_TRANSITIONS` (contracts) is the table of
+  allowed changes between the 13 statuses. `MissionManager.transition` (Core)
+  is the only code that changes a status: accepted changes are stored and
+  published, others are stored as rejected, published, refused with
+  `INVALID_MISSION_TRANSITION` and audited. COMPLETED also needs a passed
+  verification and every required step succeeded.
+- **Executions.** Each run is an attempt with its own steps; Retry adds a
+  linked attempt and never changes an earlier one. History tables are
+  append-only.
+- **Runner.** One step at a time; Pause takes effect between steps; Cancel
+  aborts the active step's signal (closing its provider request); a failed
+  required step ends the attempt as FAILED, a failed optional one allows
+  PARTIAL_SUCCESS. Work interrupted by a Core stop is marked FAILED
+  (`MISSION_INTERRUPTED`) at the next start; PAUSED Missions stay resumable.
+- **What runs.** The standard answer plan: the chat model answers (required),
+  summarises (optional), and the answer is checked (required), through the
+  same guarded path as Chat. The planner arrives in SET 5.
+- **Timeline.** Persistent events on `mission/<id>`, turned into plain
+  language by the interface; rebuilt identically after a restart.
+- **Interface.** _Missions_ lists Missions and shows one in detail (request,
+  status, progress by finished steps, current and next step, elapsed time,
+  model, steps, results, verification, attempts, recovery actions and the
+  timeline). Home's Mission card and stage follow the current Mission.
+
+## Not in SET 4
+
+The planner and workflow engine (SET 5), skills and tools (SET 6), approvals
+(SET 7), agents (SET 8), attachments through the Artifact Manager (SET 10),
+and everything after that. The six unfinished destinations are shown as
+_Coming later_ in the app, and none of them is presented as working.

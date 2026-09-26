@@ -1,6 +1,12 @@
 import { describe, expect, it } from 'vitest'
 import { z } from 'zod'
 import {
+  MISSION_TRANSITIONS,
+  MissionStatus,
+  TERMINAL_MISSION_STATUSES,
+  availableMissionActions,
+  canTransition,
+  missionTitleFrom,
   AppInfo,
   Capabilities,
   ChatMessage,
@@ -347,5 +353,53 @@ describe('AI providers and routing (SET 3)', () => {
       }).success
     ).toBe(false)
     expect(ChatMessage.safeParse({ ...message, reasoning: 'hidden' }).success).toBe(false)
+  })
+})
+
+describe('Missions (SET 4)', () => {
+  it('has an explicit state machine where every status is reachable and none returns to CREATED', () => {
+    const reachable = new Set<MissionStatus>(['CREATED'])
+    const queue: MissionStatus[] = ['CREATED']
+    while (queue.length > 0) {
+      const from = queue.shift() as MissionStatus
+      for (const to of MISSION_TRANSITIONS[from]) {
+        if (!reachable.has(to)) {
+          reachable.add(to)
+          queue.push(to)
+        }
+      }
+    }
+    expect([...reachable].sort()).toEqual([...MissionStatus.options].sort())
+    for (const status of MissionStatus.options) {
+      expect(canTransition(status, 'CREATED')).toBe(false)
+      expect(canTransition(status, status)).toBe(false)
+    }
+  })
+
+  it('reaches COMPLETED only through VERIFYING, and leaves an ended execution only for a retry', () => {
+    for (const status of MissionStatus.options) {
+      if (status !== 'VERIFYING') expect(canTransition(status, 'COMPLETED')).toBe(false)
+    }
+    for (const status of TERMINAL_MISSION_STATUSES) {
+      expect(MISSION_TRANSITIONS[status]).toEqual(['READY'])
+    }
+    expect(canTransition('RUNNING', 'COMPLETED')).toBe(false)
+    expect(canTransition('CANCELLED', 'RUNNING')).toBe(false)
+  })
+
+  it('offers only the actions the current status allows', () => {
+    const base = { archived: false, pauseRequested: false }
+    expect(availableMissionActions({ ...base, status: 'RUNNING' })).toEqual(['pause', 'cancel'])
+    expect(availableMissionActions({ ...base, status: 'RUNNING', pauseRequested: true })).toEqual([
+      'cancel'
+    ])
+    expect(availableMissionActions({ ...base, status: 'PAUSED' })).toEqual(['resume', 'cancel'])
+    expect(availableMissionActions({ ...base, status: 'FAILED' })).toEqual(['retry', 'archive'])
+    expect(availableMissionActions({ ...base, status: 'COMPLETED', archived: true })).toEqual([])
+  })
+
+  it('makes a readable title from the first line of the request', () => {
+    expect(missionTitleFrom('\n  Write a haiku\nabout rain')).toBe('Write a haiku')
+    expect(missionTitleFrom('x'.repeat(100))).toHaveLength(80)
   })
 })

@@ -236,7 +236,7 @@ describe('MissionCard', () => {
     const card = byTestId('mission-card')
     expect(card.dataset.state).toBe('empty')
     expect(card.textContent).toContain('No Mission is running.')
-    expect(card.textContent).toContain('Coming later')
+    expect(card.textContent).toContain('Start one in Missions')
     expect(card.querySelectorAll('button, progress')).toHaveLength(0)
   })
 

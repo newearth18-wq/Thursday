@@ -6,9 +6,9 @@ import { ProgressIndicator } from './Progress'
  * Current Mission card (Visual Design Lock v1): current action, progress when
  * measurable, elapsed time, agent, skill, model, Pause, Cancel and Details.
  *
- * SET 2 builds the shell. There is no Mission system yet (SET 4), so the
- * interface always passes `mission={null}` and the card says so; the
- * populated layout exists for SET 4 and is exercised by unit tests only.
+ * Home shows the most recent Mission that is not finished (SET 4), or says
+ * that none is running. Each control works only when a handler is given,
+ * which Home does only for actions the Mission's state allows.
  */
 export interface MissionCardData {
   readonly title: string
@@ -66,12 +66,9 @@ export function MissionCard({ mission, onPause, onCancel, onDetails }: MissionCa
       >
         <div className="card-header">
           <h2 id="mission-card-title">{t('mission.title')}</h2>
-          <span className="badge badge-muted" data-testid="mission-card-availability">
-            {t('availability.COMING_LATER')}
-          </span>
         </div>
         <p>{t('mission.none')}</p>
-        <p className="muted small">{t('mission.plannedFor', { set: 4 })}</p>
+        <p className="muted small">{t('mission.noneHint')}</p>
       </section>
     )
   }

@@ -315,6 +315,7 @@ export class CapabilityDispatcher {
     let timer: ReturnType<typeof setTimeout> | undefined
     let timedOut = false
     let outcome: AuditOutcome = 'SUCCEEDED'
+    let failureCode: string | null = null
     try {
       const aborted = new Promise<never>((_, reject) => {
         const onAbort = () => {
@@ -398,6 +399,7 @@ export class CapabilityDispatcher {
         userAction: 'Try again. If it keeps failing, restart Jupiter.',
         retryable: true
       })
+      failureCode = envelope.code
       outcome =
         envelope.category === 'cancellation'
           ? 'CANCELLED'
@@ -432,7 +434,7 @@ export class CapabilityDispatcher {
           capability,
           context,
           target,
-          {}
+          failureCode === null ? {} : { errorCode: failureCode }
         )
     }
   }

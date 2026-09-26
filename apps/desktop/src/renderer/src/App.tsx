@@ -17,6 +17,7 @@ import { ChatView } from './views/ChatView'
 import { DiagnosticsView } from './views/DiagnosticsView'
 import { FeatureView } from './views/FeatureViews'
 import { HomeView } from './views/HomeView'
+import { MissionsView } from './views/MissionsView'
 import { ModelsView } from './views/ModelsView'
 import { SettingsView } from './views/SettingsView'
 
@@ -193,6 +194,8 @@ function ViewContent({
       return <ChatView onNavigate={onNavigate} />
     case 'models':
       return <ModelsView />
+    case 'missions':
+      return <MissionsView onNavigate={onNavigate} />
     default:
       return <FeatureView view={view} />
   }

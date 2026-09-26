@@ -3,6 +3,7 @@ import { Actor } from './actor'
 import { FallbackPolicy, Locality, ModelId, ProviderId, ProviderState, RoutingMode } from './ai'
 import { LogLevel } from './environment'
 import { ErrorEnvelope } from './errors'
+import { MissionPriority, MissionStatus, StepKind, StepStatus } from './missions'
 import { OptionalReference, CONTRACT_VERSION } from './request'
 import { ServiceId, UtcTimestamp, Uuidv7 } from './primitives'
 import { ServiceStatus } from './service-health'
@@ -164,7 +165,51 @@ export const EventPayloads = {
       offset: z.number().int().nonnegative(),
       text: z.string().min(1).max(16_000)
     })
-    .strict()
+    .strict(),
+  // ---- Missions (SET 4): stream `mission/<missionId>`, persistent, the Mission's timeline ----
+  'mission.created': z.object({ title: z.string().max(120), priority: MissionPriority }).strict(),
+  'mission.status_changed': z
+    .object({ from: MissionStatus, to: MissionStatus, reason: z.string().max(500) })
+    .strict(),
+  /** A status change the state machine does not allow; nothing changed. */
+  'mission.transition_rejected': z
+    .object({ from: MissionStatus, requested: MissionStatus, reason: z.string().max(500) })
+    .strict(),
+  'mission.planned': z
+    .object({ source: z.enum(['template']), steps: z.number().int().positive() })
+    .strict(),
+  'mission.execution_started': z
+    .object({
+      executionId: Uuidv7,
+      attempt: z.number().int().positive(),
+      retryOf: Uuidv7.nullable()
+    })
+    .strict(),
+  'mission.step_started': z
+    .object({
+      stepId: Uuidv7,
+      index: z.number().int().nonnegative(),
+      kind: StepKind,
+      model: z.string().max(200).nullable()
+    })
+    .strict(),
+  'mission.step_finished': z
+    .object({
+      stepId: Uuidv7,
+      index: z.number().int().nonnegative(),
+      kind: StepKind,
+      status: StepStatus,
+      errorCode: z.string().max(64).nullable()
+    })
+    .strict(),
+  'mission.verification_recorded': z
+    .object({ verificationId: Uuidv7, check: z.string().max(64), passed: z.boolean() })
+    .strict(),
+  'mission.artifact_recorded': z
+    .object({ artifactId: Uuidv7, title: z.string().max(200) })
+    .strict(),
+  'mission.pause_requested': z.object({}).strict(),
+  'mission.archived': z.object({}).strict()
 } as const satisfies Record<string, z.ZodType>
 
 export type DomainEventType = keyof typeof EventPayloads
@@ -208,7 +253,18 @@ export const DomainEvent = z
     variant('ai.route.blocked'),
     variant('chat.conversation.changed'),
     variant('chat.message.changed'),
-    variant('chat.message.delta')
+    variant('chat.message.delta'),
+    variant('mission.created'),
+    variant('mission.status_changed'),
+    variant('mission.transition_rejected'),
+    variant('mission.planned'),
+    variant('mission.execution_started'),
+    variant('mission.step_started'),
+    variant('mission.step_finished'),
+    variant('mission.verification_recorded'),
+    variant('mission.artifact_recorded'),
+    variant('mission.pause_requested'),
+    variant('mission.archived')
   ])
   .refine(
     (event) =>

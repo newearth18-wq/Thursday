@@ -13,15 +13,26 @@ import type { Loadable } from '../useRuntime'
  * - starting / connecting: dim and still;
  * - unavailable (Core stopped or crashed): restrained red accent, still.
  *
- * Motion never suggests work: nothing here can show "thinking" or "working"
- * until Missions exist (SET 4) and the avatar engine arrives (SET 16).
+ * - working (SET 4): a Mission is really being worked on (analyzing,
+ *   planning, running or verifying), and the stage names it.
+ *
+ * Motion never suggests work that is not happening: "working" appears only
+ * while Core reports a Mission in one of those states. The avatar engine
+ * with richer states arrives in SET 16.
  * Reduce Motion or Static Avatar stop all motion; Hide Avatar removes the
  * mark but keeps the status text.
  */
-export const STAGE_STATES = ['idle', 'attention', 'starting', 'connecting', 'unavailable'] as const
+export const STAGE_STATES = [
+  'idle',
+  'working',
+  'attention',
+  'starting',
+  'connecting',
+  'unavailable'
+] as const
 export type StageState = (typeof STAGE_STATES)[number]
 
-export function stageStateOf(status: Loadable<GatewayStatus>): StageState {
+export function stageStateOf(status: Loadable<GatewayStatus>, working = false): StageState {
   if (status.state === 'loading') return 'connecting'
   if (status.state === 'error') return 'unavailable'
   const core = status.value.core.state
@@ -29,24 +40,36 @@ export function stageStateOf(status: Loadable<GatewayStatus>): StageState {
   if (core !== 'running') return 'unavailable'
   const overall = status.value.runtime.overall
   if (overall === 'STARTING') return 'starting'
-  return overall === 'HEALTHY' ? 'idle' : 'attention'
+  if (overall !== 'HEALTHY') return 'attention'
+  return working ? 'working' : 'idle'
 }
 
 const TONES: Record<StageState, JupiterMarkTone> = {
   idle: 'normal',
+  working: 'normal',
   attention: 'concerned',
   starting: 'dim',
   connecting: 'dim',
   unavailable: 'error'
 }
 
-export function JupiterStage({ status }: { readonly status: Loadable<GatewayStatus> }) {
+export function JupiterStage({
+  status,
+  workingOn = null
+}: {
+  readonly status: Loadable<GatewayStatus>
+  /** The title of a Mission being worked on right now, if any. */
+  readonly workingOn?: string | null
+}) {
   const { t } = useI18n()
   const { values } = usePreferences()
   const reduced = useReducedMotion(values['ui.reduceMotion'])
-  const state = stageStateOf(status)
+  const state = stageStateOf(status, workingOn !== null)
   const avatar = values['ui.avatar']
-  const animated = avatar === 'animated' && !reduced && (state === 'idle' || state === 'attention')
+  const animated =
+    avatar === 'animated' &&
+    !reduced &&
+    (state === 'idle' || state === 'working' || state === 'attention')
 
   return (
     <section
@@ -67,7 +90,9 @@ export function JupiterStage({ status }: { readonly status: Loadable<GatewayStat
           {t(`stage.${state}` as MessageKey)}
         </p>
         <p className="muted small" data-testid="stage-detail">
-          {t(`stage.${state}Detail` as MessageKey)}
+          {state === 'working'
+            ? t('stage.workingDetail', { title: workingOn ?? '' })
+            : t(`stage.${state}Detail` as MessageKey)}
         </p>
       </div>
     </section>

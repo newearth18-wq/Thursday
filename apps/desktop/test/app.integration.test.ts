@@ -32,9 +32,10 @@ const RUNNING = [
   'database',
   'event-bus',
   'model-router',
+  'mission-manager',
   'capability-dispatcher'
 ] as const
-const PLANNED = ['mission-manager', 'agent-runtime', 'browser-runtime', 'plugin-runtime'] as const
+const PLANNED = ['agent-runtime', 'browser-runtime', 'plugin-runtime'] as const
 
 beforeAll(() => {
   assertBuilt()
@@ -112,8 +113,8 @@ describe('Jupiter desktop shell — healthy start', () => {
     // Unbuilt destinations (SET 2: real screens) are grouped under "Coming later" and say so.
     expect(await page.getByTestId('nav-planned-heading').textContent()).toBe('Coming later')
     const planned = page.locator('[data-availability="COMING_LATER"].nav-link')
-    expect(await planned.count()).toBe(7)
-    for (let i = 0; i < 7; i++) {
+    expect(await planned.count()).toBe(6)
+    for (let i = 0; i < 6; i++) {
       expect(await planned.nth(i).getAttribute('aria-describedby')).toBe('nav-planned-heading')
     }
 

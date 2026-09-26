@@ -371,6 +371,9 @@ async function start(protocol: Protocol, host: string): Promise<ProtocolServer> 
       queue.length = 0
       connections = 0
       outage = null
+      // Replies still waiting from earlier requests must not consume the next test's advances.
+      for (const resolveGate of gates.splice(0)) resolveGate()
+      pendingAdvances = 0
     },
     close: () =>
       new Promise<void>((resolve) => {

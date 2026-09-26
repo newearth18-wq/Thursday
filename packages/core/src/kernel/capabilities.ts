@@ -59,6 +59,10 @@ const AI_READ: Policy = { ...UI_READ, requires: ['database', 'model-router'] }
 /** Changes the person makes to AI configuration or chat: always audited. */
 const AI_WRITE: Policy = { ...AI_READ, audit: 'always' }
 
+/** Missions (SET 4): reads, and changes that are audited on every call (refusals included). */
+const MISSION_READ: Policy = { ...UI_READ, requires: ['database', 'mission-manager'] }
+const MISSION_WRITE: Policy = { ...MISSION_READ, audit: 'always' }
+
 function operation(context: CapabilityContext): OperationContext {
   return {
     correlationId: context.request.correlationId,
@@ -276,6 +280,51 @@ export function coreCapabilities(kernel: CoreKernel): CapabilityDefinition<never
       AI_WRITE,
       (input, context) => kernel.chat.edit(input.messageId, input.text, operation(context)),
       (input) => `message:${input.messageId}`
+    ),
+
+    // ---- Missions (SET 4) ----
+    define(
+      'missions.create',
+      MISSION_WRITE,
+      (input, context) => kernel.missions.create(input, operation(context)),
+      () => 'mission:new'
+    ),
+    define('missions.list', MISSION_READ, (input) => ({
+      missions: kernel.missions.list(input.includeArchived, input.limit)
+    })),
+    define('missions.get', MISSION_READ, (input) => kernel.missions.detail(input.missionId)),
+    define('missions.timeline', MISSION_READ, (input) => ({
+      events: kernel.missions.timeline(input.missionId)
+    })),
+    define(
+      'missions.pause',
+      MISSION_WRITE,
+      (input, context) => kernel.missions.pause(input.missionId, operation(context)),
+      (input) => `mission:${input.missionId}`
+    ),
+    define(
+      'missions.resume',
+      MISSION_WRITE,
+      (input, context) => kernel.missions.resume(input.missionId, operation(context)),
+      (input) => `mission:${input.missionId}`
+    ),
+    define(
+      'missions.cancel',
+      MISSION_WRITE,
+      (input, context) => kernel.missions.cancel(input.missionId, operation(context)),
+      (input) => `mission:${input.missionId}`
+    ),
+    define(
+      'missions.retry',
+      MISSION_WRITE,
+      (input, context) => kernel.missions.retry(input.missionId, operation(context)),
+      (input) => `mission:${input.missionId}`
+    ),
+    define(
+      'missions.archive',
+      MISSION_WRITE,
+      (input, context) => kernel.missions.archive(input.missionId, operation(context)),
+      (input) => `mission:${input.missionId}`
     )
   ]
   for (const capability of capabilities) {
