@@ -3,18 +3,21 @@
 Jupiter is a Windows desktop AI agent, built in stages (SET 0–24). This
 repository is the Jupiter monorepo.
 
-**Current stage: SET 4 — Mission System** (on top of SET 3, AI providers,
-Model Router and Chat; SET 2, the product shell; SET 1, Core architecture;
-and SET 0, the repository foundation). A request can become a **Mission**: a
-persistent unit of work with a real status, steps, results, verification,
-attempts and a plain-language timeline. Missions can be paused (between
-steps), resumed, cancelled, retried and archived, and survive restarts. In
-this stage a Mission runs Jupiter's standard answer plan with the AI model you
-set up in _AI Models_ (connect a model server on this computer or a cloud
-service; keys are encrypted by the operating system). _Chat_ streams answers
-with Stop, Ask again and Edit. Home, Chat, Missions, AI Models, Settings and
-Diagnostics work; the other six screens are labelled _Coming later_ with the
-SET that builds them.
+**Current stage: SET 5 — Planner and Workflow Engine** (on top of SET 4,
+Mission System; SET 3, AI providers, Model Router and Chat; SET 2, the product
+shell; SET 1, Core architecture; and SET 0, the repository foundation). A
+request becomes a **Mission**, and the **planner** (the AI model you set up
+in _AI Models_) turns it into a plan: a goal, assumptions you can correct,
+and steps with dependencies, conditions, time limits, retry policies and
+checks. Jupiter checks every plan before anything runs, rejects invalid ones
+with the reasons, and runs valid ones as a workflow: independent steps in
+parallel, approvals where the plan asks for them, retries and timeouts per
+step, and a workflow that continues after a restart. A failed Mission can be
+re-planned with your corrections; every plan revision and attempt is kept.
+Missions can be paused, resumed, cancelled, retried and archived. _Chat_
+streams answers with Stop, Ask again and Edit. Home, Chat, Missions, AI
+Models, Settings and Diagnostics work; the other six screens are labelled
+_Coming later_ with the SET that builds them.
 
 |                 |                                                                                            |
 | --------------- | ------------------------------------------------------------------------------------------ |
@@ -58,7 +61,7 @@ Running as root in a container? Chromium's sandbox cannot start as root, so use
 ```text
 apps/desktop/            Jupiter desktop app: host (Electron main + gateway), Core utility process, preload, React renderer
 packages/contracts/      Versioned zod schemas for every trust boundary
-packages/core/           Core kernel: capability dispatcher, event bus, service supervisor, logger, IDs; model router, chat, adapter port; Mission Manager
+packages/core/           Core kernel: capability dispatcher, event bus, service supervisor, logger, IDs; model router, chat, adapter port; Mission Manager, planner and workflow engine
 packages/providers/      Provider adapters (OpenAI-compatible, Anthropic), reached only through Core's guarded transport
 packages/database/       SQLite (node:sqlite): migrations, transactions, backups, repositories
 packages/security/       Secret patterns and redaction
@@ -108,6 +111,7 @@ keys; providers that need no key still work.
 - [docs/sets/SET-02-product-shell.md](docs/sets/SET-02-product-shell.md) — SET 2 report and acceptance results
 - [docs/sets/SET-03-ai-providers-and-chat.md](docs/sets/SET-03-ai-providers-and-chat.md) — SET 3 report and acceptance results
 - [docs/sets/SET-04-mission-system.md](docs/sets/SET-04-mission-system.md) — SET 4 report and acceptance results
+- [docs/sets/SET-05-planner-and-workflow-engine.md](docs/sets/SET-05-planner-and-workflow-engine.md) — SET 5 report and acceptance results
 - [docs/decisions/](docs/decisions/) — architecture decision records
 
 ## License

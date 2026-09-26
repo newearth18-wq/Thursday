@@ -38,6 +38,9 @@ import { EventBus, type EventDelivery, type PublishInput } from '../events/event
 import type { ProviderAdapter } from '../ai/adapter'
 import { ChatService } from '../ai/chat'
 import { MissionManager } from '../missions/manager'
+import { STEP_TYPES } from '../workflow/catalogue'
+import { templatePlanDraft } from '../workflow/planner'
+import { validatePlan } from '../workflow/validate'
 import { ProviderService, type CredentialVault } from '../ai/providers'
 import type { FetchLike } from '../ai/transport'
 import { coreCapabilities } from './capabilities'
@@ -647,6 +650,32 @@ export class CoreKernel {
         return undefined
       },
       stop: () => this.chat.stopAll()
+    })
+
+    // SET 5: the Planner and Workflow Engine. Its start is a real self-check:
+    // Jupiter's own template plan must pass the plan validator, and every
+    // step type the engine offers must have an executor.
+    this.supervisor.register({
+      id: 'workflow-engine',
+      version: null,
+      capabilities: ['workflows.plan', 'workflows.validate', 'workflows.run'],
+      critical: false,
+      retryable: true,
+      start: () => {
+        const issues = validatePlan(templatePlanDraft('Self-check'))
+        if (issues.length > 0)
+          throw new JupiterError(
+            'WORKFLOW_ENGINE_INVALID',
+            `The built-in answer plan does not pass validation: ${issues.map((issue) => issue.code).join(', ')}`,
+            { category: 'internal', userAction: 'Reinstall Jupiter.', retryable: false }
+          )
+        const available = STEP_TYPES.filter((type) => type.available).length
+        this.logger.info(
+          'workflow-engine.ready',
+          `The workflow engine can run ${String(available)} step types`
+        )
+        return undefined
+      }
     })
 
     this.supervisor.register({

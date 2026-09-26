@@ -289,5 +289,118 @@ export const JUPITER_MIGRATIONS: readonly Migration[] = [
       CREATE TRIGGER mission_artifacts_no_delete BEFORE DELETE ON mission_artifacts
         BEGIN SELECT RAISE(ABORT, 'mission artifacts are append-only'); END;
     `
+  },
+  {
+    version: 5,
+    name: '0005_plans_and_workflows',
+    // Rebuilds mission_executions and mission_steps (their status lists and new
+    // columns), which other tables reference: foreign keys are off for this
+    // migration and checked before it commits.
+    rebuildsTables: true,
+    sql: `
+      -- Plan revisions (SET 5). A re-plan adds a revision; none is changed or removed.
+      CREATE TABLE mission_plans (
+        plan_id           TEXT PRIMARY KEY NOT NULL,
+        mission_id        TEXT NOT NULL REFERENCES missions (mission_id),
+        revision          INTEGER NOT NULL CHECK (revision > 0),
+        previous_plan_id  TEXT REFERENCES mission_plans (plan_id),
+        source            TEXT NOT NULL CHECK (source IN ('model', 'template')),
+        reason            TEXT NOT NULL CHECK (length(reason) BETWEEN 1 AND 500),
+        plan_json         TEXT NOT NULL CHECK (json_valid(plan_json)),
+        created_at        TEXT NOT NULL,
+        UNIQUE (mission_id, revision)
+      ) STRICT;
+
+      -- Model output that did not pass as a plan, with the reasons.
+      CREATE TABLE mission_plan_rejections (
+        rejection_id  TEXT PRIMARY KEY NOT NULL,
+        mission_id    TEXT NOT NULL REFERENCES missions (mission_id),
+        issues_json   TEXT NOT NULL CHECK (json_valid(issues_json)),
+        at            TEXT NOT NULL
+      ) STRICT;
+
+      ALTER TABLE missions ADD COLUMN current_plan_id TEXT REFERENCES mission_plans (plan_id);
+
+      CREATE TABLE mission_executions_v5 (
+        execution_id  TEXT PRIMARY KEY NOT NULL,
+        mission_id    TEXT NOT NULL REFERENCES missions (mission_id),
+        attempt       INTEGER NOT NULL CHECK (attempt > 0),
+        retry_of      TEXT REFERENCES mission_executions (execution_id),
+        plan_id       TEXT REFERENCES mission_plans (plan_id),
+        status        TEXT NOT NULL CHECK (status IN ('RUNNING', 'PAUSED', 'WAITING', 'COMPLETED', 'PARTIAL_SUCCESS', 'FAILED', 'CANCELLED')),
+        started_at    TEXT NOT NULL,
+        ended_at      TEXT,
+        UNIQUE (mission_id, attempt)
+      ) STRICT;
+      INSERT INTO mission_executions_v5 (execution_id, mission_id, attempt, retry_of, plan_id, status, started_at, ended_at)
+        SELECT execution_id, mission_id, attempt, retry_of, NULL, status, started_at, ended_at FROM mission_executions;
+      DROP TABLE mission_executions;
+      ALTER TABLE mission_executions_v5 RENAME TO mission_executions;
+
+      -- Workflow steps: SET 4's SUCCEEDED is SET 5's COMPLETED; SET 4 steps ran one after another.
+      CREATE TABLE mission_steps_v5 (
+        step_id             TEXT PRIMARY KEY NOT NULL,
+        execution_id        TEXT NOT NULL REFERENCES mission_executions (execution_id),
+        idx                 INTEGER NOT NULL CHECK (idx >= 0),
+        step_key            TEXT NOT NULL CHECK (length(step_key) BETWEEN 1 AND 32),
+        kind                TEXT NOT NULL CHECK (length(kind) BETWEEN 1 AND 64),
+        title               TEXT NOT NULL CHECK (length(title) BETWEEN 1 AND 200),
+        description         TEXT NOT NULL CHECK (length(description) <= 500),
+        required            INTEGER NOT NULL CHECK (required IN (0, 1)),
+        status              TEXT NOT NULL CHECK (status IN ('PENDING', 'RUNNING', 'WAITING', 'COMPLETED', 'FAILED', 'SKIPPED', 'CANCELLED')),
+        detail              TEXT,
+        route_json          TEXT CHECK (route_json IS NULL OR json_valid(route_json)),
+        error_json          TEXT CHECK (error_json IS NULL OR json_valid(error_json)),
+        dependencies_json   TEXT NOT NULL CHECK (json_valid(dependencies_json)),
+        input_json          TEXT NOT NULL CHECK (json_valid(input_json)),
+        condition_json      TEXT CHECK (condition_json IS NULL OR json_valid(condition_json)),
+        verification_json   TEXT CHECK (verification_json IS NULL OR json_valid(verification_json)),
+        timeout_ms          INTEGER CHECK (timeout_ms IS NULL OR timeout_ms > 0),
+        max_attempts        INTEGER NOT NULL CHECK (max_attempts BETWEEN 1 AND 5),
+        backoff_ms          INTEGER NOT NULL CHECK (backoff_ms >= 0),
+        backoff_multiplier  REAL NOT NULL CHECK (backoff_multiplier >= 1),
+        attempts            INTEGER NOT NULL CHECK (attempts >= 0),
+        waiting_for         TEXT CHECK (waiting_for IS NULL OR waiting_for IN ('approval', 'identity')),
+        started_at          TEXT,
+        completed_at        TEXT,
+        UNIQUE (execution_id, idx),
+        UNIQUE (execution_id, step_key)
+      ) STRICT;
+      INSERT INTO mission_steps_v5 (step_id, execution_id, idx, step_key, kind, title, description, required, status,
+          detail, route_json, error_json, dependencies_json, input_json, condition_json, verification_json, timeout_ms,
+          max_attempts, backoff_ms, backoff_multiplier, attempts, waiting_for, started_at, completed_at)
+        SELECT step_id, execution_id, idx, 'step-' || (idx + 1), kind, title, '', required,
+          CASE status WHEN 'SUCCEEDED' THEN 'COMPLETED' ELSE status END,
+          detail, route_json, error_json,
+          CASE WHEN idx = 0 THEN '[]' ELSE json_array('step-' || idx) END, '{}', NULL, NULL, NULL,
+          1, 0, 1, CASE WHEN started_at IS NULL THEN 0 ELSE 1 END, NULL, started_at, completed_at
+        FROM mission_steps;
+      DROP TABLE mission_steps;
+      ALTER TABLE mission_steps_v5 RENAME TO mission_steps;
+
+      -- Every attempt at a step, retries and interruptions included.
+      CREATE TABLE mission_step_attempts (
+        step_id     TEXT NOT NULL REFERENCES mission_steps (step_id),
+        attempt     INTEGER NOT NULL CHECK (attempt > 0),
+        outcome     TEXT NOT NULL CHECK (outcome IN ('completed', 'failed', 'timed-out', 'cancelled', 'interrupted')),
+        error_code  TEXT,
+        started_at  TEXT NOT NULL,
+        ended_at    TEXT NOT NULL,
+        PRIMARY KEY (step_id, attempt)
+      ) STRICT, WITHOUT ROWID;
+
+      CREATE TRIGGER mission_plans_no_update BEFORE UPDATE ON mission_plans
+        BEGIN SELECT RAISE(ABORT, 'plan revisions are append-only'); END;
+      CREATE TRIGGER mission_plans_no_delete BEFORE DELETE ON mission_plans
+        BEGIN SELECT RAISE(ABORT, 'plan revisions are append-only'); END;
+      CREATE TRIGGER mission_plan_rejections_no_update BEFORE UPDATE ON mission_plan_rejections
+        BEGIN SELECT RAISE(ABORT, 'plan rejections are append-only'); END;
+      CREATE TRIGGER mission_plan_rejections_no_delete BEFORE DELETE ON mission_plan_rejections
+        BEGIN SELECT RAISE(ABORT, 'plan rejections are append-only'); END;
+      CREATE TRIGGER mission_step_attempts_no_update BEFORE UPDATE ON mission_step_attempts
+        BEGIN SELECT RAISE(ABORT, 'step attempts are append-only'); END;
+      CREATE TRIGGER mission_step_attempts_no_delete BEFORE DELETE ON mission_step_attempts
+        BEGIN SELECT RAISE(ABORT, 'step attempts are append-only'); END;
+    `
   }
 ]

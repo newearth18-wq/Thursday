@@ -6,7 +6,8 @@ import {
   type MissionAction,
   type MissionDetail,
   type MissionStep,
-  type MissionSummary
+  type MissionSummary,
+  type PlanSource
 } from '@jupiter/contracts'
 import { Icon } from '@jupiter/ui'
 import type { ViewId } from '../../../shared/views'
@@ -24,21 +25,31 @@ import {
   MISSION_STATUS_TONE,
   checkName,
   describeMissionEvent,
-  isMissionEvent
+  isMissionEvent,
+  stepKindName,
+  type StepTitleOf
 } from '../missionText'
 import { useMissionRoute } from '../router'
 import { useRoutePreview } from '../useAi'
 import { useMission, useMissionList } from '../useMissions'
 import { coreSessionOf, envelopeOf, useRuntimeContext, type Loadable } from '../useRuntime'
 import { LoadFailure } from './LoadFailure'
+import {
+  ApprovalNotice,
+  PlanPanel,
+  PlannerChoice,
+  ReplanDialog,
+  WorkflowView,
+  branchNotTaken
+} from './MissionWorkflow'
 import { ViewHeader } from './ViewHeader'
 
 /**
- * Missions (SET 4): every Mission, its real status and progress, the step it
- * is on and the next one, what it produced, how it was verified, its whole
- * history, and the recovery actions its state allows. Nothing here is
- * estimated: progress counts finished steps of the current attempt, and
- * every status comes from Jupiter Core's state machine.
+ * Missions (SET 4–5): every Mission, its real status and progress, its plan
+ * and workflow, the step it is on and the next one, what it produced, how it
+ * was verified, its whole history, and the recovery actions its state
+ * allows. Nothing here is estimated: progress counts finished steps of the
+ * current attempt, and every status comes from Jupiter Core's state machine.
  */
 
 export function MissionsView({ onNavigate }: { readonly onNavigate: (view: ViewId) => void }) {
@@ -250,15 +261,16 @@ function MissionDetailView({
   const [busy, setBusy] = useState<MissionAction | null>(null)
   const [failure, setFailure] = useState<ErrorEnvelope | null>(null)
   const [confirmCancel, setConfirmCancel] = useState(false)
+  const [replanning, setReplanning] = useState(false)
   const elapsed = useElapsed(summary.startedAt, summary.endedAt)
   const current = detail.steps.find((step) => step.stepId === detail.currentStepId) ?? null
   const next = detail.steps.find((step) => step.stepId === detail.nextStepId) ?? null
   const executionId = detail.executionHistory.at(-1)?.executionId ?? null
 
-  const act = (action: MissionAction) => {
+  const run = (action: MissionAction, work: () => Promise<MissionDetail>) => {
     setBusy(action)
     setFailure(null)
-    request(`missions.${action}`, { missionId: summary.missionId })
+    work()
       .then(onChanged)
       .catch((error: unknown) => {
         setFailure(envelopeOf(error))
@@ -268,7 +280,27 @@ function MissionDetailView({
       })
   }
 
-  const stepName = (step: MissionStep) => t(`missionStep.${step.kind}` as MessageKey)
+  const act = (action: 'pause' | 'resume' | 'cancel' | 'retry' | 'archive') => {
+    run(action, () => request(`missions.${action}`, { missionId: summary.missionId }))
+  }
+  const decide = (stepId: string, approved: boolean) => {
+    run(approved ? 'approve' : 'reject', () =>
+      request(approved ? 'missions.approve' : 'missions.reject', {
+        missionId: summary.missionId,
+        stepId
+      })
+    )
+  }
+  const stepName = (step: MissionStep) => step.title
+  // Approve and Reject are answered where the question is shown (ApprovalNotice).
+  const headerActions = detail.actions.filter(
+    (action) => action !== 'approve' && action !== 'reject'
+  )
+  const stepTitles = new Map(
+    detail.executionHistory.flatMap((execution) =>
+      execution.steps.map((step) => [step.stepId, step.title] as const)
+    )
+  )
 
   return (
     <article
@@ -308,7 +340,7 @@ function MissionDetailView({
               {t('missions.pausing')}
             </span>
           ) : null}
-          {detail.actions.map((action) => (
+          {headerActions.map((action) => (
             <button
               key={action}
               type="button"
@@ -317,6 +349,7 @@ function MissionDetailView({
               disabled={busy !== null}
               onClick={() => {
                 if (action === 'cancel') setConfirmCancel(true)
+                else if (action === 'replan') setReplanning(true)
                 else act(action)
               }}
             >
@@ -345,6 +378,8 @@ function MissionDetailView({
           ) : null}
         </LoadFailure>
       ) : null}
+
+      <ApprovalNotice detail={detail} busy={busy !== null} onDecide={decide} />
 
       <section aria-labelledby="mission-request-title">
         <h3 id="mission-request-title">{t('missions.request')}</h3>
@@ -406,28 +441,22 @@ function MissionDetailView({
         </div>
       </dl>
 
-      {detail.plan ? (
-        <p className="muted small" data-testid="mission-plan">
-          {t('missions.planTemplate')}
-        </p>
-      ) : null}
+      <PlanPanel
+        detail={detail}
+        onReplan={
+          detail.actions.includes('replan')
+            ? () => {
+                setReplanning(true)
+              }
+            : null
+        }
+      />
 
       {summary.status === 'PARTIAL_SUCCESS' ? (
-        <PartialOutcome steps={detail.steps} stepName={stepName} />
+        <PartialOutcome detail={detail} stepName={stepName} />
       ) : null}
 
-      <section aria-labelledby="mission-steps-title">
-        <h3 id="mission-steps-title">{t('missions.steps')}</h3>
-        {detail.steps.length === 0 ? (
-          <p className="muted small">{t('missions.noSteps')}</p>
-        ) : (
-          <ol className="mission-steps" data-testid="mission-steps">
-            {detail.steps.map((step) => (
-              <StepItem key={step.stepId} step={step} name={stepName(step)} />
-            ))}
-          </ol>
-        )}
-      </section>
+      <WorkflowView detail={detail} />
 
       <section aria-labelledby="mission-results-title">
         <h3 id="mission-results-title">{t('missions.results')}</h3>
@@ -471,7 +500,10 @@ function MissionDetailView({
         )}
       </section>
 
-      <MissionTimeline events={timeline} />
+      <MissionTimeline
+        events={timeline}
+        stepTitle={(stepId, kind) => stepTitles.get(stepId) ?? stepKindName(kind, t)}
+      />
 
       {detail.executionHistory.length > 0 ? (
         <section aria-labelledby="mission-history-title">
@@ -493,6 +525,17 @@ function MissionDetailView({
         </details>
       ) : null}
 
+      <ReplanDialog
+        open={replanning}
+        detail={detail}
+        onClose={() => {
+          setReplanning(false)
+        }}
+        onDone={(next) => {
+          setReplanning(false)
+          onChanged(next)
+        }}
+      />
       <ConfirmDialog
         open={confirmCancel}
         title={t('missions.cancelTitle')}
@@ -512,15 +555,19 @@ function MissionDetailView({
 }
 
 function PartialOutcome({
-  steps,
+  detail,
   stepName
 }: {
-  readonly steps: readonly MissionStep[]
+  readonly detail: MissionDetail
   readonly stepName: (step: MissionStep) => string
 }) {
   const { t } = useI18n()
-  const done = steps.filter((step) => step.status === 'SUCCEEDED')
-  const notDone = steps.filter((step) => step.status !== 'SUCCEEDED')
+  const steps = detail.steps
+  const done = steps.filter((step) => step.status === 'COMPLETED')
+  // A branch left out by its condition is part of the plan, not something missing.
+  const notDone = steps.filter(
+    (step) => step.status !== 'COMPLETED' && !branchNotTaken(step, detail.plan, steps)
+  )
   return (
     <div className="notice notice-warning" role="status" data-testid="mission-partial">
       <p className="notice-title">{t('missions.partialTitle')}</p>
@@ -537,44 +584,13 @@ function PartialOutcome({
   )
 }
 
-function StepItem({ step, name }: { readonly step: MissionStep; readonly name: string }) {
-  const { t } = useI18n()
-  const tone =
-    step.status === 'SUCCEEDED'
-      ? 'success'
-      : step.status === 'FAILED'
-        ? 'error'
-        : step.status === 'RUNNING'
-          ? 'info'
-          : step.status === 'PENDING'
-            ? 'muted'
-            : 'warning'
-  return (
-    <li
-      className="mission-step"
-      data-testid="mission-step"
-      data-kind={step.kind}
-      data-status={step.status}
-    >
-      <div className="mission-step-head">
-        <span className="mission-step-name">{name}</span>
-        <span className={`badge badge-${tone}`}>
-          {t(`stepStatus.${step.status}` as MessageKey)}
-        </span>
-        {step.required ? null : <span className="badge badge-muted">{t('missions.optional')}</span>}
-      </div>
-      {step.detail ? <p className="muted small">{step.detail}</p> : null}
-      {step.route ? <RouteBadge route={step.route} /> : null}
-      {step.error ? (
-        <p className="small mission-step-error">
-          <code>{step.error.code}</code> {step.error.message}
-        </p>
-      ) : null}
-    </li>
-  )
-}
-
-function MissionTimeline({ events }: { readonly events: readonly DomainEvent[] }) {
+function MissionTimeline({
+  events,
+  stepTitle
+}: {
+  readonly events: readonly DomainEvent[]
+  readonly stepTitle: StepTitleOf
+}) {
   const { t, locale } = useI18n()
   const time = new Intl.DateTimeFormat(intlLocale(locale), { timeStyle: 'short' })
   const full = new Intl.DateTimeFormat(intlLocale(locale), {
@@ -587,7 +603,7 @@ function MissionTimeline({ events }: { readonly events: readonly DomainEvent[] }
     .map((event) => ({
       id: event.eventId,
       at: event.occurredAt,
-      ...describeMissionEvent(event, t),
+      ...describeMissionEvent(event, t, stepTitle),
       details: (
         <dl className="facts facts-compact">
           <div>
@@ -635,6 +651,7 @@ function ExecutionHistory({ detail }: { readonly detail: MissionDetail }) {
         <thead>
           <tr>
             <th scope="col">{t('missions.attemptColumn')}</th>
+            <th scope="col">{t('missions.plan')}</th>
             <th scope="col">{t('missions.statusColumn')}</th>
             <th scope="col">{t('missions.startedColumn')}</th>
             <th scope="col">{t('missions.endedColumn')}</th>
@@ -653,6 +670,14 @@ function ExecutionHistory({ detail }: { readonly detail: MissionDetail }) {
                 {execution.retryOf
                   ? t('missions.retryOf', { attempt: execution.attempt })
                   : String(execution.attempt)}
+              </td>
+              <td data-testid="execution-plan-revision">
+                {execution.planId
+                  ? String(
+                      detail.planRevisions.find((plan) => plan.planId === execution.planId)
+                        ?.revision ?? '—'
+                    )
+                  : '—'}
               </td>
               <td>{t(`executionStatus.${execution.status}` as MessageKey)}</td>
               <td>{format.format(new Date(execution.startedAt))}</td>
@@ -722,6 +747,7 @@ function NewMissionForm({
   const [text, setText] = useState('')
   const [title, setTitle] = useState('')
   const [priority, setPriority] = useState<MissionPriority>('normal')
+  const [planner, setPlanner] = useState<PlanSource>('model')
   const [busy, setBusy] = useState(false)
   const [failure, setFailure] = useState<ErrorEnvelope | null>(null)
   const ready = route.state === 'ready' && route.value.route !== null
@@ -738,7 +764,8 @@ function NewMissionForm({
         request('missions.create', {
           request: text.trim(),
           ...(title.trim() ? { title: title.trim() } : {}),
-          priority
+          priority,
+          planner
         }).then(onCreated, (error: unknown) => {
           setFailure(envelopeOf(error))
           setBusy(false)
@@ -782,7 +809,7 @@ function NewMissionForm({
           label: t(`missionPriority.${value}` as MessageKey)
         }))}
       />
-      <p className="muted small">{t('missions.planTemplate')}</p>
+      <PlannerChoice value={planner} onChange={setPlanner} legend={t('planner.legend')} />
       <div className="composer-status small" data-testid="mission-new-route">
         {route.state === 'ready' && route.value.route ? (
           <RouteBadge route={route.value.route} />

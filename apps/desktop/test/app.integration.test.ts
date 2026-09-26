@@ -32,6 +32,7 @@ const RUNNING = [
   'database',
   'event-bus',
   'model-router',
+  'workflow-engine',
   'mission-manager',
   'capability-dispatcher'
 ] as const

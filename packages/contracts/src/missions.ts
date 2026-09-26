@@ -2,6 +2,7 @@ import { z } from 'zod'
 import { ActorType, RiskLevel } from './actor'
 import { RouteDecision } from './ai'
 import { ErrorEnvelope } from './errors'
+import { Plan, PlanIssue, PlanStepKey, SkillId } from './plans'
 import { UtcTimestamp, Uuidv7 } from './primitives'
 
 /**
@@ -53,29 +54,41 @@ export const TERMINAL_MISSION_STATUSES: ReadonlySet<MissionStatus> = new Set([
  * - Approval and identity waits (SET 7, SET 14) lead back to READY.
  * - PAUSED is reached only at a safe boundary between steps.
  * - COMPLETED, PARTIAL_SUCCESS, FAILED and CANCELLED end an execution; Retry
- *   moves the Mission back to READY for a new execution.
+ *   moves the Mission back to READY for a new execution of the same plan, and
+ *   Re-plan (SET 5) back to PLANNING for a new plan revision.
+ * - A running workflow waits at approval and identity checkpoints (SET 5);
+ *   an answer brings it back to RUNNING.
  */
 export const MISSION_TRANSITIONS: Readonly<Record<MissionStatus, readonly MissionStatus[]>> = {
   CREATED: ['ANALYZING', 'CANCELLED'],
   ANALYZING: ['PLANNING', 'FAILED', 'CANCELLED'],
   PLANNING: ['WAITING_APPROVAL', 'WAITING_IDENTITY', 'READY', 'FAILED', 'CANCELLED'],
-  WAITING_APPROVAL: ['READY', 'FAILED', 'CANCELLED'],
-  WAITING_IDENTITY: ['READY', 'FAILED', 'CANCELLED'],
+  WAITING_APPROVAL: ['READY', 'RUNNING', 'FAILED', 'CANCELLED'],
+  WAITING_IDENTITY: ['READY', 'RUNNING', 'FAILED', 'CANCELLED'],
   READY: ['RUNNING', 'CANCELLED'],
-  RUNNING: ['PAUSED', 'VERIFYING', 'FAILED', 'CANCELLED'],
+  RUNNING: ['PAUSED', 'WAITING_APPROVAL', 'WAITING_IDENTITY', 'VERIFYING', 'FAILED', 'CANCELLED'],
   PAUSED: ['RUNNING', 'CANCELLED'],
   VERIFYING: ['COMPLETED', 'PARTIAL_SUCCESS', 'FAILED', 'CANCELLED'],
-  COMPLETED: ['READY'],
-  PARTIAL_SUCCESS: ['READY'],
-  FAILED: ['READY'],
-  CANCELLED: ['READY']
+  COMPLETED: ['READY', 'PLANNING'],
+  PARTIAL_SUCCESS: ['READY', 'PLANNING'],
+  FAILED: ['READY', 'PLANNING'],
+  CANCELLED: ['READY', 'PLANNING']
 }
 
 export function canTransition(from: MissionStatus, to: MissionStatus): boolean {
   return MISSION_TRANSITIONS[from].includes(to)
 }
 
-export const MissionAction = z.enum(['pause', 'resume', 'cancel', 'retry', 'archive'])
+export const MissionAction = z.enum([
+  'pause',
+  'resume',
+  'approve',
+  'reject',
+  'cancel',
+  'retry',
+  'replan',
+  'archive'
+])
 export type MissionAction = z.infer<typeof MissionAction>
 
 /** What a person can do with a Mission in this state. The interface offers exactly these. */
@@ -83,13 +96,19 @@ export function availableMissionActions(mission: {
   readonly status: MissionStatus
   readonly archived: boolean
   readonly pauseRequested: boolean
+  /** False when there is no plan to run again (planning failed, or a SET 4 Mission): Re-plan instead. */
+  readonly hasPlan?: boolean
 }): MissionAction[] {
   if (mission.archived) return []
   const actions: MissionAction[] = []
   if (mission.status === 'RUNNING' && !mission.pauseRequested) actions.push('pause')
   if (mission.status === 'PAUSED') actions.push('resume')
+  if (mission.status === 'WAITING_APPROVAL') actions.push('approve', 'reject')
   if (canTransition(mission.status, 'CANCELLED')) actions.push('cancel')
-  if (TERMINAL_MISSION_STATUSES.has(mission.status)) actions.push('retry', 'archive')
+  if (TERMINAL_MISSION_STATUSES.has(mission.status)) {
+    if (mission.hasPlan !== false) actions.push('retry')
+    actions.push('replan', 'archive')
+  }
   return actions
 }
 
@@ -97,17 +116,19 @@ export const MissionPriority = z.enum(['low', 'normal', 'high'])
 export type MissionPriority = z.infer<typeof MissionPriority>
 
 /**
- * Step kinds Jupiter can really execute in this build. Each is implemented
- * by a step executor in Core; the planner (SET 5), skills (SET 6) and agents
- * (SET 8) add more.
+ * What a step does: a step type (skill) id. SET 4 Missions used
+ * `model.answer`, `model.summary` and `verify.answer`; SET 5 workflows use the
+ * step types of the Workflow Engine's catalogue (`model.generate`, …).
  */
-export const StepKind = z.enum(['model.answer', 'model.summary', 'verify.answer'])
+export const StepKind = SkillId
 export type StepKind = z.infer<typeof StepKind>
 
+/** Workflow step states (SET 5). */
 export const StepStatus = z.enum([
   'PENDING',
   'RUNNING',
-  'SUCCEEDED',
+  'WAITING',
+  'COMPLETED',
   'FAILED',
   'SKIPPED',
   'CANCELLED'
@@ -119,8 +140,13 @@ export const MissionStep = z
     stepId: StepId,
     executionId: ExecutionId,
     index: z.number().int().nonnegative(),
+    /** The step's id in its plan (e.g. `summarise`). */
+    key: PlanStepKey,
     kind: StepKind,
     title: z.string().min(1).max(200),
+    description: z.string().max(500),
+    /** Keys of the steps that must end first. */
+    dependencies: z.array(PlanStepKey).max(20),
     /** A required step that did not succeed means the Mission cannot be COMPLETED. */
     required: z.boolean(),
     status: StepStatus,
@@ -129,15 +155,35 @@ export const MissionStep = z
     /** The model that ran this step, when it used one. */
     route: RouteDecision.nullable(),
     error: ErrorEnvelope.nullable(),
+    /** Attempts made so far, and the most the retry policy allows. */
+    attempts: z.number().int().nonnegative(),
+    maxAttempts: z.number().int().positive(),
+    timeoutMs: z.number().int().positive().nullable(),
+    /** What a WAITING step waits for. */
+    waitingFor: z.enum(['approval', 'identity']).nullable(),
     startedAt: UtcTimestamp.nullable(),
     completedAt: UtcTimestamp.nullable()
   })
   .strict()
 export type MissionStep = z.infer<typeof MissionStep>
 
+/** One attempt at a step: kept for every attempt, including retries and interruptions. */
+export const StepAttempt = z
+  .object({
+    stepId: StepId,
+    attempt: z.number().int().positive(),
+    outcome: z.enum(['completed', 'failed', 'timed-out', 'cancelled', 'interrupted']),
+    errorCode: z.string().max(64).nullable(),
+    startedAt: UtcTimestamp,
+    endedAt: UtcTimestamp
+  })
+  .strict()
+export type StepAttempt = z.infer<typeof StepAttempt>
+
 export const ExecutionStatus = z.enum([
   'RUNNING',
   'PAUSED',
+  'WAITING',
   'COMPLETED',
   'PARTIAL_SUCCESS',
   'FAILED',
@@ -152,6 +198,8 @@ export const MissionExecution = z
     attempt: z.number().int().positive(),
     /** The execution this one retries; null for the first. */
     retryOf: ExecutionId.nullable(),
+    /** The plan revision this execution runs; null for SET 4 executions. */
+    planId: Uuidv7.nullable(),
     status: ExecutionStatus,
     startedAt: UtcTimestamp,
     endedAt: UtcTimestamp.nullable(),
@@ -235,9 +283,13 @@ export const MissionPermission = z
   .strict()
 export type MissionPermission = z.infer<typeof MissionPermission>
 
+/**
+ * The SET 4 plan record, still stored for Missions planned before SET 5.
+ * New Missions use `Plan` (plans.ts), kept as revisions.
+ */
 export const MissionPlan = z
   .object({
-    /** `template`: Jupiter's standard plan. The planner (SET 5) will produce `planner` plans. */
+    /** `template`: Jupiter's standard answer plan of SET 4. */
     source: z.enum(['template']),
     templateId: z.string().max(64),
     summary: z.string().max(500),
@@ -273,6 +325,10 @@ export const MissionSummary = z
     progress: MissionProgress.nullable(),
     currentStepTitle: z.string().max(200).nullable(),
     currentStepKind: StepKind.nullable(),
+    /** What the Mission waits for, when it waits at a checkpoint. */
+    waitingFor: z.enum(['approval', 'identity']).nullable(),
+    /** Revision of the plan in use; null before planning or for SET 4 Missions. */
+    planRevision: z.number().int().positive().nullable(),
     model: z.string().max(200).nullable(),
     startedAt: UtcTimestamp.nullable(),
     endedAt: UtcTimestamp.nullable(),
@@ -286,7 +342,14 @@ export const MissionDetail = z
   .object({
     mission: MissionSummary,
     userRequest: z.string().min(1).max(8000),
-    plan: MissionPlan.nullable(),
+    /** The plan in use (latest revision). */
+    plan: Plan.nullable(),
+    /** Every plan revision, oldest first. */
+    planRevisions: z.array(Plan).max(50),
+    /** Model output that did not pass as a plan, with the reasons, oldest first. */
+    planRejections: z
+      .array(z.object({ at: UtcTimestamp, issues: z.array(PlanIssue).max(50) }).strict())
+      .max(50),
     /** Steps of the current (latest) execution. */
     steps: z.array(MissionStep).max(50),
     currentStepId: StepId.nullable(),
@@ -297,8 +360,10 @@ export const MissionDetail = z
     verificationResults: z.array(VerificationResult).max(200),
     /** Every execution, oldest first, each with its own steps. */
     executionHistory: z.array(MissionExecution).max(100),
+    /** Every attempt at every step of the current execution (retries included). */
+    stepAttempts: z.array(StepAttempt).max(500),
     transitions: z.array(MissionTransition).max(1000),
-    actions: z.array(MissionAction).max(5)
+    actions: z.array(MissionAction).max(8)
   })
   .strict()
 export type MissionDetail = z.infer<typeof MissionDetail>

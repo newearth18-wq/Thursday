@@ -77,7 +77,13 @@ Do not modify `legacy/thursday-browser` unless a task is explicitly about it.
 - A Mission's status changes only through `MissionManager.transition`, which
   applies `MISSION_TRANSITIONS` from the contract. Never write a status
   directly, and never delete or rewrite Mission history (retry adds an
-  attempt). A new step kind needs a `StepKind` entry and a real executor.
+  attempt).
+- Workflows (SET 5): a plan reaches the engine only through `parsePlanText`
+  and `validatePlan` (`packages/core/src/workflow/`). A new step type needs a
+  catalogue entry (`workflow/catalogue.ts`), a real executor in
+  `MissionManager.execute`, validator rules for its inputs, and names in both
+  catalogs. Write a step's output only in the transaction that completes it
+  (it is the idempotency guarantee), and never store model reasoning.
 - Schema changes are new migrations at the end of `JUPITER_MIGRATIONS`; never
   edit a migration that has shipped (see `packages/database/README.md`).
 

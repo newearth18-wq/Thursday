@@ -62,6 +62,11 @@ const AI_WRITE: Policy = { ...AI_READ, audit: 'always' }
 /** Missions (SET 4): reads, and changes that are audited on every call (refusals included). */
 const MISSION_READ: Policy = { ...UI_READ, requires: ['database', 'mission-manager'] }
 const MISSION_WRITE: Policy = { ...MISSION_READ, audit: 'always' }
+/** Commands that plan or run a workflow (SET 5) also need the workflow engine. */
+const WORKFLOW_WRITE: Policy = {
+  ...MISSION_WRITE,
+  requires: ['database', 'mission-manager', 'workflow-engine']
+}
 
 function operation(context: CapabilityContext): OperationContext {
   return {
@@ -285,7 +290,7 @@ export function coreCapabilities(kernel: CoreKernel): CapabilityDefinition<never
     // ---- Missions (SET 4) ----
     define(
       'missions.create',
-      MISSION_WRITE,
+      WORKFLOW_WRITE,
       (input, context) => kernel.missions.create(input, operation(context)),
       () => 'mission:new'
     ),
@@ -304,7 +309,7 @@ export function coreCapabilities(kernel: CoreKernel): CapabilityDefinition<never
     ),
     define(
       'missions.resume',
-      MISSION_WRITE,
+      WORKFLOW_WRITE,
       (input, context) => kernel.missions.resume(input.missionId, operation(context)),
       (input) => `mission:${input.missionId}`
     ),
@@ -316,7 +321,7 @@ export function coreCapabilities(kernel: CoreKernel): CapabilityDefinition<never
     ),
     define(
       'missions.retry',
-      MISSION_WRITE,
+      WORKFLOW_WRITE,
       (input, context) => kernel.missions.retry(input.missionId, operation(context)),
       (input) => `mission:${input.missionId}`
     ),
@@ -325,7 +330,35 @@ export function coreCapabilities(kernel: CoreKernel): CapabilityDefinition<never
       MISSION_WRITE,
       (input, context) => kernel.missions.archive(input.missionId, operation(context)),
       (input) => `mission:${input.missionId}`
-    )
+    ),
+
+    // ---- Planner and Workflow Engine (SET 5) ----
+    define(
+      'missions.approve',
+      WORKFLOW_WRITE,
+      (input, context) =>
+        kernel.missions.decide(input.missionId, input.stepId, true, operation(context)),
+      (input) => `mission:${input.missionId}`
+    ),
+    define(
+      'missions.reject',
+      WORKFLOW_WRITE,
+      (input, context) =>
+        kernel.missions.decide(input.missionId, input.stepId, false, operation(context)),
+      (input) => `mission:${input.missionId}`
+    ),
+    define(
+      'missions.replan',
+      WORKFLOW_WRITE,
+      (input, context) =>
+        kernel.missions.replan(
+          input.missionId,
+          { feedback: input.feedback, planner: input.planner },
+          operation(context)
+        ),
+      (input) => `mission:${input.missionId}`
+    ),
+    define('missions.step-types', MISSION_READ, () => ({ stepTypes: kernel.missions.stepTypes() }))
   ]
   for (const capability of capabilities) {
     if (!Object.hasOwn(Capabilities, capability.id)) {

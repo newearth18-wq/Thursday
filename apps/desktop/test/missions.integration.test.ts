@@ -84,6 +84,8 @@ async function createMission(requestText: string, title?: string): Promise<strin
   const dialog = page.getByTestId('mission-new-dialog')
   await dialog.getByTestId('mission-new-request').fill(requestText)
   if (title) await dialog.getByTestId('mission-new-title').fill(title)
+  // SET 4 behaviour: Jupiter's answer plan (the planner of SET 5 is tested in workflow.integration).
+  await dialog.getByTestId('mission-planner-template').check()
   const create = dialog.getByTestId('mission-new-create')
   await expect.poll(() => create.isEnabled()).toBe(true)
   await create.click()
@@ -124,14 +126,14 @@ describe('SET 4 — Mission System, in the real application', () => {
     expect(await detail().getByTestId('mission-request').textContent()).toBe(
       'Write a haiku about rain'
     )
-    expect(await stepStatuses()).toEqual(['SUCCEEDED', 'SUCCEEDED', 'SUCCEEDED'])
+    expect(await stepStatuses()).toEqual(['COMPLETED', 'COMPLETED'])
     expect(await detail().getByTestId('mission-artifact').first().textContent()).toContain(
       'Rain taps the window.'
     )
     const checks = detail().getByTestId('mission-verification').locator('li')
     expect(
       await checks.evaluateAll((items) => items.map((i) => i.getAttribute('data-passed')))
-    ).toEqual(['true', 'true'])
+    ).toEqual(['true'])
     expect(await detail().getByTestId('mission-model').textContent()).toContain('Mission Model')
     // AT3: the stored transitions are exactly the valid path.
     const stored = await query(page, 'missions.get', { missionId })
@@ -152,8 +154,8 @@ describe('SET 4 — Mission System, in the real application', () => {
     // What is visible (technical details stay collapsed until asked for).
     const timeline = await detail().getByTestId('mission-timeline').innerText()
     expect(timeline).toContain('Mission created: Rain haiku')
-    expect(timeline).toContain('Started: Answer the request')
-    expect(timeline).toContain('Check passed: an answer was produced')
+    expect(timeline).toContain('Started: Answer the request with the chat model')
+    expect(timeline).toContain('Check passed: “answer” produced output')
     expect(timeline).toContain('Completed')
     expect(timeline).not.toContain('mission.status_changed')
     await evidence('01-mission-completed')
@@ -186,7 +188,7 @@ describe('SET 4 — Mission System, in the real application', () => {
     model.advance()
     model.advance()
     await expect.poll(statusOf).toBe('PAUSED')
-    expect(await stepStatuses()).toEqual(['SUCCEEDED', 'PENDING', 'PENDING'])
+    expect(await stepStatuses()).toEqual(['COMPLETED', 'PENDING'])
     await new Promise((resolve) => setTimeout(resolve, 300))
     expect(chatRequests()).toHaveLength(1)
     await evidence('03-mission-paused')
@@ -205,7 +207,7 @@ describe('SET 4 — Mission System, in the real application', () => {
     await detail().getByTestId('mission-cancel').click()
     await page.getByTestId('mission-cancel-dialog').getByTestId('confirm-ok').click()
     await expect.poll(statusOf).toBe('CANCELLED')
-    expect(await stepStatuses()).toEqual(['CANCELLED', 'SKIPPED', 'SKIPPED'])
+    expect(await stepStatuses()).toEqual(['CANCELLED', 'SKIPPED'])
     await expect.poll(() => chatRequests()[0]?.abortedAt ?? null).not.toBeNull()
     await evidence('04-mission-cancelled')
   })
@@ -216,19 +218,25 @@ describe('SET 4 — Mission System, in the real application', () => {
     await createMission('Answer, then summarise')
     await expect.poll(statusOf).toBe('PARTIAL_SUCCESS')
     const partial = detail().getByTestId('mission-partial')
-    expect(await partial.textContent()).toContain('Completed: Answer the request, Check the answer')
+    expect(await partial.textContent()).toContain(
+      'Completed: Answer the request with the chat model'
+    )
     expect(await partial.getByTestId('mission-partial-missing').textContent()).toBe(
-      'Not completed: Write a one-line summary (Failed)'
+      'Not completed: Write a one-line summary of the answer (Failed)'
     )
     await evidence('05-mission-partial')
   })
 
   it('AT7: Retry after a failure creates a linked new attempt and keeps the failed one', async () => {
     model.reset()
-    model.enqueue({ status: 503, errorMessage: 'down for maintenance' })
+    // Both attempts the answer step's retry policy allows fail.
+    model.enqueue(
+      { status: 503, errorMessage: 'down for maintenance' },
+      { status: 503, errorMessage: 'down for maintenance' }
+    )
     const missionId = await createMission('Try until it works')
     await expect.poll(statusOf).toBe('FAILED')
-    expect(await stepStatuses()).toEqual(['FAILED', 'SKIPPED', 'SKIPPED'])
+    expect(await stepStatuses()).toEqual(['FAILED', 'SKIPPED'])
 
     model.enqueue({ chunks: ['Works now.'] }, { chunks: ['Fine.'] })
     await detail().getByTestId('mission-retry').click()
@@ -245,7 +253,7 @@ describe('SET 4 — Mission System, in the real application', () => {
     const stored = await query(page, 'missions.get', { missionId })
     const [first, second] = stored.executionHistory
     expect(second?.retryOf).toBe(first?.executionId)
-    expect(first?.steps.map((step) => step.status)).toEqual(['FAILED', 'SKIPPED', 'SKIPPED'])
+    expect(first?.steps.map((step) => step.status)).toEqual(['FAILED', 'SKIPPED'])
     await evidence('06-mission-retried')
   })
 
@@ -283,7 +291,7 @@ describe('SET 4 — Mission System, in the real application', () => {
     await expect.poll(statusOf).toBe('COMPLETED')
     expect(
       await detail().getByTestId('mission-actions').locator('button').allTextContents()
-    ).toEqual(['Retry', 'Archive'])
+    ).toEqual(['Retry', 'Correct and re-plan', 'Archive'])
     await expect
       .poll(() => detail().getByTestId('mission-timeline').textContent())
       .toContain('Refused: Completed cannot change to Running')

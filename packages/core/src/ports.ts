@@ -21,7 +21,11 @@ import type {
   MissionStatus,
   MissionStep,
   MissionTransition,
+  Plan,
+  PlanIssue,
+  PlanStep,
   ServiceHealth,
+  StepAttempt,
   StreamRef,
   VerificationResult
 } from '@jupiter/contracts'
@@ -193,6 +197,8 @@ export interface MissionRecord {
   readonly archivedAt: string | null
   readonly plan: MissionPlan | null
   readonly currentExecutionId: string | null
+  /** The plan revision in use (SET 5); null before planning and for SET 4 Missions. */
+  readonly currentPlanId: string | null
   readonly createdAt: string
   readonly updatedAt: string
 }
@@ -200,14 +206,37 @@ export interface MissionRecord {
 export type MissionChanges = Partial<
   Pick<
     MissionRecord,
-    'status' | 'pauseRequested' | 'archivedAt' | 'plan' | 'currentExecutionId' | 'updatedAt'
+    | 'status'
+    | 'pauseRequested'
+    | 'archivedAt'
+    | 'plan'
+    | 'currentExecutionId'
+    | 'currentPlanId'
+    | 'updatedAt'
   >
 >
 
 export type ExecutionRecord = Omit<MissionExecution, 'steps'>
 export type StepChanges = Partial<
-  Pick<MissionStep, 'status' | 'detail' | 'route' | 'error' | 'startedAt' | 'completedAt'>
+  Pick<
+    MissionStep,
+    | 'status'
+    | 'detail'
+    | 'route'
+    | 'error'
+    | 'attempts'
+    | 'waitingFor'
+    | 'startedAt'
+    | 'completedAt'
+  >
 >
+
+export interface PlanRejectionRecord {
+  readonly rejectionId: string
+  readonly missionId: string
+  readonly issues: readonly PlanIssue[]
+  readonly at: string
+}
 
 /**
  * Missions and everything recorded about them. Transitions, errors,
@@ -229,10 +258,22 @@ export interface MissionStore {
   ): void
   /** Oldest first. */
   executions(missionId: string): ExecutionRecord[]
-  insertStep(step: MissionStep): void
+  /** `definition`: the plan step it runs (input, condition, verification, retry policy). */
+  insertStep(step: MissionStep, definition?: PlanStep): void
   updateStep(stepId: string, changes: StepChanges): void
   /** In plan order. */
   steps(executionId: string): MissionStep[]
+  /** Append-only. */
+  insertAttempt(attempt: StepAttempt): void
+  /** Every attempt at every step of the execution, in order. */
+  attempts(executionId: string): StepAttempt[]
+  /** Plan revisions are append-only. */
+  insertPlan(plan: Plan): void
+  plan(planId: string): Plan | null
+  /** Oldest revision first. */
+  plans(missionId: string): Plan[]
+  insertPlanRejection(rejection: PlanRejectionRecord): void
+  planRejections(missionId: string): PlanRejectionRecord[]
   insertTransition(transition: MissionTransition): void
   transitions(missionId: string): MissionTransition[]
   insertError(error: MissionErrorRecord): void

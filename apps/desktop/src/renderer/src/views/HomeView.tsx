@@ -229,9 +229,7 @@ function CurrentMission({ missions }: { readonly missions: Loadable<MissionSumma
   if (!current) return <MissionCard mission={null} />
   const data: MissionCardData = {
     title: current.title,
-    currentAction: current.currentStepKind
-      ? t(`missionStep.${current.currentStepKind}` as MessageKey)
-      : t(`missionStatus.${current.status}` as MessageKey),
+    currentAction: current.currentStepTitle ?? t(`missionStatus.${current.status}` as MessageKey),
     completed: current.progress?.done ?? null,
     total: current.progress?.total ?? null,
     startedAt: current.startedAt ?? current.createdAt,

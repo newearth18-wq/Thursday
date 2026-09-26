@@ -6,7 +6,7 @@ import type { Loadable } from './useRuntime'
 import { useLiveEvents } from './useLiveEvents'
 
 /**
- * Missions for the interface (SET 4). Everything shown is read from Jupiter
+ * Missions for the interface (SET 4–5). Everything shown is read from Jupiter
  * Core, and read again whenever Core publishes a change to a Mission.
  */
 
@@ -20,6 +20,11 @@ const MISSION_EVENT_TYPES: NonNullable<EventFilter['types']> = [
   'mission.step_finished',
   'mission.verification_recorded',
   'mission.artifact_recorded',
+  'mission.plan_rejected',
+  'mission.step_waiting',
+  'mission.approval_decided',
+  'mission.step_retry_scheduled',
+  'mission.recovered',
   'mission.pause_requested',
   'mission.archived'
 ]

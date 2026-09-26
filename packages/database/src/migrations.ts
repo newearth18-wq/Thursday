@@ -19,6 +19,13 @@ export interface Migration {
   readonly version: number
   readonly name: string
   readonly sql: string
+  /**
+   * The migration rebuilds a table that other tables reference (SQLite's
+   * documented 12-step procedure): foreign keys are switched off for it, and
+   * `PRAGMA foreign_key_check` must find nothing before it commits. Not part
+   * of the checksum.
+   */
+  readonly rebuildsTables?: boolean
 }
 
 export interface MigrationPlan {
@@ -143,9 +150,18 @@ export function applyMigrations(
     'INSERT INTO schema_migrations (version, name, checksum, applied_at) VALUES (?, ?, ?, ?)'
   )
   for (const migration of plan.pending) {
+    // Foreign keys can only be switched off outside a transaction.
+    if (migration.rebuildsTables) db.exec('PRAGMA foreign_keys = OFF')
     try {
       transactions.run(() => {
         db.exec(migration.sql)
+        if (migration.rebuildsTables) {
+          const violations = db.prepare('PRAGMA foreign_key_check').all()
+          if (violations.length > 0)
+            throw new Error(
+              `the rebuilt tables break ${String(violations.length)} foreign key references`
+            )
+        }
         record.run(
           migration.version,
           migration.name,
@@ -163,6 +179,8 @@ export function applyMigrations(
           cause: error
         }
       )
+    } finally {
+      if (migration.rebuildsTables) db.exec('PRAGMA foreign_keys = ON')
     }
   }
   return {

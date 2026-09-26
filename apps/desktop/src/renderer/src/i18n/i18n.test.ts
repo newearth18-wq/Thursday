@@ -12,7 +12,7 @@ import {
   MissionAction,
   MissionPriority,
   MissionStatus,
-  StepKind,
+  StepAttempt,
   StepStatus,
   ModelCapability,
   OverallRuntimeStatus,
@@ -27,6 +27,7 @@ import { VIEW_IDS } from '../../../shared/views'
 import { STAGE_STATES } from '../components/JupiterStage'
 import { DESTINATIONS } from '../destinations'
 import { KNOWN_CODES } from '../errorText'
+import { KNOWN_STEP_KINDS } from '../missionText'
 import { en } from './en'
 import { createTranslator, detectLocale, localeFor } from './index'
 import { th } from './th'
@@ -111,10 +112,11 @@ describe('keys built at runtime', () => {
       'missionEvent.status.': MissionStatus.options,
       'stepStatus.': StepStatus.options,
       'executionStatus.': ExecutionStatus.options,
-      'missionStep.': StepKind.options,
+      'missionStep.': KNOWN_STEP_KINDS,
+      'workflow.outcome.': StepAttempt.shape.outcome.options,
       'missionPriority.': MissionPriority.options,
       'missions.action.': MissionAction.options,
-      'missionCheck.': ['answer-present', 'summary-present'],
+      'missionCheck.': ['answer-present', 'summary-present', 'non-empty', 'contains'],
       'stage.': STAGE_STATES,
       'indicators.core.': ['running', 'starting', 'stopped', 'unknown'],
       'activity.state.': ['live', 'connecting', 'waiting-for-core', 'error'],

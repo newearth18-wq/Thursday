@@ -2113,3 +2113,86 @@ kbd {
 .mission-errors > summary {
   cursor: pointer;
 }
+
+/* ------------------------------------------------- Plans and workflows (SET 5) */
+
+.plan-facts {
+  margin: 0;
+}
+
+.plan-correct {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--jp-space-sm);
+  margin: var(--jp-space-sm) 0 0;
+}
+
+.plan-revisions > summary {
+  cursor: pointer;
+}
+
+.workflow-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--jp-space-sm);
+  margin-bottom: var(--jp-space-sm);
+}
+
+.workflow-head h3 {
+  margin: 0;
+}
+
+.workflow-stages {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--jp-space-md);
+}
+
+.workflow-stage {
+  display: flex;
+  flex-direction: column;
+  gap: var(--jp-space-xs);
+  border-left: 2px solid var(--ui-border);
+  padding-left: var(--jp-space-md);
+}
+
+.workflow-stage-label {
+  margin: 0;
+}
+
+.workflow-nodes {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(16rem, 1fr));
+  gap: var(--jp-space-sm);
+}
+
+.workflow-node .mission-step-name::before {
+  content: none;
+}
+
+.workflow-node[aria-current='step'] {
+  border-color: var(--jp-color-electric-cyan);
+}
+
+.workflow-node[data-status='WAITING'] {
+  border-color: var(--jp-color-warning);
+}
+
+.workflow-node[data-status='FAILED'] {
+  border-color: var(--jp-color-error);
+}
+
+.workflow-attempts {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--jp-space-xs);
+}

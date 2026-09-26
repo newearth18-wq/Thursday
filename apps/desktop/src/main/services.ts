@@ -26,12 +26,6 @@ interface ServiceDependencies {
 /** Jupiter Core modules and isolated runtimes that later SETs deliver. Never started, never shown as working. */
 export const PLANNED_SERVICES = [
   {
-    id: 'workflow-engine',
-    availability: 'COMING_LATER',
-    plannedSet: 5,
-    capabilities: ['workflows.run']
-  },
-  {
     id: 'skill-registry',
     availability: 'COMING_LATER',
     plannedSet: 6,

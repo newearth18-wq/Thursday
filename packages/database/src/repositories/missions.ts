@@ -9,6 +9,10 @@ import {
   MissionStatus,
   MissionStep,
   MissionTransition,
+  Plan,
+  PlanIssue,
+  PlanStep,
+  StepAttempt,
   VerificationResult
 } from '@jupiter/contracts'
 import type {
@@ -16,9 +20,10 @@ import type {
   MissionChanges,
   MissionRecord,
   MissionStore,
+  PlanRejectionRecord,
   StepChanges
 } from '@jupiter/core'
-import { integer, json, nullableText, text } from '../rows'
+import { integer, json, nullableInteger, nullableText, text } from '../rows'
 
 type Row = Record<string, unknown>
 
@@ -33,8 +38,8 @@ export class SqliteMissionStore implements MissionStore {
     this.db
       .prepare(
         `INSERT INTO missions (mission_id, title, user_request, priority, status, pause_requested,
-           archived_at, plan_json, current_execution_id, created_at, updated_at)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+           archived_at, plan_json, current_execution_id, current_plan_id, created_at, updated_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
       )
       .run(
         mission.missionId,
@@ -46,6 +51,7 @@ export class SqliteMissionStore implements MissionStore {
         mission.archivedAt,
         mission.plan ? JSON.stringify(mission.plan) : null,
         mission.currentExecutionId,
+        mission.currentPlanId,
         mission.createdAt,
         mission.updatedAt
       )
@@ -63,7 +69,7 @@ export class SqliteMissionStore implements MissionStore {
     this.db
       .prepare(
         `UPDATE missions SET status = ?, pause_requested = ?, archived_at = ?, plan_json = ?,
-           current_execution_id = ?, updated_at = ?
+           current_execution_id = ?, current_plan_id = ?, updated_at = ?
          WHERE mission_id = ?`
       )
       .run(
@@ -72,6 +78,7 @@ export class SqliteMissionStore implements MissionStore {
         next.archivedAt,
         next.plan ? JSON.stringify(next.plan) : null,
         next.currentExecutionId,
+        next.currentPlanId,
         next.updatedAt,
         missionId
       )
@@ -99,14 +106,16 @@ export class SqliteMissionStore implements MissionStore {
   insertExecution(execution: ExecutionRecord): void {
     this.db
       .prepare(
-        `INSERT INTO mission_executions (execution_id, mission_id, attempt, retry_of, status, started_at, ended_at)
-         VALUES (?, ?, ?, ?, ?, ?, ?)`
+        `INSERT INTO mission_executions (execution_id, mission_id, attempt, retry_of, plan_id, status,
+           started_at, ended_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?)`
       )
       .run(
         execution.executionId,
         execution.missionId,
         execution.attempt,
         execution.retryOf,
+        execution.planId,
         execution.status,
         execution.startedAt,
         execution.endedAt
@@ -135,25 +144,40 @@ export class SqliteMissionStore implements MissionStore {
       .map(toExecution)
   }
 
-  insertStep(input: MissionStep): void {
+  insertStep(input: MissionStep, definition?: PlanStep): void {
     const step = MissionStep.parse(input)
+    const plan = definition ? PlanStep.parse(definition) : null
     this.db
       .prepare(
-        `INSERT INTO mission_steps (step_id, execution_id, idx, kind, title, required, status, detail,
-           route_json, error_json, started_at, completed_at)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+        `INSERT INTO mission_steps (step_id, execution_id, idx, step_key, kind, title, description,
+           required, status, detail, route_json, error_json, dependencies_json, input_json,
+           condition_json, verification_json, timeout_ms, max_attempts, backoff_ms,
+           backoff_multiplier, attempts, waiting_for, started_at, completed_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
       )
       .run(
         step.stepId,
         step.executionId,
         step.index,
+        step.key,
         step.kind,
         step.title,
+        step.description,
         step.required ? 1 : 0,
         step.status,
         step.detail,
         step.route ? JSON.stringify(step.route) : null,
         step.error ? JSON.stringify(step.error) : null,
+        JSON.stringify(step.dependencies),
+        JSON.stringify(plan?.input ?? {}),
+        plan?.condition ? JSON.stringify(plan.condition) : null,
+        plan?.verification ? JSON.stringify(plan.verification) : null,
+        step.timeoutMs,
+        step.maxAttempts,
+        plan?.retryPolicy.backoffMs ?? 0,
+        plan?.retryPolicy.multiplier ?? 1,
+        step.attempts,
+        step.waitingFor,
         step.startedAt,
         step.completedAt
       )
@@ -166,7 +190,7 @@ export class SqliteMissionStore implements MissionStore {
     this.db
       .prepare(
         `UPDATE mission_steps SET status = ?, detail = ?, route_json = ?, error_json = ?,
-           started_at = ?, completed_at = ?
+           attempts = ?, waiting_for = ?, started_at = ?, completed_at = ?
          WHERE step_id = ?`
       )
       .run(
@@ -174,6 +198,8 @@ export class SqliteMissionStore implements MissionStore {
         next.detail,
         next.route ? JSON.stringify(next.route) : null,
         next.error ? JSON.stringify(next.error) : null,
+        next.attempts,
+        next.waitingFor,
         next.startedAt,
         next.completedAt,
         stepId
@@ -185,6 +211,101 @@ export class SqliteMissionStore implements MissionStore {
       .prepare('SELECT * FROM mission_steps WHERE execution_id = ? ORDER BY idx')
       .all(executionId)
       .map(toStep)
+  }
+
+  insertAttempt(input: StepAttempt): void {
+    const attempt = StepAttempt.parse(input)
+    this.db
+      .prepare(
+        `INSERT INTO mission_step_attempts (step_id, attempt, outcome, error_code, started_at, ended_at)
+         VALUES (?, ?, ?, ?, ?, ?)`
+      )
+      .run(
+        attempt.stepId,
+        attempt.attempt,
+        attempt.outcome,
+        attempt.errorCode,
+        attempt.startedAt,
+        attempt.endedAt
+      )
+  }
+
+  attempts(executionId: string): StepAttempt[] {
+    return this.db
+      .prepare(
+        `SELECT a.* FROM mission_step_attempts a JOIN mission_steps s ON s.step_id = a.step_id
+         WHERE s.execution_id = ? ORDER BY s.idx, a.attempt LIMIT 500`
+      )
+      .all(executionId)
+      .map((row) =>
+        StepAttempt.parse({
+          stepId: text(row, 'step_id'),
+          attempt: integer(row, 'attempt'),
+          outcome: text(row, 'outcome'),
+          errorCode: nullableText(row, 'error_code'),
+          startedAt: text(row, 'started_at'),
+          endedAt: text(row, 'ended_at')
+        })
+      )
+  }
+
+  insertPlan(input: Plan): void {
+    const plan = Plan.parse(input)
+    this.db
+      .prepare(
+        `INSERT INTO mission_plans (plan_id, mission_id, revision, previous_plan_id, source, reason,
+           plan_json, created_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?)`
+      )
+      .run(
+        plan.planId,
+        plan.missionId,
+        plan.revision,
+        plan.previousPlanId,
+        plan.source,
+        plan.reason,
+        JSON.stringify(plan),
+        plan.createdAt
+      )
+  }
+
+  plan(planId: string): Plan | null {
+    const row = this.db.prepare('SELECT plan_json FROM mission_plans WHERE plan_id = ?').get(planId)
+    return row ? Plan.parse(json(row, 'plan_json')) : null
+  }
+
+  plans(missionId: string): Plan[] {
+    return this.db
+      .prepare(
+        'SELECT plan_json FROM mission_plans WHERE mission_id = ? ORDER BY revision LIMIT 50'
+      )
+      .all(missionId)
+      .map((row) => Plan.parse(json(row, 'plan_json')))
+  }
+
+  insertPlanRejection(rejection: PlanRejectionRecord): void {
+    const issues = PlanIssue.array().min(1).max(50).parse(rejection.issues)
+    this.db
+      .prepare(
+        `INSERT INTO mission_plan_rejections (rejection_id, mission_id, issues_json, at)
+         VALUES (?, ?, ?, ?)`
+      )
+      .run(rejection.rejectionId, rejection.missionId, JSON.stringify(issues), rejection.at)
+  }
+
+  planRejections(missionId: string): PlanRejectionRecord[] {
+    return this.db
+      .prepare(
+        `SELECT * FROM mission_plan_rejections WHERE mission_id = ?
+         ORDER BY at, rejection_id LIMIT 50`
+      )
+      .all(missionId)
+      .map((row) => ({
+        rejectionId: text(row, 'rejection_id'),
+        missionId: text(row, 'mission_id'),
+        issues: PlanIssue.array().parse(json(row, 'issues_json')),
+        at: text(row, 'at')
+      }))
   }
 
   insertTransition(input: MissionTransition): void {
@@ -356,6 +477,7 @@ function toMission(row: Row): MissionRecord {
     archivedAt: nullableText(row, 'archived_at'),
     plan: plan === null ? null : MissionPlan.parse(plan),
     currentExecutionId: nullableText(row, 'current_execution_id'),
+    currentPlanId: nullableText(row, 'current_plan_id'),
     createdAt: text(row, 'created_at'),
     updatedAt: text(row, 'updated_at')
   }
@@ -367,6 +489,7 @@ function toExecution(row: Row): ExecutionRecord {
     missionId: text(row, 'mission_id'),
     attempt: integer(row, 'attempt'),
     retryOf: nullableText(row, 'retry_of'),
+    planId: nullableText(row, 'plan_id'),
     status: text(row, 'status'),
     startedAt: text(row, 'started_at'),
     endedAt: nullableText(row, 'ended_at')
@@ -378,13 +501,20 @@ function toStep(row: Row): MissionStep {
     stepId: text(row, 'step_id'),
     executionId: text(row, 'execution_id'),
     index: integer(row, 'idx'),
+    key: text(row, 'step_key'),
     kind: text(row, 'kind'),
     title: text(row, 'title'),
+    description: text(row, 'description'),
+    dependencies: json(row, 'dependencies_json'),
     required: integer(row, 'required') === 1,
     status: text(row, 'status'),
     detail: nullableText(row, 'detail'),
     route: parseNullable(row, 'route_json'),
     error: parseNullable(row, 'error_json'),
+    attempts: integer(row, 'attempts'),
+    maxAttempts: integer(row, 'max_attempts'),
+    timeoutMs: nullableInteger(row, 'timeout_ms'),
+    waitingFor: nullableText(row, 'waiting_for'),
     startedAt: nullableText(row, 'started_at'),
     completedAt: nullableText(row, 'completed_at')
   })

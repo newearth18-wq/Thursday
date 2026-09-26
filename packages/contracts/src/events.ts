@@ -176,7 +176,17 @@ export const EventPayloads = {
     .object({ from: MissionStatus, requested: MissionStatus, reason: z.string().max(500) })
     .strict(),
   'mission.planned': z
-    .object({ source: z.enum(['template']), steps: z.number().int().positive() })
+    .object({
+      source: z.enum(['template', 'model']),
+      steps: z.number().int().positive(),
+      // SET 5: the plan revision (absent in events stored by SET 4).
+      planId: Uuidv7.optional(),
+      revision: z.number().int().positive().optional()
+    })
+    .strict(),
+  /** Model output that did not pass as a plan; nothing ran. */
+  'mission.plan_rejected': z
+    .object({ issues: z.number().int().positive(), codes: z.array(z.string().max(40)).max(20) })
     .strict(),
   'mission.execution_started': z
     .object({
@@ -198,10 +208,32 @@ export const EventPayloads = {
       stepId: Uuidv7,
       index: z.number().int().nonnegative(),
       kind: StepKind,
-      status: StepStatus,
+      // `SUCCEEDED` is how SET 4 recorded a completed step.
+      status: z.enum([...StepStatus.options, 'SUCCEEDED']),
       errorCode: z.string().max(64).nullable()
     })
     .strict(),
+  /** A step waits at a checkpoint (approval, identity). */
+  'mission.step_waiting': z
+    .object({
+      stepId: Uuidv7,
+      index: z.number().int().nonnegative(),
+      waitingFor: z.enum(['approval', 'identity'])
+    })
+    .strict(),
+  'mission.approval_decided': z.object({ stepId: Uuidv7, approved: z.boolean() }).strict(),
+  /** A failed attempt will be tried again after `delayMs`, as the step's retry policy allows. */
+  'mission.step_retry_scheduled': z
+    .object({
+      stepId: Uuidv7,
+      index: z.number().int().nonnegative(),
+      nextAttempt: z.number().int().min(2),
+      delayMs: z.number().int().nonnegative(),
+      errorCode: z.string().max(64)
+    })
+    .strict(),
+  /** Core restarted during the workflow; interrupted steps are run again from durable state. */
+  'mission.recovered': z.object({ interruptedSteps: z.number().int().nonnegative() }).strict(),
   'mission.verification_recorded': z
     .object({ verificationId: Uuidv7, check: z.string().max(64), passed: z.boolean() })
     .strict(),
@@ -263,6 +295,11 @@ export const DomainEvent = z
     variant('mission.step_finished'),
     variant('mission.verification_recorded'),
     variant('mission.artifact_recorded'),
+    variant('mission.plan_rejected'),
+    variant('mission.step_waiting'),
+    variant('mission.approval_decided'),
+    variant('mission.step_retry_scheduled'),
+    variant('mission.recovered'),
     variant('mission.pause_requested'),
     variant('mission.archived')
   ])

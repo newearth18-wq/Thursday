@@ -41,6 +41,7 @@ export type {
   MissionChanges,
   MissionRecord,
   MissionStore,
+  PlanRejectionRecord,
   StepChanges,
   DatabasePort,
   DiscoveredModel,
@@ -104,5 +105,16 @@ export { sanitizeProviderText } from './ai/sanitize'
 export { createTransport, privacyBlocked, type FetchLike } from './ai/transport'
 export { selectRoute, type RouteInput, type RouteResult, type RouterProvider } from './ai/router'
 export type { CredentialVault } from './ai/providers'
-export { ANSWER_PLAN, MissionManager } from './missions/manager'
+export { MissionManager } from './missions/manager'
+export { STEP_TYPES, stepType, stepTypeInfo, type StepTypeDefinition } from './workflow/catalogue'
+export { plannerMessages, templatePlanDraft, type PlannerInput } from './workflow/planner'
+export {
+  MAX_STEP_BUDGET_MS,
+  backoffBefore,
+  parsePlanText,
+  referencesIn,
+  substitute,
+  validatePlan,
+  type PlanParseResult
+} from './workflow/validate'
 export { completeText, type Completion } from './ai/complete'

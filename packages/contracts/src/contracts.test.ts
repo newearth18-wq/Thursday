@@ -375,12 +375,12 @@ describe('Missions (SET 4)', () => {
     }
   })
 
-  it('reaches COMPLETED only through VERIFYING, and leaves an ended execution only for a retry', () => {
+  it('reaches COMPLETED only through VERIFYING, and leaves an ended execution only for a retry or a re-plan', () => {
     for (const status of MissionStatus.options) {
       if (status !== 'VERIFYING') expect(canTransition(status, 'COMPLETED')).toBe(false)
     }
     for (const status of TERMINAL_MISSION_STATUSES) {
-      expect(MISSION_TRANSITIONS[status]).toEqual(['READY'])
+      expect(MISSION_TRANSITIONS[status]).toEqual(['READY', 'PLANNING'])
     }
     expect(canTransition('RUNNING', 'COMPLETED')).toBe(false)
     expect(canTransition('CANCELLED', 'RUNNING')).toBe(false)
@@ -393,7 +393,16 @@ describe('Missions (SET 4)', () => {
       'cancel'
     ])
     expect(availableMissionActions({ ...base, status: 'PAUSED' })).toEqual(['resume', 'cancel'])
-    expect(availableMissionActions({ ...base, status: 'FAILED' })).toEqual(['retry', 'archive'])
+    expect(availableMissionActions({ ...base, status: 'FAILED' })).toEqual([
+      'retry',
+      'replan',
+      'archive'
+    ])
+    expect(availableMissionActions({ ...base, status: 'WAITING_APPROVAL' })).toEqual([
+      'approve',
+      'reject',
+      'cancel'
+    ])
     expect(availableMissionActions({ ...base, status: 'COMPLETED', archived: true })).toEqual([])
   })
 

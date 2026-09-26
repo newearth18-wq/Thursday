@@ -33,3 +33,9 @@ export function nullableNumber(row: Row, key: string): number | null {
 export function json(row: Row, key: string): unknown {
   return JSON.parse(text(row, key))
 }
+
+export function nullableInteger(row: Row, key: string): number | null {
+  const value = row[key]
+  if (value === null || value === undefined) return null
+  return integer(row, key)
+}

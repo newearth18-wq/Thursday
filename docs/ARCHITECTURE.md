@@ -1,7 +1,7 @@
-# Jupiter architecture — after SET 4
+# Jupiter architecture — after SET 5
 
-This document describes what exists after SET 4 (Mission System) on top of
-SET 3 (AI providers, Model Router and Chat), SET 2 (product shell, design system and accessible
+This document describes what exists after SET 5 (Planner and Workflow
+Engine) on top of SET 4 (Mission System), SET 3 (AI providers, Model Router and Chat), SET 2 (product shell, design system and accessible
 interface), SET 1 (Core architecture, IPC, events and
 database) and the SET 0 foundation. Later SETs extend it;
 each section says what is deliberately not here yet. Decisions and their
@@ -192,7 +192,11 @@ reads files, credentials or runs commands.
   `chat_conversations` and `chat_messages`; since migration 4 (SET 4)
   `missions`, `mission_executions`, `mission_steps` and the append-only
   `mission_transitions`, `mission_errors`, `mission_verifications` and
-  `mission_artifacts`.
+  `mission_artifacts`; since migration 5 (SET 5) the append-only
+  `mission_plans`, `mission_plan_rejections` and `mission_step_attempts`,
+  with `mission_executions` and `mission_steps` rebuilt for workflows (a
+  migration that rebuilds tables runs with foreign keys off and must pass
+  `PRAGMA foreign_key_check` before it commits).
 - **Migrations** are ordered, checksummed (sha256 of version, name and SQL) and
   each applied atomically. Opening refuses a database newer than the app, a
   modified or missing migration, and runs `quick_check` first (a corrupt file
@@ -345,14 +349,9 @@ Decisions and alternatives: [ADR 0005](decisions/0005-mission-state-machine-and-
 - **Executions.** Each run is an attempt with its own steps; Retry adds a
   linked attempt and never changes an earlier one. History tables are
   append-only.
-- **Runner.** One step at a time; Pause takes effect between steps; Cancel
-  aborts the active step's signal (closing its provider request); a failed
+- **Runner.** Replaced in SET 5 by the Workflow Engine (below): a failed
   required step ends the attempt as FAILED, a failed optional one allows
-  PARTIAL_SUCCESS. Work interrupted by a Core stop is marked FAILED
-  (`MISSION_INTERRUPTED`) at the next start; PAUSED Missions stay resumable.
-- **What runs.** The standard answer plan: the chat model answers (required),
-  summarises (optional), and the answer is checked (required), through the
-  same guarded path as Chat. The planner arrives in SET 5.
+  PARTIAL_SUCCESS.
 - **Timeline.** Persistent events on `mission/<id>`, turned into plain
   language by the interface; rebuilt identically after a restart.
 - **Interface.** _Missions_ lists Missions and shows one in detail (request,
@@ -360,9 +359,46 @@ Decisions and alternatives: [ADR 0005](decisions/0005-mission-state-machine-and-
   model, steps, results, verification, attempts, recovery actions and the
   timeline). Home's Mission card and stage follow the current Mission.
 
-## Not in SET 4
+## Planner and Workflow Engine (SET 5)
 
-The planner and workflow engine (SET 5), skills and tools (SET 6), approvals
-(SET 7), agents (SET 8), attachments through the Artifact Manager (SET 10),
+Decisions and alternatives: [ADR 0006](decisions/0006-planner-and-workflow-engine.md).
+
+- **Plans.** `PlanDraft`/`Plan` (contracts): goal, assumptions, a short
+  rationale, steps (id, title, description, step type, dependencies, input,
+  condition, timeout, retry policy, output check, required), required skills
+  and permissions, expected artifacts and a verification plan. Revisions are
+  kept; a re-plan adds one linked to the previous.
+- **Planner** (`packages/core/src/workflow/`). The chat model is asked for one
+  JSON plan (never its reasoning), through the same guarded path as Chat. Its
+  output must pass the strict schema and `validatePlan` (cycles, missing
+  dependencies, unknown/unavailable step types, undeclared skills, any
+  permission, timeouts, inputs, `{{step}}` references, conditions,
+  verification); otherwise it is stored as a rejection with its reasons and
+  nothing runs. Jupiter's answer plan is available as a template plan.
+- **Step types.** A fixed catalogue until skills exist (SET 6):
+  `model.generate`, `text.compose`, `checkpoint.approval`, and
+  `checkpoint.identity` marked unavailable (SET 14).
+- **Engine** (`MissionManager.runWorkflow`). Runs the dependency graph:
+  independent steps in parallel (at most 3), conditions, per-attempt
+  timeouts, bounded retries with growing waits, outputs passed as `{{step}}`,
+  approval checkpoints (Mission WAITING_APPROVAL), Pause when no step runs,
+  Cancel aborting every running step. Each attempt is recorded; a step's
+  output is stored once, with its completion, and never produced again (the
+  step id is the idempotency key). The verification plan runs in VERIFYING.
+- **Recovery.** After a restart, running workflows continue from the stored
+  state: cut-off attempts are recorded as interrupted and run again;
+  completed steps are not. Paused and waiting Missions keep waiting.
+- **Service.** `workflow-engine` is a Core service with a real self-check;
+  commands that plan or run workflows require it.
+- **Interface.** The Mission screen shows the plan (source, revision, goal,
+  assumptions, rationale, expected results, checks, revisions, rejections
+  with reasons), the workflow by stages (status, current step, dependencies,
+  conditions, attempts and their outcomes, time limit, waiting), approval
+  with Approve/Reject, and _Correct and re-plan_ with corrections and a
+  planner choice. New Missions choose the planner or the answer plan.
+
+## Not in SET 5
+
+Skills and tools (SET 6), approvals of permissions (SET 7), agents (SET 8), attachments through the Artifact Manager (SET 10),
 and everything after that. The six unfinished destinations are shown as
 _Coming later_ in the app, and none of them is presented as working.

@@ -28,6 +28,7 @@ import {
   MissionRequestText,
   MissionSummary
 } from './missions'
+import { StepTypeInfo } from './plans'
 import { BackupInfo, DatabaseInfo } from './database'
 import { ErrorEnvelope } from './errors'
 import { DomainEvent, EventFilter } from './events'
@@ -389,7 +390,9 @@ export const Capabilities = {
       .object({
         request: MissionRequestText,
         title: z.string().trim().min(1).max(120).optional(),
-        priority: MissionPriority.optional()
+        priority: MissionPriority.optional(),
+        /** `model` (default): the Planner plans the request; `template`: Jupiter's standard answer plan. */
+        planner: z.enum(['model', 'template']).optional()
       })
       .strict(),
     output: MissionDetail
@@ -415,7 +418,37 @@ export const Capabilities = {
   'missions.cancel': { kind: 'command', input: MissionRef, output: MissionDetail },
   /** Run again as a new execution linked to the previous one; nothing is erased. */
   'missions.retry': { kind: 'command', input: MissionRef, output: MissionDetail },
-  'missions.archive': { kind: 'command', input: MissionRef, output: MissionDetail }
+  'missions.archive': { kind: 'command', input: MissionRef, output: MissionDetail },
+  /** Answer an approval checkpoint (SET 5). */
+  'missions.approve': {
+    kind: 'command',
+    input: z.object({ missionId: MissionId, stepId: Uuidv7 }).strict(),
+    output: MissionDetail
+  },
+  'missions.reject': {
+    kind: 'command',
+    input: z.object({ missionId: MissionId, stepId: Uuidv7 }).strict(),
+    output: MissionDetail
+  },
+  /** Plan again: a new plan revision, optionally with the person's corrections. Earlier plans and runs are kept. */
+  'missions.replan': {
+    kind: 'command',
+    input: z
+      .object({
+        missionId: MissionId,
+        feedback: z.string().trim().min(1).max(1000).optional(),
+        /** Default: the planner of the current plan, or the model planner when there is none. */
+        planner: z.enum(['model', 'template']).optional()
+      })
+      .strict(),
+    output: MissionDetail
+  },
+  /** The step types (skills) the Workflow Engine can run in this build. */
+  'missions.step-types': {
+    kind: 'query',
+    input: Empty,
+    output: z.object({ stepTypes: z.array(StepTypeInfo).max(50) }).strict()
+  }
 } as const satisfies Record<string, { kind: RequestKind; input: z.ZodType; output: z.ZodType }>
 
 export type CapabilityName = keyof typeof Capabilities
