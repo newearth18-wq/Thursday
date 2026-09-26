@@ -23,12 +23,15 @@ export const PlanStepKey = z
   .regex(/^[a-z][a-z0-9-]{0,31}$/, 'Expected a short lowercase step id such as "summarise"')
 export type PlanStepKey = z.infer<typeof PlanStepKey>
 
-/** What a step does: a step type (skill) Jupiter can run, e.g. `model.generate`. */
+/** What a step does: a step type or Skill Jupiter can run, e.g. `model.generate` or `echo_text`. */
 export const SkillId = z
   .string()
   .min(3)
   .max(64)
-  .regex(/^[a-z][a-z0-9]*(?:[.-][a-z0-9]+)+$/, 'Expected a skill id such as "model.generate"')
+  .regex(
+    /^[a-z][a-z0-9_]*(?:[.-][a-z0-9_]+)*$/,
+    'Expected a skill id such as "model.generate" or "echo_text"'
+  )
 export type SkillId = z.infer<typeof SkillId>
 
 /** A permission a step needs, e.g. `files.read`. Granted by the Permission Engine (SET 7). */

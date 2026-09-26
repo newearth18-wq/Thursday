@@ -1,5 +1,11 @@
-import { PlanDraft, PlanStepKey, type PlanIssue, type PlanStep } from '@jupiter/contracts'
-import { stepType } from './catalogue'
+import {
+  PlanDraft,
+  PlanStepKey,
+  SKILL_PERMISSIONS,
+  type PlanIssue,
+  type PlanStep
+} from '@jupiter/contracts'
+import { stepType as builtinStepType, type StepTypeLookup } from './catalogue'
 
 /**
  * The plan validator (SET 5). A plan reaches the Workflow Engine only if
@@ -55,7 +61,10 @@ export function parsePlanText(text: string): PlanParseResult {
 }
 
 /** Every reason the draft cannot run. Empty means it can. */
-export function validatePlan(draft: PlanDraft): PlanIssue[] {
+export function validatePlan(
+  draft: PlanDraft,
+  stepType: StepTypeLookup = builtinStepType
+): PlanIssue[] {
   const issues: PlanIssue[] = []
   const add = (code: PlanIssue['code'], message: string, step: string | null = null) => {
     if (issues.length < MAX_ISSUES) issues.push({ code, message: message.slice(0, 300), step })
@@ -141,11 +150,17 @@ export function validatePlan(draft: PlanDraft): PlanIssue[] {
         'permissions-not-declared',
         `The plan needs the permission "${permission}" but does not declare it.`
       )
+  // Since SET 6, low-risk read permissions are granted to Skills; any other
+  // permission waits for the Permission Engine (SET 7).
   for (const permission of draft.requiredPermissions)
-    add(
-      'permission-unavailable',
-      `The plan asks for the permission "${permission}". Permissions cannot be granted until the Permission Engine arrives (SET 7), so it cannot run.`
+    if (
+      (SKILL_PERMISSIONS as Record<string, { grantable: boolean } | undefined>)[permission]
+        ?.grantable !== true
     )
+      add(
+        'permission-unavailable',
+        `The plan asks for the permission "${permission}", which cannot be granted until the Permission Engine arrives (SET 7), so it cannot run.`
+      )
 
   // Artifact passing: {{step-id}} names an earlier step (a dependency, directly or not) that produces output.
   for (const step of draft.steps) {

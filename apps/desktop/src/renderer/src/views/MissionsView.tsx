@@ -423,9 +423,10 @@ function MissionDetailView({
         </div>
         <div>
           <dt>{t('missions.skills')}</dt>
-          <dd>
-            <span className="badge badge-muted">{t('availability.COMING_LATER')}</span>{' '}
-            <span className="muted small">{t('missions.skillsLater')}</span>
+          <dd data-testid="mission-skills">
+            {detail.plan && detail.plan.requiredSkills.length > 0
+              ? detail.plan.requiredSkills.join(', ')
+              : t('missions.noSkills')}
           </dd>
         </div>
         <div>

@@ -15,8 +15,10 @@ import {
   MemorySink,
   uuidv7,
   type HostPort,
-  type ProviderAdapter
+  type ProviderAdapter,
+  type SkillImplementation
 } from '@jupiter/core'
+import { WorkerSkillSandbox } from '@jupiter/core/node'
 import { JupiterDatabase } from '@jupiter/database'
 import { anthropicAdapter, openAiCompatibleAdapter } from '@jupiter/providers'
 import { createTempDir, removeDir } from '@jupiter/testing'
@@ -62,6 +64,8 @@ export function useCoreHarness(name: string): void {
 }
 
 export interface Running {
+  /** The profile folder (database, backups). */
+  readonly dir: string
   readonly core: CoreKernel
   readonly logs: MemorySink
   readonly vault: Map<string, string>
@@ -72,7 +76,8 @@ export const kernels: Running[] = []
 
 export async function startCore(
   adapters: ProviderAdapter[],
-  vault = new Map<string, string>()
+  vault = new Map<string, string>(),
+  extraSkills: readonly SkillImplementation[] = []
 ): Promise<Running> {
   const sessionId = uuidv7()
   const logs = new MemorySink(20_000)
@@ -139,7 +144,9 @@ export async function startCore(
       }),
     onStatus: () => undefined,
     onLogLevel: () => undefined,
-    adapters
+    adapters,
+    skillSandbox: new WorkerSkillSandbox(),
+    extraSkills
   })
   await core.start()
   const events: DomainEvent[] = []
@@ -152,7 +159,7 @@ export async function startCore(
     },
     (event) => events.push(event)
   )
-  const running = { core, logs, vault, events }
+  const running = { dir, core, logs, vault, events }
   kernels.push(running)
   return running
 }

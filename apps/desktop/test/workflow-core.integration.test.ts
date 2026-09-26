@@ -630,7 +630,13 @@ describe('Workflow Engine', () => {
       ['model.generate', true],
       ['text.compose', true],
       ['checkpoint.approval', true],
-      ['checkpoint.identity', false]
+      ['checkpoint.identity', false],
+      // SET 6: registered Skills are step types too. The harness Core has no build
+      // metadata, so get_app_version fails its health check and cannot be a step.
+      ['echo_text', true],
+      ['get_app_version', false],
+      ['get_system_time', true],
+      ['list_available_skills', true]
     ])
   })
 })

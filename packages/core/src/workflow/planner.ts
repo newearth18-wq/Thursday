@@ -1,5 +1,5 @@
 import type { ErrorEnvelope, Plan, PlanDraft, PlanStep } from '@jupiter/contracts'
-import { STEP_TYPES } from './catalogue'
+import { STEP_TYPES, type StepTypeDefinition } from './catalogue'
 
 /**
  * The Planner's inputs and Jupiter's template plan (SET 5).
@@ -67,12 +67,15 @@ export interface PlannerInput {
 }
 
 /** The instructions and request sent to the planning model. */
-export function plannerMessages(input: PlannerInput): { system: string; user: string } {
-  const available = STEP_TYPES.filter((type) => type.available)
+export function plannerMessages(
+  input: PlannerInput,
+  types: readonly StepTypeDefinition[] = STEP_TYPES
+): { system: string; user: string } {
+  const available = types.filter((type) => type.available)
   const catalogue = available
     .map(
       (type) =>
-        `- ${type.skillId}: ${type.description} Inputs: ${type.inputs
+        `- ${type.skillId}: ${type.description}${type.permissions.length > 0 ? ` Permissions: ${type.permissions.join(', ')}.` : ''} Inputs: ${type.inputs
           .map((field) => `${field.name}${field.required ? '' : ' (optional)'}`)
           .join(', ')}. Minimum timeoutMs ${String(type.minTimeoutMs)}.`
     )
@@ -84,7 +87,7 @@ export function plannerMessages(input: PlannerInput): { system: string; user: st
     '{"goal": string (≤300 chars), "assumptions": string[] (≤8, each ≤200 chars, short and correctable),',
     ' "rationale": string (≤500 chars: why this plan, in a sentence or two),',
     ' "steps": Step[] (1–20), "requiredSkills": string[] (every skillId the steps use),',
-    ' "requiredPermissions": [] (must be empty), "expectedArtifacts": [{"step": id, "description": string}],',
+    ' "requiredPermissions": string[] (every permission the used skills list), "expectedArtifacts": [{"step": id, "description": string}],',
     ' "verificationPlan": {"checks": [{"step": id, "check": "non-empty" | "contains", "value"?: string, "description": string}]}}',
     'Step = {"id": lowercase-id, "title": string, "description": string, "skillId": string,',
     ' "dependencies": ids of steps that must finish first, "input": object of strings,',

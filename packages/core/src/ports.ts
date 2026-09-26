@@ -25,6 +25,9 @@ import type {
   PlanIssue,
   PlanStep,
   ServiceHealth,
+  SkillDefinition,
+  SkillExecutionRecord,
+  SkillHealth,
   StepAttempt,
   StreamRef,
   VerificationResult
@@ -284,6 +287,41 @@ export interface MissionStore {
   artifacts(missionId: string): MissionArtifact[]
 }
 
+/** What is stored about a registered Skill version. */
+export interface SkillStateRecord {
+  readonly definition: SkillDefinition
+  readonly enabled: boolean
+  readonly health: SkillHealth
+  readonly registeredAt: string
+  readonly unregisteredAt: string | null
+}
+
+/**
+ * Registered Skills and their executions (SET 6). Execution records hold the
+ * shape and size of input and output, never their content.
+ */
+export interface SkillStore {
+  /** Insert a version (enabled, health unknown) or refresh its definition, keeping its state. */
+  upsertSkill(definition: SkillDefinition, at: string): SkillStateRecord
+  skill(skillId: string, version: string): SkillStateRecord | null
+  /** Newest version first. */
+  versions(skillId: string): SkillStateRecord[]
+  setEnabled(skillId: string, version: string, enabled: boolean): void
+  setHealth(skillId: string, version: string, health: SkillHealth): void
+  markUnregistered(skillId: string, version: string, at: string): void
+  insertExecution(record: SkillExecutionRecord): void
+  finishExecution(
+    executionId: string,
+    changes: Pick<SkillExecutionRecord, 'status' | 'outputSummary' | 'errorCode' | 'completedAt'>
+  ): void
+  execution(executionId: string): SkillExecutionRecord | null
+  executionByKey(skillId: string, idempotencyKey: string): SkillExecutionRecord | null
+  /** Newest first. */
+  executions(options: { skillId?: string | undefined; limit: number }): SkillExecutionRecord[]
+  /** Executions still marked RUNNING (after a stop of Core). */
+  running(): SkillExecutionRecord[]
+}
+
 export interface BackupOptions {
   readonly signal?: AbortSignal
   readonly onProgress?: (copiedPages: number, totalPages: number) => void
@@ -298,6 +336,7 @@ export interface DatabasePort {
   readonly providers: ProviderStore
   readonly chat: ChatStore
   readonly missions: MissionStore
+  readonly skills: SkillStore
   info(): DatabaseInfo
   backup(reason: BackupInfo['reason'], options?: BackupOptions): Promise<BackupInfo>
   close(): void

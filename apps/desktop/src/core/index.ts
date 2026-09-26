@@ -9,6 +9,7 @@ import {
 import {
   CoreKernel,
   JupiterError,
+  TEST_FIXTURE_SKILLS,
   Logger,
   createErrorEnvelope,
   describeError,
@@ -16,6 +17,7 @@ import {
   type HostPort,
   type LogSink
 } from '@jupiter/core'
+import { WorkerSkillSandbox } from '@jupiter/core/node'
 import { JupiterDatabase } from '@jupiter/database'
 import { installedAdapters } from './adapters'
 
@@ -115,6 +117,12 @@ async function initialise(config: CoreConfig): Promise<void> {
         backupDirectory: config.backupDirectory,
         logger: log.child({ component: 'database' })
       }),
+    skillSandbox: new WorkerSkillSandbox(),
+    // Skills with known faults, only for automated tests of the test environment.
+    extraSkills:
+      config.environment === 'test' && process.env.JUPITER_TEST_SKILL_FIXTURES === '1'
+        ? TEST_FIXTURE_SKILLS
+        : [],
     onStatus: (services) => {
       send({ ...base, kind: 'status', services })
     },

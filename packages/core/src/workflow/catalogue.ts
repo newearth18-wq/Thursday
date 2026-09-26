@@ -1,4 +1,4 @@
-import type { StepTypeInfo } from '@jupiter/contracts'
+import { SKILL_PERMISSIONS, type SkillInfo, type StepTypeInfo } from '@jupiter/contracts'
 
 /**
  * The step types (skills) the Workflow Engine can run in this build (SET 5).
@@ -14,7 +14,12 @@ export interface StepTypeDefinition extends StepTypeInfo {
   readonly minTimeoutMs: number
   /** A checkpoint waits for a person instead of running. */
   readonly checkpoint: 'approval' | 'identity' | null
+  /** `skill`: run through the Skill Registry (SET 6). */
+  readonly runner: 'builtin' | 'skill'
 }
+
+/** Finds a step type by id: the built-in ones and, since SET 6, registered Skills. */
+export type StepTypeLookup = (skillId: string) => StepTypeDefinition | null
 
 export const STEP_TYPES: readonly StepTypeDefinition[] = [
   {
@@ -33,7 +38,8 @@ export const STEP_TYPES: readonly StepTypeDefinition[] = [
     permissions: [],
     available: true,
     minTimeoutMs: 5_000,
-    checkpoint: null
+    checkpoint: null,
+    runner: 'builtin'
   },
   {
     skillId: 'text.compose',
@@ -51,7 +57,8 @@ export const STEP_TYPES: readonly StepTypeDefinition[] = [
     permissions: [],
     available: true,
     minTimeoutMs: 1_000,
-    checkpoint: null
+    checkpoint: null,
+    runner: 'builtin'
   },
   {
     skillId: 'checkpoint.approval',
@@ -69,7 +76,8 @@ export const STEP_TYPES: readonly StepTypeDefinition[] = [
     permissions: [],
     available: true,
     minTimeoutMs: 1_000,
-    checkpoint: 'approval'
+    checkpoint: 'approval',
+    runner: 'builtin'
   },
   {
     skillId: 'checkpoint.identity',
@@ -87,7 +95,8 @@ export const STEP_TYPES: readonly StepTypeDefinition[] = [
     permissions: [],
     available: false,
     minTimeoutMs: 1_000,
-    checkpoint: 'identity'
+    checkpoint: 'identity',
+    runner: 'builtin'
   }
 ]
 
@@ -97,9 +106,61 @@ export function stepType(skillId: string): StepTypeDefinition | null {
   return BY_ID.get(skillId) ?? null
 }
 
+/**
+ * A registered Skill as a workflow step type. Plan inputs are text, so a
+ * Skill whose input fields are not all text cannot be a step (yet).
+ */
+export function skillStepType(info: SkillInfo): StepTypeDefinition {
+  const { definition } = info
+  const fields = Object.entries(definition.inputSchema.properties ?? {})
+  const textInputs = fields.every(([, schema]) => schema.type === 'string')
+  const grantable = definition.permissions.every(
+    (permission) =>
+      (SKILL_PERMISSIONS as Record<string, { grantable: boolean } | undefined>)[permission]
+        ?.grantable === true
+  )
+  const available =
+    info.enabled &&
+    info.runtimeCompatible &&
+    info.health.status !== 'UNHEALTHY' &&
+    grantable &&
+    textInputs
+  const why = !textInputs
+    ? ' Not usable as a workflow step: its inputs are not all text.'
+    : info.blockedReason
+      ? ` Cannot run now: ${info.blockedReason}`
+      : ''
+  return {
+    skillId: definition.skillId,
+    name: definition.name,
+    description: `${definition.description}${why}`.slice(0, 400),
+    inputs: fields.slice(0, 10).map(([name, schema]) => ({
+      name,
+      required: definition.inputSchema.required?.includes(name) ?? false,
+      description: (schema.description ?? '').slice(0, 200)
+    })),
+    producesOutput: true,
+    permissions: [...definition.permissions],
+    available,
+    minTimeoutMs: 1_000,
+    checkpoint: null,
+    runner: 'skill'
+  }
+}
+
+/** Built-in step types plus the given Skills, without duplicates (built-in ids win). */
+export function catalogueWith(skills: readonly StepTypeDefinition[]): {
+  readonly types: readonly StepTypeDefinition[]
+  readonly lookup: StepTypeLookup
+} {
+  const types = [...STEP_TYPES, ...skills.filter((skill) => !BY_ID.has(skill.skillId))]
+  const byId = new Map(types.map((type) => [type.skillId, type]))
+  return { types, lookup: (skillId) => byId.get(skillId) ?? null }
+}
+
 /** What the `missions.step-types` query returns. */
-export function stepTypeInfo(): StepTypeInfo[] {
-  return STEP_TYPES.map((type) => ({
+export function stepTypeInfo(types: readonly StepTypeDefinition[] = STEP_TYPES): StepTypeInfo[] {
+  return types.map((type) => ({
     skillId: type.skillId,
     name: type.name,
     description: type.description,

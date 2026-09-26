@@ -23,7 +23,7 @@ export const DESTINATIONS: readonly Destination[] = [
   main('home', 'nav.home', 'home', null, '1'),
   main('chat', 'nav.chat', 'chat', null, '2'),
   main('missions', 'nav.missions', 'missions', null, '3'),
-  main('skills', 'nav.skills', 'skills', '6', '4'),
+  main('skills', 'nav.skills', 'skills', null, '4'),
   main('memory', 'nav.memory', 'memory', '11', '5'),
   main('files', 'nav.files', 'files', '10', '6'),
   main('automations', 'nav.automations', 'automations', '18', '7'),

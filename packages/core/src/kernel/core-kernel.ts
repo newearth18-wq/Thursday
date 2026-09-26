@@ -38,6 +38,9 @@ import { EventBus, type EventDelivery, type PublishInput } from '../events/event
 import type { ProviderAdapter } from '../ai/adapter'
 import { ChatService } from '../ai/chat'
 import { MissionManager } from '../missions/manager'
+import { BUILTIN_SKILLS, type SkillImplementation } from '../skills/builtin'
+import { SkillRegistry } from '../skills/registry'
+import { ResourceDenied, type SkillSandbox } from '../skills/sandbox'
 import { STEP_TYPES } from '../workflow/catalogue'
 import { templatePlanDraft } from '../workflow/planner'
 import { validatePlan } from '../workflow/validate'
@@ -102,6 +105,13 @@ export interface CoreKernelOptions {
   readonly adapters?: readonly ProviderAdapter[]
   /** Network access for provider adapters, always wrapped in the guarded transport. */
   readonly fetch?: FetchLike
+  /**
+   * Where Skills run (SET 6): `WorkerSkillSandbox` from `@jupiter/core/node`.
+   * Without one, the Skill Registry reports that no runtime is available.
+   */
+  readonly skillSandbox?: SkillSandbox
+  /** Skills registered besides the built-in ones (test fixtures in the test environment). */
+  readonly extraSkills?: readonly SkillImplementation[]
   readonly now?: () => Date
 }
 
@@ -116,6 +126,7 @@ export class CoreKernel {
   readonly providers: ProviderService
   readonly chat: ChatService
   readonly missions: MissionManager
+  readonly skills: SkillRegistry
   private readonly supervisor: ServiceSupervisor
   private readonly logger: Logger
   private readonly now: () => Date
@@ -192,12 +203,55 @@ export class CoreKernel {
       logger: this.logger.child({ component: 'chat' }),
       now: this.now
     })
+
+    this.skills = new SkillRegistry({
+      database: () => this.requireDatabase(),
+      bus: this.bus,
+      logger: this.logger.child({ component: 'skill-registry' }),
+      now: this.now,
+      sandbox: options.skillSandbox ?? {
+        runtime: 'none',
+        run: () =>
+          Promise.reject(
+            new JupiterError('SKILL_RUNTIME_UNAVAILABLE', 'No Skill runtime is installed.', {
+              category: 'dependency',
+              userAction: 'Reinstall Jupiter.'
+            })
+          )
+      },
+      resources: {
+        'app.version': {
+          permission: 'app.version.read',
+          handler: () => {
+            const build = options.config.build
+            if (!build)
+              throw new ResourceDenied(
+                'APP_VERSION_UNAVAILABLE',
+                'This copy of Jupiter has no build information.'
+              )
+            return { version: build.version, channel: build.channel, commit: build.commit }
+          }
+        },
+        'system.time': {
+          permission: 'system.time.read',
+          handler: () => {
+            const now = this.now()
+            return {
+              utc: now.toISOString(),
+              timeZone: Intl.DateTimeFormat().resolvedOptions().timeZone,
+              utcOffsetMinutes: -now.getTimezoneOffset()
+            }
+          }
+        }
+      }
+    })
     this.missions = new MissionManager({
       database: () => this.requireDatabase(),
       providers: this.providers,
       bus: this.bus,
       logger: this.logger.child({ component: 'mission-manager' }),
-      now: this.now
+      now: this.now,
+      skills: this.skills
     })
     for (const capability of coreCapabilities(this)) this.dispatcher.register(capability)
     this.registerServices()
@@ -264,6 +318,7 @@ export class CoreKernel {
         await this.supervisor.retry('event-bus')
         await this.supervisor.retry('model-router')
         await this.supervisor.retry('mission-manager')
+        await this.supervisor.retry('skill-registry')
       }
       return null
     } catch (error) {
@@ -675,6 +730,42 @@ export class CoreKernel {
           `The workflow engine can run ${String(available)} step types`
         )
         return undefined
+      }
+    })
+
+    // SET 6: the Skill Registry. Start registers the Skills of this build,
+    // records invocations a Core stop cut off, and runs every health check.
+    this.supervisor.register({
+      id: 'skill-registry',
+      version: null,
+      capabilities: ['skills.registry', 'skills.invoke', 'skills.health'],
+      critical: false,
+      retryable: true,
+      start: async () => {
+        if (!this.database)
+          throw new JupiterError(
+            'DEPENDENCY_UNAVAILABLE',
+            'The Skill Registry needs the database, which is not available.',
+            {
+              category: 'dependency',
+              userAction: 'Fix the Database service, then press Retry on it.',
+              retryable: true
+            }
+          )
+        if (!this.options.skillSandbox)
+          throw new JupiterError('SKILL_RUNTIME_UNAVAILABLE', 'No Skill runtime is installed.', {
+            category: 'dependency',
+            userAction: 'Reinstall Jupiter.'
+          })
+        await this.skills.start([...BUILTIN_SKILLS, ...(this.options.extraSkills ?? [])])
+        this.logger.info(
+          'skills.ready',
+          `${String(this.skills.search().length)} Skills registered and checked`
+        )
+        return undefined
+      },
+      stop: () => {
+        this.skills.stopAll()
       }
     })
 

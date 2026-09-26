@@ -84,6 +84,13 @@ Do not modify `legacy/thursday-browser` unless a task is explicitly about it.
   `MissionManager.execute`, validator rules for its inputs, and names in both
   catalogs. Write a step's output only in the transaction that completes it
   (it is the idempotency guarantee), and never store model reasoning.
+- Skills (SET 6): a new Skill is a `SkillImplementation` (definition as data,
+  code as a function-expression string run in the sandbox, a health input) in
+  `packages/core/src/skills/builtin.ts`. It reaches nothing but
+  `context.use(resource)`, and every resource needs a permission from
+  `SKILL_PERMISSIONS`. Never let a caller pass permissions, never store a
+  Skill's input or output content (only `summarize`), and never add a
+  grantable permission that is not low-risk and read-only before SET 7.
 - Schema changes are new migrations at the end of `JUPITER_MIGRATIONS`; never
   edit a migration that has shipped (see `packages/database/README.md`).
 

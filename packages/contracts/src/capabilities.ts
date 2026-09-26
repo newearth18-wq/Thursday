@@ -28,7 +28,8 @@ import {
   MissionRequestText,
   MissionSummary
 } from './missions'
-import { StepTypeInfo } from './plans'
+import { SkillId, StepTypeInfo } from './plans'
+import { SkillExecutionRecord, SkillFilter, SkillInfo, SkillResult, SkillVersion } from './skills'
 import { BackupInfo, DatabaseInfo } from './database'
 import { ErrorEnvelope } from './errors'
 import { DomainEvent, EventFilter } from './events'
@@ -111,7 +112,7 @@ export const DiagnosticsSnapshot = z
     dispatcher: z
       .object({
         inFlight: z.number().int().nonnegative(),
-        capabilities: z.array(CapabilitySummary).max(64)
+        capabilities: z.array(CapabilitySummary).max(128)
       })
       .strict()
   })
@@ -184,6 +185,8 @@ export const RoutePreview = z
   .object({ route: RouteDecision.nullable(), problem: ErrorEnvelope.nullable() })
   .strict()
 export type RoutePreview = z.infer<typeof RoutePreview>
+
+const SkillRef = z.object({ skillId: SkillId, version: SkillVersion.optional() }).strict()
 
 export const Capabilities = {
   'diagnostics.snapshot': { kind: 'query', input: Empty, output: DiagnosticsSnapshot },
@@ -448,6 +451,57 @@ export const Capabilities = {
     kind: 'query',
     input: Empty,
     output: z.object({ stepTypes: z.array(StepTypeInfo).max(50) }).strict()
+  },
+
+  // ---- Skills (SET 6) ----
+  /** Registered Skills (latest version of each), filtered. */
+  'skills.list': {
+    kind: 'query',
+    input: z.object({ filter: SkillFilter }).strict(),
+    output: z.object({ skills: z.array(SkillInfo).max(200) }).strict()
+  },
+  'skills.get': { kind: 'query', input: SkillRef, output: SkillInfo },
+  /** Every registered version of a Skill, newest first. */
+  'skills.versions': {
+    kind: 'query',
+    input: z.object({ skillId: SkillId }).strict(),
+    output: z.object({ versions: z.array(SkillInfo).max(50) }).strict()
+  },
+  'skills.enable': { kind: 'command', input: SkillRef, output: SkillInfo },
+  'skills.disable': { kind: 'command', input: SkillRef, output: SkillInfo },
+  /** Run the Skill's health check now. */
+  'skills.health-check': { kind: 'command', input: SkillRef, output: SkillInfo },
+  /**
+   * Run a Skill. The caller names the execution (so it can cancel it) but
+   * never grants permissions: Core decides what the invocation may do.
+   */
+  'skills.invoke': {
+    kind: 'command',
+    input: z
+      .object({
+        executionId: Uuidv7,
+        skillId: SkillId,
+        version: SkillVersion.optional(),
+        input: z.unknown(),
+        /** At most the Skill's own timeout. */
+        timeoutMs: z.number().int().min(100).max(600_000).optional(),
+        idempotencyKey: z.string().min(1).max(128).optional()
+      })
+      .strict(),
+    output: SkillResult
+  },
+  'skills.cancel': {
+    kind: 'command',
+    input: z.object({ executionId: Uuidv7 }).strict(),
+    output: z.object({ cancelled: z.boolean() }).strict()
+  },
+  /** Execution history: shapes and sizes of input and output, never their content. */
+  'skills.executions': {
+    kind: 'query',
+    input: z
+      .object({ skillId: SkillId.optional(), limit: z.number().int().min(1).max(200) })
+      .strict(),
+    output: z.object({ executions: z.array(SkillExecutionRecord).max(200) }).strict()
   }
 } as const satisfies Record<string, { kind: RequestKind; input: z.ZodType; output: z.ZodType }>
 

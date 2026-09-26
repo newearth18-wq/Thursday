@@ -1,7 +1,7 @@
-# Jupiter architecture — after SET 5
+# Jupiter architecture — after SET 6
 
-This document describes what exists after SET 5 (Planner and Workflow
-Engine) on top of SET 4 (Mission System), SET 3 (AI providers, Model Router and Chat), SET 2 (product shell, design system and accessible
+This document describes what exists after SET 6 (Skill System) on top of
+SET 5 (Planner and Workflow Engine), SET 4 (Mission System), SET 3 (AI providers, Model Router and Chat), SET 2 (product shell, design system and accessible
 interface), SET 1 (Core architecture, IPC, events and
 database) and the SET 0 foundation. Later SETs extend it;
 each section says what is deliberately not here yet. Decisions and their
@@ -196,7 +196,10 @@ reads files, credentials or runs commands.
   `mission_plans`, `mission_plan_rejections` and `mission_step_attempts`,
   with `mission_executions` and `mission_steps` rebuilt for workflows (a
   migration that rebuilds tables runs with foreign keys off and must pass
-  `PRAGMA foreign_key_check` before it commits).
+  `PRAGMA foreign_key_check` before it commits); since migration 6 (SET 6)
+  `skills` (definition, enabled state, last health check per version) and
+  `skill_executions` (shape and size of input and output only, never content;
+  unique idempotency key per Skill).
 - **Migrations** are ordered, checksummed (sha256 of version, name and SQL) and
   each applied atomically. Opening refuses a database newer than the app, a
   modified or missing migration, and runs `quick_check` first (a corrupt file
@@ -258,8 +261,8 @@ Decisions and alternatives: [ADR 0003](decisions/0003-product-shell-preferences-
   (`#/home`, `#/chat`, … `#/diagnostics`); an unknown address opens Home.
   `destinations.ts` states for each one whether it works and which SET builds
   it. Home (Command Center), Chat, AI Models (since SET 3), Missions (since
-  SET 4), Settings and Diagnostics work. Skills, Memory, Files, Automations,
-  Devices and Plugins open a screen labelled _Coming later_ with its SET, and
+  SET 4), Skills (since SET 6), Settings and Diagnostics work. Memory, Files,
+  Automations, Devices and Plugins open a screen labelled _Coming later_ with its SET, and
   have no enabled controls, progress or motion.
 - **Command Center.** The Jupiter stage (mark + status) is driven only by
   Core's real state as the host reports it: idle, attention (a service
@@ -375,7 +378,7 @@ Decisions and alternatives: [ADR 0006](decisions/0006-planner-and-workflow-engin
   permission, timeouts, inputs, `{{step}}` references, conditions,
   verification); otherwise it is stored as a rejection with its reasons and
   nothing runs. Jupiter's answer plan is available as a template plan.
-- **Step types.** A fixed catalogue until skills exist (SET 6):
+- **Step types.** A built-in catalogue, plus every registered Skill whose inputs are text (SET 6):
   `model.generate`, `text.compose`, `checkpoint.approval`, and
   `checkpoint.identity` marked unavailable (SET 14).
 - **Engine** (`MissionManager.runWorkflow`). Runs the dependency graph:
@@ -397,8 +400,39 @@ Decisions and alternatives: [ADR 0006](decisions/0006-planner-and-workflow-engin
   with Approve/Reject, and _Correct and re-plan_ with corrections and a
   planner choice. New Missions choose the planner or the answer plan.
 
-## Not in SET 5
+## Skill System (SET 6)
 
-Skills and tools (SET 6), approvals of permissions (SET 7), agents (SET 8), attachments through the Artifact Manager (SET 10),
-and everything after that. The six unfinished destinations are shown as
+Decisions and alternatives: [ADR 0007](decisions/0007-skill-registry-and-sandbox.md).
+
+- **Definitions.** `SkillDefinition` (contracts): id, name, description,
+  version, input and output schemas (a strict JSON Schema subset), permissions,
+  timeout, category, provider and compatible runtime. Invalid metadata is
+  refused at registration with every reason.
+- **Registry** (`packages/core/src/skills/registry.ts`, Core service
+  `skill-registry`): register, unregister, get, search, enable, disable,
+  health check, invoke, cancel, list versions. Built-in Skills: `echo_text`,
+  `get_app_version`, `get_system_time`, `list_available_skills`.
+- **Sandbox** (`WorkerSkillSandbox`, `@jupiter/core/node`): a worker thread
+  per invocation, the Skill's code in a `vm` context with no `require`,
+  `process`, timers or environment; timeout and cancel terminate the thread.
+  A broken Skill ends as a structured failure; Core carries on.
+- **Permissions.** Granted by the invocation context: before SET 7 only
+  low-risk read permissions. Resources (`context.use`) check that the Skill
+  declared and was granted the permission; any other use fails the execution
+  with `PERMISSION_DENIED`.
+- **Validation.** Disabled, unhealthy, incompatible or unknown Skills do not
+  run; input and output are checked against the schemas; invalid output fails
+  the execution.
+- **Workflows.** Registered Skills are step types: the planner offers them,
+  the validator checks them, the engine runs them through the registry.
+- **Interface.** The Skill Center lists Skills with search and filters
+  (category, provider, health) and shows provider, category, enabled state,
+  permissions with risk, version(s), health with detail and last check,
+  runtime, schemas and recent runs; low-risk internal Skills can be tried
+  through a real invocation with Cancel.
+
+## Not in SET 6
+
+The Permission Engine and approvals (SET 7), agents (SET 8), attachments through the Artifact Manager (SET 10),
+plugins with their own runtime (SET 15), and everything after that. The five unfinished destinations are shown as
 _Coming later_ in the app, and none of them is presented as working.

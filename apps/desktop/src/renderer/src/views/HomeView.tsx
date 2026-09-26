@@ -9,6 +9,7 @@ import { MissionCard, type MissionCardData } from '../components/MissionCard'
 import { RecoveryNotice } from '../components/RecoveryNotice'
 import { StatusBadge } from '../components/StatusBadge'
 import { useI18n, type MessageKey } from '../i18n'
+import { stepKindName } from '../missionText'
 import { useConversationRoute, useMissionRoute } from '../router'
 import { request } from '../api'
 import { useMissionList } from '../useMissions'
@@ -234,7 +235,8 @@ function CurrentMission({ missions }: { readonly missions: Loadable<MissionSumma
     total: current.progress?.total ?? null,
     startedAt: current.startedAt ?? current.createdAt,
     agent: t('availability.COMING_LATER'),
-    skill: t('availability.COMING_LATER'),
+    // The step type or Skill the running step uses, as Core reports it (SET 6).
+    skill: current.currentStepKind ? stepKindName(current.currentStepKind, t) : null,
     model: current.model
   }
   const run = (action: 'pause' | 'cancel') => {

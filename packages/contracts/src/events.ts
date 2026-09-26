@@ -7,6 +7,8 @@ import { MissionPriority, MissionStatus, StepKind, StepStatus } from './missions
 import { OptionalReference, CONTRACT_VERSION } from './request'
 import { ServiceId, UtcTimestamp, Uuidv7 } from './primitives'
 import { ServiceStatus } from './service-health'
+import { SkillExecutionStatus, SkillHealthStatus, SkillVersion } from './skills'
+import { SkillId } from './plans'
 
 /**
  * Versioned domain events (contract version 1).
@@ -28,7 +30,8 @@ export const StreamKind = z.enum([
   'database',
   'mission',
   'ai',
-  'conversation'
+  'conversation',
+  'skill'
 ])
 export type StreamKind = z.infer<typeof StreamKind>
 
@@ -241,7 +244,32 @@ export const EventPayloads = {
     .object({ artifactId: Uuidv7, title: z.string().max(200) })
     .strict(),
   'mission.pause_requested': z.object({}).strict(),
-  'mission.archived': z.object({}).strict()
+  'mission.archived': z.object({}).strict(),
+  // Skills (SET 6), on the stream `skill/<skillId>`.
+  'skill.registered': z.object({ skillId: SkillId, version: SkillVersion }).strict(),
+  'skill.state_changed': z
+    .object({ skillId: SkillId, version: SkillVersion, enabled: z.boolean() })
+    .strict(),
+  'skill.health_checked': z
+    .object({
+      skillId: SkillId,
+      version: SkillVersion,
+      status: SkillHealthStatus,
+      detail: z.string().max(500)
+    })
+    .strict(),
+  'skill.execution_started': z
+    .object({ executionId: Uuidv7, skillId: SkillId, version: SkillVersion })
+    .strict(),
+  'skill.execution_finished': z
+    .object({
+      executionId: Uuidv7,
+      skillId: SkillId,
+      version: SkillVersion,
+      status: SkillExecutionStatus,
+      errorCode: z.string().max(64).nullable()
+    })
+    .strict()
 } as const satisfies Record<string, z.ZodType>
 
 export type DomainEventType = keyof typeof EventPayloads
@@ -301,7 +329,12 @@ export const DomainEvent = z
     variant('mission.step_retry_scheduled'),
     variant('mission.recovered'),
     variant('mission.pause_requested'),
-    variant('mission.archived')
+    variant('mission.archived'),
+    variant('skill.registered'),
+    variant('skill.state_changed'),
+    variant('skill.health_checked'),
+    variant('skill.execution_started'),
+    variant('skill.execution_finished')
   ])
   .refine(
     (event) =>

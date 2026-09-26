@@ -26,12 +26,6 @@ interface ServiceDependencies {
 /** Jupiter Core modules and isolated runtimes that later SETs deliver. Never started, never shown as working. */
 export const PLANNED_SERVICES = [
   {
-    id: 'skill-registry',
-    availability: 'COMING_LATER',
-    plannedSet: 6,
-    capabilities: ['skills.invoke']
-  },
-  {
     id: 'permission-engine',
     availability: 'COMING_LATER',
     plannedSet: 7,

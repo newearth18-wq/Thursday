@@ -31,7 +31,14 @@ import type { EventBus } from '../events/event-bus'
 import { uuidv7 } from '../ids'
 import type { Logger } from '../logging/logger'
 import type { DatabasePort, ExecutionRecord, MissionRecord } from '../ports'
-import { stepType, stepTypeInfo } from '../workflow/catalogue'
+import type { SkillRegistry } from '../skills/registry'
+import {
+  catalogueWith,
+  skillStepType,
+  stepTypeInfo,
+  type StepTypeDefinition,
+  type StepTypeLookup
+} from '../workflow/catalogue'
 import { plannerMessages, templatePlanDraft, type PlannerInput } from '../workflow/planner'
 import { backoffBefore, parsePlanText, substitute, validatePlan } from '../workflow/validate'
 
@@ -70,6 +77,8 @@ export interface MissionManagerOptions {
   readonly idleTimeoutMs?: number
   /** Most steps of one workflow running at once. Default 3. */
   readonly maxParallel?: number
+  /** Registered Skills are step types too (SET 6). */
+  readonly skills?: SkillRegistry
 }
 
 const CORE_ACTOR: Actor = { type: 'core', id: 'core' }
@@ -178,7 +187,7 @@ export class MissionManager {
   }
 
   stepTypes(): StepTypeInfo[] {
-    return stepTypeInfo()
+    return stepTypeInfo(this.catalogue().types)
   }
 
   // ---- commands ---------------------------------------------------------------------------
@@ -668,14 +677,17 @@ export class MissionManager {
     let draft = null
     if (request.source === 'template') {
       draft = templatePlanDraft(record.userRequest)
-      issues = validatePlan(draft)
+      issues = validatePlan(draft, this.catalogue().lookup)
     } else {
-      const { system, user } = plannerMessages({
-        request: record.userRequest,
-        previous,
-        failure: this.lastFailure(record),
-        feedback: request.feedback
-      } satisfies PlannerInput)
+      const { system, user } = plannerMessages(
+        {
+          request: record.userRequest,
+          previous,
+          failure: this.lastFailure(record),
+          feedback: request.feedback
+        } satisfies PlannerInput,
+        this.catalogue().types
+      )
       let text: string
       try {
         const completion = await completeText(this.options.providers, {
@@ -712,7 +724,7 @@ export class MissionManager {
       const parsed = parsePlanText(text)
       if (parsed.ok) {
         draft = parsed.draft
-        issues = validatePlan(draft)
+        issues = validatePlan(draft, this.catalogue().lookup)
       } else issues = parsed.issues
     }
     if (!draft || issues.length > 0) {
@@ -832,7 +844,7 @@ export class MissionManager {
             route: null,
             error: null,
             attempts: 0,
-            maxAttempts: stepType(planned.skillId)?.checkpoint
+            maxAttempts: this.catalogue().lookup(planned.skillId)?.checkpoint
               ? 1
               : planned.retryPolicy.maxAttempts,
             timeoutMs: planned.timeoutMs,
@@ -1056,7 +1068,7 @@ export class MissionManager {
     const context = { correlationId: run.correlationId, actor: CORE_ACTOR }
     const missionId = run.missionId
     const definition = definitionOf(plan, initial)
-    const type = stepType(initial.kind)
+    const type = this.catalogue().lookup(initial.kind)
     if (!definition || !type)
       throw new JupiterError('STEP_UNKNOWN', `Jupiter cannot run “${initial.title}”.`, {
         category: 'internal',
@@ -1144,7 +1156,13 @@ export class MissionManager {
         attemptController.abort()
       }, definition.timeoutMs)
       try {
-        const output = await this.execute(run, initial, definition, attemptController.signal)
+        const output = await this.execute(
+          run,
+          initial,
+          definition,
+          attemptController.signal,
+          attempt
+        )
         if (definition.verification && output.text !== null) {
           const result = checkOutput(output.text, definition.verification)
           if (!result.passed)
@@ -1245,7 +1263,8 @@ export class MissionManager {
     run: Run,
     step: MissionStep,
     definition: PlanStep,
-    signal: AbortSignal
+    signal: AbortSignal,
+    attempt: number
   ): Promise<StepOutput> {
     const database = this.options.database()
     const outputs = new Map<string, string>()
@@ -1294,12 +1313,84 @@ export class MissionManager {
           detail: `Composed locally (${String(text.length)} characters).`
         }
       }
-      default:
+      default: {
+        const type = this.catalogue().lookup(step.kind)
+        if (type?.runner === 'skill' && this.options.skills)
+          return this.runSkill(run, step, definition, outputs, attempt, signal)
         throw new JupiterError('STEP_UNKNOWN', `Jupiter cannot run “${step.kind}” steps.`, {
           category: 'unsupported',
           userAction: 'Re-plan the Mission.'
         })
+      }
     }
+  }
+
+  /**
+   * A step that is a registered Skill (SET 6): run through the Skill
+   * Registry, which grants permissions, validates input and output, and
+   * stops the Skill's runtime on timeout or cancel. The step attempt is the
+   * idempotency key, so a retry is a new invocation and a replay is refused.
+   */
+  private async runSkill(
+    run: Run,
+    step: MissionStep,
+    definition: PlanStep,
+    outputs: ReadonlyMap<string, string>,
+    attempt: number,
+    signal: AbortSignal
+  ): Promise<StepOutput> {
+    const registry = this.options.skills
+    if (!registry)
+      throw new JupiterError('SKILL_RUNTIME_UNAVAILABLE', 'Skills are not available.', {
+        category: 'dependency',
+        userAction: 'Check the Skill Registry service in Diagnostics.'
+      })
+    const input = Object.fromEntries(
+      Object.entries(definition.input).map(([name, value]) => [name, substitute(value, outputs)])
+    )
+    const result = await registry.invoke({
+      executionId: uuidv7(),
+      skillId: step.kind,
+      input,
+      missionId: run.missionId,
+      timeoutMs: definition.timeoutMs,
+      idempotencyKey: `mission-step:${step.stepId}:${String(attempt)}`,
+      actor: CORE_ACTOR,
+      correlationId: run.correlationId,
+      signal
+    })
+    if (result.status !== 'SUCCESS' || result.error)
+      throw new JupiterError(
+        result.error?.code ?? 'SKILL_FAILED',
+        result.error?.message ?? `${step.title} did not succeed (${result.status}).`,
+        {
+          category: result.error?.category ?? 'internal',
+          userAction: result.error?.userAction ?? 'Retry the Mission.',
+          retryable: result.error?.retryable ?? false
+        }
+      )
+    const output = result.output
+    const fields = output && typeof output === 'object' ? Object.values(output) : []
+    const text =
+      fields.length === 1 && typeof fields[0] === 'string' ? fields[0] : JSON.stringify(output)
+    return {
+      text: text.slice(0, 200_000),
+      route: null,
+      detail: `Ran the Skill ${result.skillId} ${result.version}.`
+    }
+  }
+
+  /** Built-in step types and the registered Skills, as they are now. */
+  private catalogue(): { types: readonly StepTypeDefinition[]; lookup: StepTypeLookup } {
+    const skills = (): StepTypeDefinition[] => {
+      try {
+        return this.options.skills?.search().map(skillStepType) ?? []
+      } catch {
+        // Registry not started (no database yet): only the built-in step types.
+        return []
+      }
+    }
+    return catalogueWith(skills())
   }
 
   private completeStep(

@@ -73,8 +73,9 @@ describe('production build output', () => {
     const external = [core, ...shared]
       .flatMap(imports)
       .filter((specifier) => !specifier.startsWith('./'))
+    // node:worker_threads: each Skill invocation runs in its own worker (SET 6).
     expect(new Set(external)).toEqual(
-      new Set(['node:crypto', 'node:fs', 'node:path', 'node:sqlite'])
+      new Set(['node:crypto', 'node:fs', 'node:path', 'node:sqlite', 'node:worker_threads'])
     )
     expect(core).toContain('parentPort')
     for (const forbidden of ['BrowserWindow', 'ipcMain', 'webContents', 'shell.openPath']) {

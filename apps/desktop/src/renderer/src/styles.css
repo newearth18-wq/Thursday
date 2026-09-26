@@ -2196,3 +2196,51 @@ kbd {
   align-items: center;
   gap: var(--jp-space-xs);
 }
+
+/* ------------------------------------------------------- Skill Center (SET 6) */
+
+.skills-filters {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(8rem, 1fr));
+  gap: var(--jp-space-sm);
+}
+
+.skill-permission {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--jp-space-xs);
+  margin-bottom: var(--jp-space-xs);
+}
+
+.code-block {
+  margin: 0;
+  padding: var(--jp-space-sm) var(--jp-space-md);
+  border: 1px solid var(--ui-border);
+  border-radius: var(--jp-radius-md);
+  background: var(--jp-color-graphite-black);
+  font-family: var(--jp-font-mono);
+  font-size: var(--jp-font-size-sm);
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  max-height: 20rem;
+  overflow: auto;
+}
+
+.skill-result {
+  display: flex;
+  flex-direction: column;
+  gap: var(--jp-space-sm);
+  border: 1px solid var(--ui-border);
+  border-radius: var(--jp-radius-md);
+  padding: var(--jp-space-md);
+}
+
+.skill-result[data-status='SUCCESS'] {
+  border-color: var(--jp-color-success);
+}
+
+.skill-result[data-status='FAILED'],
+.skill-result[data-status='TIMEOUT'] {
+  border-color: var(--jp-color-error);
+}

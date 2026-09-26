@@ -494,7 +494,13 @@ describe('SET 1 — typed gateway, authorization and persistence (real app)', ()
     )
     expect(
       SET_1_CAPABILITIES.filter((id) => /file|fs\.|credential|secret|keychain|shell|exec/.test(id))
-    ).toEqual(['ai.credentials.remove', 'ai.credentials.set', 'host.credentials.status'])
+    ).toEqual([
+      'ai.credentials.remove',
+      'ai.credentials.set',
+      'host.credentials.status',
+      // SET 6: reads Skill run history (shape and size only); it executes nothing.
+      'skills.executions'
+    ])
 
     // Nothing the interface can ask for returns a secret from the environment.
     const replies = JSON.stringify([

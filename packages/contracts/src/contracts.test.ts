@@ -1,6 +1,10 @@
 import { describe, expect, it } from 'vitest'
 import { z } from 'zod'
 import {
+  SKILL_PERMISSIONS,
+  SKILL_RUNTIME,
+  SkillDefinition,
+  SkillId,
   MISSION_TRANSITIONS,
   MissionStatus,
   TERMINAL_MISSION_STATUSES,
@@ -409,5 +413,55 @@ describe('Missions (SET 4)', () => {
   it('makes a readable title from the first line of the request', () => {
     expect(missionTitleFrom('\n  Write a haiku\nabout rain')).toBe('Write a haiku')
     expect(missionTitleFrom('x'.repeat(100))).toHaveLength(80)
+  })
+})
+
+describe('Skills (SET 6)', () => {
+  const skill = {
+    skillId: 'echo_text',
+    name: 'Echo text',
+    description: 'Returns its input.',
+    version: '1.0.0',
+    category: 'text',
+    provider: 'internal',
+    compatibleRuntime: SKILL_RUNTIME,
+    permissions: [],
+    timeoutMs: 5000,
+    inputSchema: {
+      type: 'object',
+      properties: { text: { type: 'string', maxLength: 100 } },
+      required: ['text'],
+      additionalProperties: false
+    },
+    outputSchema: { type: 'object', properties: { text: { type: 'string' } } }
+  }
+
+  it('accepts a valid definition, including the Master Prompt ids such as echo_text', () => {
+    expect(SkillDefinition.safeParse(skill).success).toBe(true)
+    expect(SkillId.safeParse('model.generate').success).toBe(true)
+    expect(SkillId.safeParse('Echo Text').success).toBe(false)
+  })
+
+  it('refuses unknown fields in the definition and in its schemas', () => {
+    expect(SkillDefinition.safeParse({ ...skill, hidden: true }).success).toBe(false)
+    expect(
+      SkillDefinition.safeParse({
+        ...skill,
+        inputSchema: { type: 'object', pattern: '.*' }
+      }).success
+    ).toBe(false)
+    expect(SkillDefinition.safeParse({ ...skill, version: '1.0' }).success).toBe(false)
+    expect(SkillDefinition.safeParse({ ...skill, timeoutMs: 999_999 }).success).toBe(false)
+  })
+
+  it('grants only low-risk read permissions before the Permission Engine', () => {
+    const grantable = Object.entries(SKILL_PERMISSIONS)
+      .filter(([, value]) => value.grantable)
+      .map(([name, value]) => [name, value.risk])
+    expect(grantable).toEqual([
+      ['app.version.read', 'LOW'],
+      ['system.time.read', 'LOW'],
+      ['skills.read', 'LOW']
+    ])
   })
 })

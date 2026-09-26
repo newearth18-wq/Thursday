@@ -62,6 +62,11 @@ const AI_WRITE: Policy = { ...AI_READ, audit: 'always' }
 /** Missions (SET 4): reads, and changes that are audited on every call (refusals included). */
 const MISSION_READ: Policy = { ...UI_READ, requires: ['database', 'mission-manager'] }
 const MISSION_WRITE: Policy = { ...MISSION_READ, audit: 'always' }
+/** Skills (SET 6): reads; state changes and invocations are audited on every call. */
+const SKILL_READ: Policy = { ...UI_READ, requires: ['database', 'skill-registry'] }
+const SKILL_WRITE: Policy = { ...SKILL_READ, audit: 'always' }
+/** An invocation may run up to the longest Skill timeout (10 minutes). */
+const SKILL_INVOKE: Policy = { ...SKILL_WRITE, risk: 'MEDIUM', timeoutMs: 610_000 }
 /** Commands that plan or run a workflow (SET 5) also need the workflow engine. */
 const WORKFLOW_WRITE: Policy = {
   ...MISSION_WRITE,
@@ -358,7 +363,62 @@ export function coreCapabilities(kernel: CoreKernel): CapabilityDefinition<never
         ),
       (input) => `mission:${input.missionId}`
     ),
-    define('missions.step-types', MISSION_READ, () => ({ stepTypes: kernel.missions.stepTypes() }))
+    define('missions.step-types', MISSION_READ, () => ({ stepTypes: kernel.missions.stepTypes() })),
+
+    // ---- Skills (SET 6) ----
+    define('skills.list', SKILL_READ, (input) => ({ skills: kernel.skills.search(input.filter) })),
+    define('skills.get', SKILL_READ, (input) => kernel.skills.get(input.skillId, input.version)),
+    define('skills.versions', SKILL_READ, (input) => ({
+      versions: kernel.skills.listVersions(input.skillId)
+    })),
+    define(
+      'skills.enable',
+      SKILL_WRITE,
+      (input, context) =>
+        kernel.skills.setEnabled(input.skillId, input.version, true, context.request.actor),
+      (input) => `skill:${input.skillId}`
+    ),
+    define(
+      'skills.disable',
+      SKILL_WRITE,
+      (input, context) =>
+        kernel.skills.setEnabled(input.skillId, input.version, false, context.request.actor),
+      (input) => `skill:${input.skillId}`
+    ),
+    define(
+      'skills.health-check',
+      SKILL_WRITE,
+      (input, context) =>
+        kernel.skills.healthCheck(input.skillId, input.version, context.request.actor),
+      (input) => `skill:${input.skillId}`
+    ),
+    define(
+      'skills.invoke',
+      SKILL_INVOKE,
+      (input, context) =>
+        kernel.skills.invoke({
+          executionId: input.executionId,
+          skillId: input.skillId,
+          version: input.version,
+          input: input.input,
+          timeoutMs: input.timeoutMs,
+          idempotencyKey: input.idempotencyKey,
+          missionId: null,
+          actor: context.request.actor,
+          correlationId: context.request.correlationId,
+          signal: context.signal
+        }),
+      (input) => `skill:${input.skillId}`
+    ),
+    define(
+      'skills.cancel',
+      SKILL_WRITE,
+      (input) => ({ cancelled: kernel.skills.cancel(input.executionId) }),
+      (input) => `skill-execution:${input.executionId}`
+    ),
+    define('skills.executions', SKILL_READ, (input) => ({
+      executions: kernel.skills.executions({ skillId: input.skillId, limit: input.limit })
+    }))
   ]
   for (const capability of capabilities) {
     if (!Object.hasOwn(Capabilities, capability.id)) {

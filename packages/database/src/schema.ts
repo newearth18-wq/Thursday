@@ -402,5 +402,50 @@ export const JUPITER_MIGRATIONS: readonly Migration[] = [
       CREATE TRIGGER mission_step_attempts_no_delete BEFORE DELETE ON mission_step_attempts
         BEGIN SELECT RAISE(ABORT, 'step attempts are append-only'); END;
     `
+  },
+  {
+    version: 6,
+    name: '0006_skills',
+    sql: `
+      -- Skills (SET 6). The code of a Skill ships with Jupiter; this keeps what
+      -- is decided about it (enabled, last health check) and its definition as
+      -- registered. A Skill that is no longer registered keeps its row, marked.
+      CREATE TABLE skills (
+        skill_id            TEXT NOT NULL CHECK (length(skill_id) BETWEEN 3 AND 64),
+        version             TEXT NOT NULL CHECK (length(version) BETWEEN 5 AND 20),
+        definition_json     TEXT NOT NULL CHECK (json_valid(definition_json)),
+        enabled             INTEGER NOT NULL CHECK (enabled IN (0, 1)),
+        health_status       TEXT NOT NULL CHECK (health_status IN ('HEALTHY', 'UNHEALTHY', 'UNKNOWN')),
+        health_detail       TEXT NOT NULL CHECK (length(health_detail) <= 500),
+        health_checked_at   TEXT,
+        health_duration_ms  INTEGER CHECK (health_duration_ms IS NULL OR health_duration_ms >= 0),
+        registered_at       TEXT NOT NULL,
+        unregistered_at     TEXT,
+        PRIMARY KEY (skill_id, version)
+      ) STRICT;
+
+      -- Every invocation. Input and output are kept only as shape and size
+      -- (never content), so no secret typed into a Skill is stored.
+      CREATE TABLE skill_executions (
+        execution_id         TEXT PRIMARY KEY NOT NULL,
+        skill_id             TEXT NOT NULL,
+        version              TEXT NOT NULL,
+        mission_id           TEXT,
+        actor_type           TEXT NOT NULL,
+        status               TEXT NOT NULL CHECK (status IN ('RUNNING', 'SUCCESS', 'FAILED', 'CANCELLED', 'TIMEOUT', 'WAITING_APPROVAL', 'WAITING_IDENTITY')),
+        permissions_json     TEXT NOT NULL CHECK (json_valid(permissions_json)),
+        input_summary_json   TEXT NOT NULL CHECK (json_valid(input_summary_json)),
+        output_summary_json  TEXT CHECK (output_summary_json IS NULL OR json_valid(output_summary_json)),
+        error_code           TEXT,
+        idempotency_key      TEXT,
+        started_at           TEXT NOT NULL,
+        completed_at         TEXT,
+        FOREIGN KEY (skill_id, version) REFERENCES skills (skill_id, version)
+      ) STRICT;
+
+      CREATE INDEX skill_executions_by_skill ON skill_executions (skill_id, started_at);
+      CREATE UNIQUE INDEX skill_executions_idempotency
+        ON skill_executions (skill_id, idempotency_key) WHERE idempotency_key IS NOT NULL;
+    `
   }
 ]

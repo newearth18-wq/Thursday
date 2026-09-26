@@ -42,6 +42,8 @@ export type {
   MissionRecord,
   MissionStore,
   PlanRejectionRecord,
+  SkillStateRecord,
+  SkillStore,
   StepChanges,
   DatabasePort,
   DiscoveredModel,
@@ -106,6 +108,20 @@ export { createTransport, privacyBlocked, type FetchLike } from './ai/transport'
 export { selectRoute, type RouteInput, type RouteResult, type RouterProvider } from './ai/router'
 export type { CredentialVault } from './ai/providers'
 export { MissionManager } from './missions/manager'
+export { BUILTIN_SKILLS, TEST_FIXTURE_SKILLS, type SkillImplementation } from './skills/builtin'
+export {
+  SkillRegistry,
+  type InvokeRequest,
+  type ResourceContext,
+  type SkillResource
+} from './skills/registry'
+export {
+  ResourceDenied,
+  type SandboxOutcome,
+  type SandboxRequest,
+  type SkillSandbox
+} from './skills/sandbox'
+export { schemaDefinitionIssues, summarize, validateValue } from './skills/schema-check'
 export { STEP_TYPES, stepType, stepTypeInfo, type StepTypeDefinition } from './workflow/catalogue'
 export { plannerMessages, templatePlanDraft, type PlannerInput } from './workflow/planner'
 export {

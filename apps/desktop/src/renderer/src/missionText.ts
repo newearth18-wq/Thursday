@@ -19,7 +19,11 @@ export const KNOWN_STEP_KINDS = [
   'checkpoint.identity',
   'model.answer',
   'model.summary',
-  'verify.answer'
+  'verify.answer',
+  'echo_text',
+  'get_app_version',
+  'get_system_time',
+  'list_available_skills'
 ] as const
 
 export function stepKindName(kind: string, t: Translate): string {
