@@ -224,8 +224,12 @@ describe('mission store', () => {
           .flatMap((table) => [`mission_${table}_no_delete`, `mission_${table}_no_update`])
           .sort()
       )
-      expect(() => db.exec('DELETE FROM mission_transitions')).toThrow(/append-only/)
-      expect(() => db.exec("UPDATE mission_transitions SET reason = 'x'")).toThrow(/append-only/)
+      expect(() => {
+        db.exec('DELETE FROM mission_transitions')
+      }).toThrow(/append-only/)
+      expect(() => {
+        db.exec("UPDATE mission_transitions SET reason = 'x'")
+      }).toThrow(/append-only/)
     } finally {
       db.close()
     }

@@ -360,8 +360,7 @@ describe('Missions (SET 4)', () => {
   it('has an explicit state machine where every status is reachable and none returns to CREATED', () => {
     const reachable = new Set<MissionStatus>(['CREATED'])
     const queue: MissionStatus[] = ['CREATED']
-    while (queue.length > 0) {
-      const from = queue.shift() as MissionStatus
+    for (let from = queue.shift(); from !== undefined; from = queue.shift()) {
       for (const to of MISSION_TRANSITIONS[from]) {
         if (!reachable.has(to)) {
           reachable.add(to)
