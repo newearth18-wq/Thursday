@@ -565,6 +565,9 @@ describe('Workflow Engine', () => {
     await expect
       .poll(async () => (await detail(first, missionId)).steps.map((item) => item.status))
       .toEqual(['COMPLETED', 'RUNNING', 'PENDING'])
+    // The step is RUNNING before its request reaches the server: wait until the server holds
+    // it (the gated reply is taken), or the restarted Core would be given that reply instead.
+    await expect.poll(chatRequests).toBe(3)
     const before = await detail(first, missionId)
     await stopCore(first)
 
