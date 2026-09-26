@@ -13,17 +13,19 @@ import { Tabs } from '../components/Tabs'
 import { useNotify } from '../components/Toasts'
 import { detectLocale, useI18n, type MessageKey } from '../i18n'
 import { PREFERENCE_KEYS, usePreferences, type PreferenceKey } from '../preferences'
-import { envelopeOf, type Loadable } from '../useRuntime'
+import { coreSessionOf, envelopeOf, type Loadable } from '../useRuntime'
+import { PermissionsPanel } from './PermissionsPanel'
 import { ViewHeader } from './ViewHeader'
 
 /**
- * Settings (SET 2): language, appearance, accessibility, notifications and
- * Core logging. Changes apply at once and are saved by Jupiter Core; the page
+ * Settings (SET 2): language, appearance, accessibility, notifications,
+ * permissions (SET 7) and Core logging. Changes apply at once and are saved by Jupiter Core; the page
  * says "Saved" only after Core confirms, and says plainly when a change could
  * not be saved and applies to this session only.
  */
 
-type SettingsTab = 'general' | 'appearance' | 'accessibility' | 'notifications' | 'advanced'
+type SettingsTab =
+  'general' | 'appearance' | 'accessibility' | 'notifications' | 'permissions' | 'advanced'
 type SaveState = { readonly kind: 'saved' } | { readonly kind: 'failed'; readonly message: string }
 
 const TEXT_SCALES = ['100', '125', '150', '175', '200'] as const
@@ -183,6 +185,11 @@ export function SettingsView({
                 }}
               />
             )
+          },
+          {
+            id: 'permissions',
+            label: t('settings.tab.permissions'),
+            panel: <PermissionsPanel coreSession={coreSessionOf(status)} />
           },
           {
             id: 'advanced',

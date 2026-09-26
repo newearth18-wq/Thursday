@@ -2244,3 +2244,41 @@ kbd {
 .skill-result[data-status='TIMEOUT'] {
   border-color: var(--jp-color-error);
 }
+
+/* Permissions (SET 7) */
+.panel-stack {
+  display: flex;
+  flex-direction: column;
+  gap: var(--jp-space-md);
+}
+
+.permission-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--jp-space-xs);
+}
+
+.permission-item {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--jp-space-sm);
+  padding: var(--jp-space-sm);
+  border-radius: var(--jp-radius-md);
+  background: var(--jp-surface-hover);
+}
+
+.permission-item-main {
+  display: flex;
+  flex: 1 1 20rem;
+  flex-direction: column;
+  gap: var(--jp-space-xs);
+  min-width: 0;
+}
+
+.permission-target {
+  overflow-wrap: anywhere;
+}

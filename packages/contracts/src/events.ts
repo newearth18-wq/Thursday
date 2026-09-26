@@ -1,5 +1,5 @@
 import { z } from 'zod'
-import { Actor } from './actor'
+import { Actor, RiskLevel } from './actor'
 import { FallbackPolicy, Locality, ModelId, ProviderId, ProviderState, RoutingMode } from './ai'
 import { LogLevel } from './environment'
 import { ErrorEnvelope } from './errors'
@@ -8,7 +8,8 @@ import { OptionalReference, CONTRACT_VERSION } from './request'
 import { ServiceId, UtcTimestamp, Uuidv7 } from './primitives'
 import { ServiceStatus } from './service-health'
 import { SkillExecutionStatus, SkillHealthStatus, SkillVersion } from './skills'
-import { SkillId } from './plans'
+import { PermissionName, SkillId } from './plans'
+import { PermissionDecision } from './permissions'
 
 /**
  * Versioned domain events (contract version 1).
@@ -31,7 +32,8 @@ export const StreamKind = z.enum([
   'mission',
   'ai',
   'conversation',
-  'skill'
+  'skill',
+  'permission'
 ])
 export type StreamKind = z.infer<typeof StreamKind>
 
@@ -261,6 +263,25 @@ export const EventPayloads = {
   'skill.execution_started': z
     .object({ executionId: Uuidv7, skillId: SkillId, version: SkillVersion })
     .strict(),
+  // Permissions (SET 7), on the stream `permission/requests` or `permission/grants`.
+  'permission.requested': z
+    .object({ requestId: Uuidv7, capability: PermissionName, risk: RiskLevel })
+    .strict(),
+  'permission.decided': z
+    .object({
+      requestId: Uuidv7,
+      capability: PermissionName,
+      decision: PermissionDecision,
+      grantId: Uuidv7.nullable()
+    })
+    .strict(),
+  'permission.grant_ended': z
+    .object({
+      grantId: Uuidv7,
+      capability: PermissionName,
+      state: z.enum(['USED', 'EXPIRED', 'REVOKED'])
+    })
+    .strict(),
   'skill.execution_finished': z
     .object({
       executionId: Uuidv7,
@@ -334,7 +355,10 @@ export const DomainEvent = z
     variant('skill.state_changed'),
     variant('skill.health_checked'),
     variant('skill.execution_started'),
-    variant('skill.execution_finished')
+    variant('skill.execution_finished'),
+    variant('permission.requested'),
+    variant('permission.decided'),
+    variant('permission.grant_ended')
   ])
   .refine(
     (event) =>

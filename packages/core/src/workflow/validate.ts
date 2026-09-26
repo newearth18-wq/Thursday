@@ -1,7 +1,7 @@
 import {
   PlanDraft,
   PlanStepKey,
-  SKILL_PERMISSIONS,
+  capabilityInfo,
   type PlanIssue,
   type PlanStep
 } from '@jupiter/contracts'
@@ -150,16 +150,13 @@ export function validatePlan(
         'permissions-not-declared',
         `The plan needs the permission "${permission}" but does not declare it.`
       )
-  // Since SET 6, low-risk read permissions are granted to Skills; any other
-  // permission waits for the Permission Engine (SET 7).
+  // Since SET 7 every known capability can be asked for when it is used; an
+  // unknown one is denied by default, so a plan that needs it cannot run.
   for (const permission of draft.requiredPermissions)
-    if (
-      (SKILL_PERMISSIONS as Record<string, { grantable: boolean } | undefined>)[permission]
-        ?.grantable !== true
-    )
+    if (!capabilityInfo(permission))
       add(
         'permission-unavailable',
-        `The plan asks for the permission "${permission}", which cannot be granted until the Permission Engine arrives (SET 7), so it cannot run.`
+        `The plan asks for "${permission}", which is not a capability Jupiter knows, so it cannot run.`
       )
 
   // Artifact passing: {{step-id}} names an earlier step (a dependency, directly or not) that produces output.

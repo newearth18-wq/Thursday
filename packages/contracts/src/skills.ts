@@ -91,22 +91,6 @@ export const SkillDefinition = z
   .strict()
 export type SkillDefinition = z.infer<typeof SkillDefinition>
 
-/**
- * Permissions Skills may declare in this build. Core grants a permission to
- * an invocation only when it is `grantable` here: low-risk and read-only.
- * Everything else waits for the Permission Engine (SET 7).
- */
-export const SKILL_PERMISSIONS = {
-  'app.version.read': { risk: 'LOW', grantable: true },
-  'system.time.read': { risk: 'LOW', grantable: true },
-  'skills.read': { risk: 'LOW', grantable: true },
-  'files.read': { risk: 'MEDIUM', grantable: false },
-  'files.write': { risk: 'HIGH', grantable: false },
-  'network.request': { risk: 'MEDIUM', grantable: false },
-  'shell.execute': { risk: 'CRITICAL', grantable: false }
-} as const satisfies Record<string, { risk: RiskLevel; grantable: boolean }>
-export type KnownSkillPermission = keyof typeof SKILL_PERMISSIONS
-
 export const SkillResultStatus = z.enum([
   'SUCCESS',
   'FAILED',
@@ -189,8 +173,9 @@ export const SkillHealth = z
   .strict()
 export type SkillHealth = z.infer<typeof SkillHealth>
 
+/** A permission a Skill declares, with its risk and whether a standing grant covers it (SET 7). */
 export const SkillPermissionInfo = z
-  .object({ name: PermissionName, risk: RiskLevel, grantable: z.boolean() })
+  .object({ name: PermissionName, risk: RiskLevel, granted: z.boolean() })
   .strict()
 
 /** A registered Skill as the Skill Center shows it. */
@@ -205,9 +190,9 @@ export const SkillInfo = z
     permissions: z.array(SkillPermissionInfo).max(10),
     /** Every registered version, newest first. */
     versions: z.array(SkillVersion).max(50),
-    /** Low-risk internal Skill whose permissions Core can grant: the safe test form is offered. */
+    /** Internal Skill whose permissions are all low-risk: the safe test form is offered. */
     testable: z.boolean(),
-    /** Why it cannot run now, if it cannot (disabled, unhealthy, incompatible, permission). */
+    /** Why it cannot run now, if it cannot (disabled, unhealthy, incompatible). */
     blockedReason: z.string().max(300).nullable(),
     registeredAt: UtcTimestamp
   })

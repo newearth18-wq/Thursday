@@ -447,5 +447,64 @@ export const JUPITER_MIGRATIONS: readonly Migration[] = [
       CREATE UNIQUE INDEX skill_executions_idempotency
         ON skill_executions (skill_id, idempotency_key) WHERE idempotency_key IS NOT NULL;
     `
+  },
+  {
+    version: 7,
+    name: '0007_permissions',
+    sql: `
+      -- The Permission Engine (SET 7). Requests are what Jupiter asked; grants
+      -- are the answers that allow something; the audit trail keeps every
+      -- evaluation and decision (redacted), and cannot be changed.
+      CREATE TABLE permission_requests (
+        request_id    TEXT PRIMARY KEY NOT NULL,
+        capability    TEXT NOT NULL,
+        status        TEXT NOT NULL CHECK (status IN ('PENDING', 'ALLOWED', 'DENIED', 'EXPIRED')),
+        decision      TEXT CHECK (decision IS NULL OR decision IN ('ALLOW_ONCE', 'ALLOW_SESSION', 'ALWAYS_ALLOW', 'DENY')),
+        mission_id    TEXT,
+        session_id    TEXT NOT NULL,
+        request_json  TEXT NOT NULL CHECK (json_valid(request_json)),
+        created_at    TEXT NOT NULL,
+        decided_at    TEXT
+      ) STRICT;
+
+      CREATE INDEX permission_requests_by_status ON permission_requests (status, created_at);
+
+      CREATE TABLE permission_grants (
+        grant_id      TEXT PRIMARY KEY NOT NULL,
+        capability    TEXT NOT NULL,
+        subject_kind  TEXT NOT NULL,
+        subject_id    TEXT NOT NULL,
+        subject_name  TEXT NOT NULL,
+        target        TEXT NOT NULL CHECK (length(target) BETWEEN 1 AND 500),
+        mission_id    TEXT,
+        kind          TEXT NOT NULL CHECK (kind IN ('ALLOW_ONCE', 'ALLOW_SESSION', 'ALWAYS_ALLOW')),
+        session_id    TEXT,
+        state         TEXT NOT NULL CHECK (state IN ('ACTIVE', 'USED', 'EXPIRED', 'REVOKED')),
+        created_by    TEXT NOT NULL,
+        request_id    TEXT REFERENCES permission_requests (request_id),
+        reason        TEXT NOT NULL CHECK (length(reason) <= 300),
+        created_at    TEXT NOT NULL,
+        expires_at    TEXT,
+        used_at       TEXT,
+        ended_at      TEXT,
+        CHECK (kind <> 'ALLOW_SESSION' OR session_id IS NOT NULL)
+      ) STRICT;
+
+      CREATE INDEX permission_grants_by_subject
+        ON permission_grants (capability, subject_kind, subject_id, state);
+
+      CREATE TABLE permission_audit (
+        entry_id      TEXT PRIMARY KEY NOT NULL,
+        at            TEXT NOT NULL,
+        entry_json    TEXT NOT NULL CHECK (json_valid(entry_json))
+      ) STRICT;
+
+      CREATE INDEX permission_audit_by_time ON permission_audit (at);
+
+      CREATE TRIGGER permission_audit_no_update BEFORE UPDATE ON permission_audit
+        BEGIN SELECT RAISE(ABORT, 'the permission audit trail is append-only'); END;
+      CREATE TRIGGER permission_audit_no_delete BEFORE DELETE ON permission_audit
+        BEGIN SELECT RAISE(ABORT, 'the permission audit trail is append-only'); END;
+    `
   }
 ]

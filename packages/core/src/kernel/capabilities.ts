@@ -63,10 +63,16 @@ const AI_WRITE: Policy = { ...AI_READ, audit: 'always' }
 const MISSION_READ: Policy = { ...UI_READ, requires: ['database', 'mission-manager'] }
 const MISSION_WRITE: Policy = { ...MISSION_READ, audit: 'always' }
 /** Skills (SET 6): reads; state changes and invocations are audited on every call. */
-const SKILL_READ: Policy = { ...UI_READ, requires: ['database', 'skill-registry'] }
+const SKILL_READ: Policy = {
+  ...UI_READ,
+  requires: ['database', 'permission-engine', 'skill-registry']
+}
 const SKILL_WRITE: Policy = { ...SKILL_READ, audit: 'always' }
 /** An invocation may run up to the longest Skill timeout (10 minutes). */
 const SKILL_INVOKE: Policy = { ...SKILL_WRITE, risk: 'MEDIUM', timeoutMs: 610_000 }
+/** Permissions (SET 7): only the person may answer or revoke; every change is audited. */
+const PERMISSION_READ: Policy = { ...UI_READ, requires: ['database', 'permission-engine'] }
+const PERMISSION_WRITE: Policy = { ...PERMISSION_READ, risk: 'HIGH', audit: 'always' }
 /** Commands that plan or run a workflow (SET 5) also need the workflow engine. */
 const WORKFLOW_WRITE: Policy = {
   ...MISSION_WRITE,
@@ -418,6 +424,37 @@ export function coreCapabilities(kernel: CoreKernel): CapabilityDefinition<never
     ),
     define('skills.executions', SKILL_READ, (input) => ({
       executions: kernel.skills.executions({ skillId: input.skillId, limit: input.limit })
+    })),
+
+    // ---- Permissions (SET 7) ----
+    define('permissions.catalogue', PERMISSION_READ, () => ({
+      capabilities: kernel.permissions.catalogue()
+    })),
+    define('permissions.requests', PERMISSION_READ, (input) => ({
+      requests: kernel.permissions.requests({
+        pendingOnly: input.status === 'PENDING',
+        missionId: input.missionId,
+        limit: input.limit
+      })
+    })),
+    define(
+      'permissions.decide',
+      PERMISSION_WRITE,
+      (input, context) =>
+        kernel.permissions.decide(input.requestId, input.decision, context.request.actor),
+      (input) => `permission-request:${input.requestId}`
+    ),
+    define('permissions.grants', PERMISSION_READ, (input) => ({
+      grants: kernel.permissions.grants({ includeEnded: input.includeEnded, limit: input.limit })
+    })),
+    define(
+      'permissions.revoke',
+      PERMISSION_WRITE,
+      (input, context) => kernel.permissions.revoke(input.grantId, context.request.actor),
+      (input) => `permission-grant:${input.grantId}`
+    ),
+    define('permissions.audit', PERMISSION_READ, (input) => ({
+      entries: kernel.permissions.auditTrail(input.limit)
     }))
   ]
   for (const capability of capabilities) {

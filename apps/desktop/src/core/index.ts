@@ -10,6 +10,7 @@ import {
   CoreKernel,
   JupiterError,
   TEST_FIXTURE_SKILLS,
+  createFixtureResources,
   Logger,
   createErrorEnvelope,
   describeError,
@@ -98,6 +99,7 @@ async function initialise(config: CoreConfig): Promise<void> {
     component: 'core'
   })
   const log = logger
+  const fixtures = config.environment === 'test' && process.env.JUPITER_TEST_SKILL_FIXTURES === '1'
   const created = new CoreKernel({
     config,
     logger: log,
@@ -118,11 +120,9 @@ async function initialise(config: CoreConfig): Promise<void> {
         logger: log.child({ component: 'database' })
       }),
     skillSandbox: new WorkerSkillSandbox(),
-    // Skills with known faults, only for automated tests of the test environment.
-    extraSkills:
-      config.environment === 'test' && process.env.JUPITER_TEST_SKILL_FIXTURES === '1'
-        ? TEST_FIXTURE_SKILLS
-        : [],
+    // Fixture Skills (known faults, observable effects), only for automated tests of the test environment.
+    extraSkills: fixtures ? TEST_FIXTURE_SKILLS : [],
+    extraResources: fixtures ? createFixtureResources().resources : {},
     onStatus: (services) => {
       send({ ...base, kind: 'status', services })
     },

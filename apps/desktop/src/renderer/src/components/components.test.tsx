@@ -2,6 +2,7 @@
 import { act, useState, type ReactNode } from 'react'
 import { createRoot, type Root } from 'react-dom/client'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import type { PermissionDecision, PermissionRequest, RiskLevel } from '@jupiter/contracts'
 import { I18nContext, createTranslator } from '../i18n'
 import { Dialog } from './Dialog'
 import { MissionCard, formatElapsed } from './MissionCard'
@@ -265,37 +266,80 @@ describe('MissionCard', () => {
 })
 
 describe('permission and identity shells', () => {
-  it('asks for an explicit answer, shows the exact target, and focuses Deny first', () => {
-    const deny = vi.fn()
-    const allow = vi.fn()
+  const requestOf = (risk: RiskLevel, offered: PermissionDecision[]): PermissionRequest => ({
+    requestId: '01900000-0000-7000-8000-000000000001',
+    capability: 'computer.delete_file',
+    subject: { kind: 'skill', id: 'file_cleaner', name: 'File cleaner' },
+    actor: 'core',
+    target: 'C:\\Users\\me\\report.docx',
+    reason: 'Clean up the draft',
+    risk,
+    summary: 'Delete a file',
+    consequence: 'The file is deleted.',
+    reversible: false,
+    dataLeavesDevice: null,
+    missionId: null,
+    missionTitle: 'Tidy my documents',
+    stepId: null,
+    stepTitle: 'Remove the draft',
+    skillId: 'file_cleaner',
+    offered,
+    status: 'PENDING',
+    decision: null,
+    createdAt: '2026-09-26T00:00:00.000Z',
+    decidedAt: null
+  })
+
+  it('shows every fact of the request, asks for an explicit answer, and focuses Deny first', () => {
+    const answer = vi.fn()
     render(
       <PermissionRequestDialog
-        prompt={{
-          capability: 'files.delete',
-          target: 'C:\\Users\\me\\report.docx',
-          risk: 'HIGH',
-          reason: 'Clean up the draft',
-          requestedBy: 'Mission 12'
-        }}
-        onAllowOnce={allow}
-        onDeny={deny}
+        request={requestOf('HIGH', ['ALLOW_ONCE', 'ALLOW_SESSION', 'ALWAYS_ALLOW', 'DENY'])}
+        busy={false}
+        error={null}
+        waiting={0}
+        onAnswer={answer}
       />
     )
     const dialog = byTestId('permission-dialog')
     expect(dialog.getAttribute('role')).toBe('alertdialog')
     expect(byTestId('permission-target').textContent).toBe('C:\\Users\\me\\report.docx')
     expect(byTestId('permission-risk').textContent).toBe('High')
+    expect(byTestId('permission-subject').textContent).toBe('Skill File cleaner')
+    expect(byTestId('permission-mission').textContent).toBe('Tidy my documents')
+    expect(byTestId('permission-consequence').textContent).toBe('The file is deleted.')
+    expect(byTestId('permission-reversible').textContent).toBe('No — it cannot be undone')
+    expect(byTestId('permission-data').textContent).toBe('Nothing leaves this computer')
     expect(document.activeElement).toBe(byTestId('permission-deny'))
     expect(container.querySelector('[data-testid="dialog-close"]')).toBeNull()
     // Escape does not answer the question.
     act(() => {
       dialog.dispatchEvent(new Event('cancel', { cancelable: true }))
     })
-    expect(deny).not.toHaveBeenCalled()
+    expect(answer).not.toHaveBeenCalled()
     act(() => {
-      byTestId('permission-allow').click()
+      byTestId('permission-always-allow').click()
     })
-    expect(allow).toHaveBeenCalledTimes(1)
+    expect(answer).toHaveBeenCalledWith('ALWAYS_ALLOW')
+  })
+
+  it('offers only Allow once and Deny for a critical request', () => {
+    render(
+      <PermissionRequestDialog
+        request={requestOf('CRITICAL', ['ALLOW_ONCE', 'DENY'])}
+        busy={false}
+        error={null}
+        waiting={2}
+        onAnswer={vi.fn()}
+      />
+    )
+    const buttons = [
+      ...byTestId('permission-dialog').querySelectorAll('.dialog-footer button')
+    ].map((button) => button.textContent)
+    expect(buttons).toEqual(['Deny', 'Allow once'])
+    expect(container.querySelector('[data-testid="permission-always-allow"]')).toBeNull()
+    expect(byTestId('permission-critical').textContent).toContain('asked every time')
+    expect(byTestId('permission-more').textContent).toBe('2 more requests are waiting.')
   })
 
   it('states that identity verification is unavailable and offers only Cancel', () => {

@@ -1,12 +1,11 @@
 import {
-  SKILL_PERMISSIONS,
+  capabilityInfo,
   SkillDefinition,
   type Actor,
   type DomainEventType,
   type ErrorCategory,
   type ErrorEnvelope,
   type EventPayload,
-  type KnownSkillPermission,
   type SkillFilter,
   type SkillHealth,
   type SkillInfo,
@@ -18,6 +17,7 @@ import { JupiterError, createErrorEnvelope, describeError } from '../errors'
 import type { EventBus } from '../events/event-bus'
 import { uuidv7 } from '../ids'
 import type { Logger } from '../logging/logger'
+import type { PermissionEngine } from '../permissions/engine'
 import type { DatabasePort, SkillStateRecord } from '../ports'
 import type { SkillImplementation } from './builtin'
 import { ResourceDenied, type SkillSandbox } from './sandbox'
@@ -27,14 +27,14 @@ import { formatIssues, schemaDefinitionIssues, summarize, validateValue } from '
  * The Skill Registry (SET 6): register, unregister, get, search, enable,
  * disable, health check, invoke, cancel and list versions.
  *
- * - The invocation context grants capabilities, never the Skill. Core grants
- *   a declared permission only when it is low-risk and grantable in this
- *   build (`SKILL_PERMISSIONS`). Anything else is refused until the
- *   Permission Engine exists (SET 7).
- * - At run time a Skill reaches a resource only if it declared that
- *   resource's permission and the invocation was granted it. Any other
- *   attempt is denied, and the execution fails with `PERMISSION_DENIED`,
- *   whatever the Skill returns.
+ * - The invocation context grants capabilities, never the Skill. Every use
+ *   of a resource goes through the Permission Engine (SET 7). It needs the
+ *   resource's capability to be declared by the Skill and a grant for that
+ *   capability, Skill and exact target.
+ * - Using something undeclared (or unknown) fails the execution with
+ *   `PERMISSION_DENIED`, whatever the Skill returns.
+ * - Using something declared but not yet granted stops the execution as
+ *   `WAITING_APPROVAL`, and the engine puts a request to the person.
  * - Disabled, unhealthy, runtime-incompatible or missing Skills do not run.
  * - Input and output are validated against the Skill's schemas. Output that
  *   does not match fails the execution.
@@ -51,7 +51,10 @@ export interface ResourceContext {
 }
 
 export interface SkillResource {
-  readonly permission: KnownSkillPermission
+  /** The capability it needs (a PERMISSION_CATALOGUE entry). */
+  readonly permission: string
+  /** The exact target the grant must name, e.g. `jupiter:app-version`. */
+  readonly target: string
   readonly handler: (args: unknown, context: ResourceContext) => unknown
 }
 
@@ -63,6 +66,7 @@ export interface SkillRegistryOptions {
   readonly sandbox: SkillSandbox
   /** Resources Skills can `use`, each behind a permission. `skills.list` is provided by the registry. */
   readonly resources: Readonly<Record<string, SkillResource>>
+  readonly permissions: PermissionEngine
 }
 
 export interface InvokeRequest {
@@ -71,6 +75,9 @@ export interface InvokeRequest {
   readonly version?: string | undefined
   readonly input: unknown
   readonly missionId?: string | null
+  readonly missionTitle?: string | null
+  readonly stepId?: string | null
+  readonly stepTitle?: string | null
   readonly timeoutMs?: number | undefined
   readonly idempotencyKey?: string | undefined
   readonly actor: Actor
@@ -116,7 +123,7 @@ export class SkillRegistry {
         issues.push(`${issue.path}: ${issue.message}`)
     }
     for (const permission of definition.permissions)
-      if (!(permission in SKILL_PERMISSIONS))
+      if (!capabilityInfo(permission))
         issues.push(`permissions: "${permission}" is not a permission Jupiter knows`)
     if (new Set(definition.permissions).size !== definition.permissions.length)
       issues.push('permissions: a permission is listed twice')
@@ -226,7 +233,7 @@ export class SkillRegistry {
 
   /**
    * Check that a Skill can work: its runtime is this one, its permissions
-   * are known and grantable, and a real run with its health input returns
+   * are known capabilities, and a real run with its health input returns
    * valid output (the expected output, if it has one).
    */
   async healthCheck(
@@ -281,7 +288,13 @@ export class SkillRegistry {
       })
 
     const startedAt = this.now()
-    const granted = definition.permissions.filter((permission) => grantable(permission))
+    // Declared capabilities a standing grant covers now (each use is still checked).
+    const granted = definition.permissions.filter((permission) =>
+      this.options.permissions.hasStandingGrant(permission, {
+        kind: 'skill',
+        id: definition.skillId
+      })
+    )
     const record = {
       executionId: request.executionId,
       skillId: definition.skillId,
@@ -350,6 +363,7 @@ export class SkillRegistry {
     request.signal?.addEventListener('abort', forward, { once: true })
     if (request.signal?.aborted) forward()
     const violations: string[] = []
+    const waiting: { requestId: string | null; message: string }[] = []
     const timeoutMs = Math.min(request.timeoutMs ?? definition.timeoutMs, definition.timeoutMs)
     let status: SkillResultStatus
     let output: unknown = null
@@ -361,10 +375,17 @@ export class SkillRegistry {
         timeoutMs,
         signal: running.controller.signal,
         useResource: (resource, args) =>
-          this.useResource(resource, args, definition, granted, violations, {
-            executionId: request.executionId,
-            skillId: definition.skillId,
-            missionId: request.missionId ?? null
+          this.useResource(resource, args, definition, violations, waiting, {
+            execution: {
+              executionId: request.executionId,
+              skillId: definition.skillId,
+              missionId: request.missionId ?? null
+            },
+            actor: request.actor.type,
+            missionTitle: request.missionTitle ?? null,
+            stepId: request.stepId ?? null,
+            stepTitle: request.stepTitle ?? null,
+            evaluateOnly: false
           })
       })
       switch (outcome.kind) {
@@ -460,6 +481,23 @@ export class SkillRegistry {
     } finally {
       this.running.delete(request.executionId)
       request.signal?.removeEventListener('abort', forward)
+    }
+
+    // A use that needs the person's answer stops the run; nothing it produced is used.
+    const first = waiting[0]
+    if (first && violations.length === 0 && (status === 'SUCCESS' || status === 'FAILED')) {
+      status = 'WAITING_APPROVAL'
+      output = null
+      error = createErrorEnvelope({
+        code: 'PERMISSION_REQUIRED',
+        category: 'permission',
+        message: first.message,
+        userAction: 'Answer the permission request, then run it again.',
+        retryable: true,
+        missionId: request.missionId ?? null,
+        details: first.requestId ? { requestId: first.requestId } : null,
+        now: this.options.now()
+      })
     }
 
     const completedAt = this.now()
@@ -572,14 +610,6 @@ export class SkillRegistry {
         `${definition.name} failed its last health check: ${state.health.detail}`,
         'Run the health check again in Skills.'
       )
-    const refused = definition.permissions.filter((permission) => !grantable(permission))
-    if (refused.length > 0)
-      return fail(
-        'PERMISSION_NOT_GRANTED',
-        'permission',
-        `${definition.name} needs ${refused.join(', ')}, which cannot be granted until the Permission Engine arrives (SET 7).`,
-        null
-      )
     const issues = validateValue(definition.inputSchema, input, 'input')
     if (issues.length > 0)
       return fail(
@@ -595,13 +625,25 @@ export class SkillRegistry {
     resource: string,
     args: unknown,
     definition: SkillDefinition,
-    granted: readonly string[],
     violations: string[],
-    context: ResourceContext
+    waiting: { requestId: string | null; message: string }[],
+    context: {
+      readonly execution: ResourceContext
+      readonly actor: Actor['type']
+      readonly missionTitle: string | null
+      readonly stepId: string | null
+      readonly stepTitle: string | null
+      /** Health checks: only look; never ask the person or use up a single-use grant. */
+      readonly evaluateOnly: boolean
+    }
   ): Promise<unknown> {
     const provided =
       resource === 'skills.list'
-        ? ({ permission: 'skills.read', handler: () => this.skillSummaries() } as const)
+        ? ({
+            permission: 'skills.read',
+            target: 'jupiter:skills',
+            handler: () => this.skillSummaries()
+          } as const)
         : this.options.resources[resource]
     if (!provided) {
       violations.push(`the unknown resource "${resource}"`)
@@ -614,14 +656,27 @@ export class SkillRegistry {
         `"${resource}" needs the permission ${provided.permission}, which this Skill did not declare.`
       )
     }
-    if (!granted.includes(provided.permission)) {
-      violations.push(`"${resource}" (${provided.permission} not granted)`)
-      throw new ResourceDenied(
-        'PERMISSION_NOT_GRANTED',
-        `${provided.permission} was not granted to this invocation.`
-      )
+    const outcome = this.options.permissions.check({
+      capability: provided.permission,
+      subject: { kind: 'skill', id: definition.skillId, name: definition.name },
+      actor: context.actor,
+      target: provided.target,
+      reason: `${definition.name} uses ${resource}.`,
+      missionId: context.execution.missionId,
+      missionTitle: context.missionTitle,
+      stepId: context.stepId,
+      stepTitle: context.stepTitle,
+      skillId: definition.skillId,
+      askIfNeeded: !context.evaluateOnly,
+      evaluateOnly: context.evaluateOnly
+    })
+    if (!outcome.allowed) {
+      if (outcome.code === 'PERMISSION_UNKNOWN')
+        violations.push(`"${resource}" (unknown capability)`)
+      else waiting.push({ requestId: outcome.requestId, message: outcome.message })
+      throw new ResourceDenied(outcome.code, outcome.message)
     }
-    return await Promise.resolve(provided.handler(args, context))
+    return await Promise.resolve(provided.handler(args, context.execution))
   }
 
   private skillSummaries() {
@@ -643,18 +698,13 @@ export class SkillRegistry {
         status: 'UNHEALTHY',
         detail: `Needs the runtime ${definition.compatibleRuntime}; this build provides ${this.runtime}.`
       }
-    const refused = definition.permissions.filter((permission) => !grantable(permission))
-    if (refused.length > 0)
-      return {
-        status: 'UNKNOWN',
-        detail: `Cannot be checked: it needs ${refused.join(', ')}, which cannot be granted before SET 7.`
-      }
     if (implementation.healthInput === null)
       return {
         status: 'HEALTHY',
         detail: 'Definition and runtime checked; this Skill has no test run.'
       }
     const violations: string[] = []
+    const waiting: { requestId: string | null; message: string }[] = []
     try {
       const outcome = await this.options.sandbox.run({
         source: implementation.source,
@@ -662,12 +712,25 @@ export class SkillRegistry {
         timeoutMs: Math.min(definition.timeoutMs, HEALTH_TIMEOUT_MS),
         signal: new AbortController().signal,
         useResource: (resource, args) =>
-          this.useResource(resource, args, definition, definition.permissions, violations, {
-            executionId: 'health-check',
-            skillId: definition.skillId,
-            missionId: null
+          this.useResource(resource, args, definition, violations, waiting, {
+            execution: {
+              executionId: 'health-check',
+              skillId: definition.skillId,
+              missionId: null
+            },
+            actor: 'core',
+            missionTitle: null,
+            stepId: null,
+            stepTitle: null,
+            evaluateOnly: true
           })
       })
+      const needed = waiting[0]
+      if (needed)
+        return {
+          status: 'UNKNOWN',
+          detail: `Not checked: ${needed.message} It has not been granted.`.slice(0, 500)
+        }
       if (outcome.kind === 'timed-out')
         return { status: 'UNHEALTHY', detail: 'The test run did not finish in time.' }
       if (outcome.kind === 'crashed')
@@ -711,22 +774,22 @@ export class SkillRegistry {
     const implementation = this.implementation(skillId, version)
     const state = this.state(skillId, version)
     const { definition } = implementation
-    const permissions = definition.permissions.map((name) => {
-      const known = SKILL_PERMISSIONS[name as KnownSkillPermission] as
-        (typeof SKILL_PERMISSIONS)[KnownSkillPermission] | undefined
-      return { name, risk: known?.risk ?? 'CRITICAL', grantable: known?.grantable ?? false }
-    })
+    const permissions = definition.permissions.map((name) => ({
+      name,
+      risk: capabilityInfo(name)?.risk ?? 'CRITICAL',
+      granted: this.options.permissions.hasStandingGrant(name, {
+        kind: 'skill',
+        id: definition.skillId
+      })
+    }))
     const runtimeCompatible = definition.compatibleRuntime === this.runtime
-    const allGrantable = permissions.every((permission) => permission.grantable)
     const blockedReason = !state.enabled
       ? 'Disabled.'
       : !runtimeCompatible
         ? `Needs the runtime ${definition.compatibleRuntime}.`
         : state.health.status === 'UNHEALTHY'
           ? 'Its last health check failed.'
-          : !allGrantable
-            ? 'Needs permissions that cannot be granted before SET 7.'
-            : null
+          : null
     return {
       definition,
       enabled: state.enabled,
@@ -737,7 +800,6 @@ export class SkillRegistry {
       versions: this.registeredVersions(skillId),
       testable:
         definition.provider === 'internal' &&
-        allGrantable &&
         permissions.every((permission) => permission.risk === 'LOW'),
       blockedReason,
       registeredAt: state.registeredAt
@@ -839,12 +901,6 @@ export class SkillRegistry {
   private now(): string {
     return this.options.now().toISOString()
   }
-}
-
-function grantable(permission: string): boolean {
-  const known = SKILL_PERMISSIONS[permission as KnownSkillPermission] as
-    (typeof SKILL_PERMISSIONS)[KnownSkillPermission] | undefined
-  return known?.grantable ?? false
 }
 
 function key(skillId: string, version: string): string {

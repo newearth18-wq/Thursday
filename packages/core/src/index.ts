@@ -42,6 +42,7 @@ export type {
   MissionRecord,
   MissionStore,
   PlanRejectionRecord,
+  PermissionStore,
   SkillStateRecord,
   SkillStore,
   StepChanges,
@@ -108,7 +109,12 @@ export { createTransport, privacyBlocked, type FetchLike } from './ai/transport'
 export { selectRoute, type RouteInput, type RouteResult, type RouterProvider } from './ai/router'
 export type { CredentialVault } from './ai/providers'
 export { MissionManager } from './missions/manager'
-export { BUILTIN_SKILLS, TEST_FIXTURE_SKILLS, type SkillImplementation } from './skills/builtin'
+export {
+  BUILTIN_SKILLS,
+  TEST_FIXTURE_SKILLS,
+  createFixtureResources,
+  type SkillImplementation
+} from './skills/builtin'
 export {
   SkillRegistry,
   type InvokeRequest,

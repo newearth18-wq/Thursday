@@ -16,7 +16,8 @@ import {
   uuidv7,
   type HostPort,
   type ProviderAdapter,
-  type SkillImplementation
+  type SkillImplementation,
+  type SkillResource
 } from '@jupiter/core'
 import { WorkerSkillSandbox } from '@jupiter/core/node'
 import { JupiterDatabase } from '@jupiter/database'
@@ -77,7 +78,8 @@ export const kernels: Running[] = []
 export async function startCore(
   adapters: ProviderAdapter[],
   vault = new Map<string, string>(),
-  extraSkills: readonly SkillImplementation[] = []
+  extraSkills: readonly SkillImplementation[] = [],
+  extraResources: Readonly<Record<string, SkillResource>> = {}
 ): Promise<Running> {
   const sessionId = uuidv7()
   const logs = new MemorySink(20_000)
@@ -146,7 +148,8 @@ export async function startCore(
     onLogLevel: () => undefined,
     adapters,
     skillSandbox: new WorkerSkillSandbox(),
-    extraSkills
+    extraSkills,
+    extraResources
   })
   await core.start()
   const events: DomainEvent[] = []

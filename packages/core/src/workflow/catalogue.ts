@@ -1,12 +1,11 @@
-import { SKILL_PERMISSIONS, type SkillInfo, type StepTypeInfo } from '@jupiter/contracts'
+import type { SkillInfo, StepTypeInfo } from '@jupiter/contracts'
 
 /**
  * The step types (skills) the Workflow Engine can run in this build (SET 5).
  *
- * A plan may use only these. The Skill Framework (SET 6) replaces this fixed
- * list with installed skills, and the Permission Engine (SET 7) grants the
- * permissions a step declares; until then no step type needs a permission,
- * and a plan that asks for one cannot run.
+ * A plan may use only these and the registered Skills (SET 6). What a
+ * Skill step may do is decided by the Permission Engine (SET 7) when it
+ * uses a resource; the built-in step types need no permission.
  */
 
 export interface StepTypeDefinition extends StepTypeInfo {
@@ -114,17 +113,8 @@ export function skillStepType(info: SkillInfo): StepTypeDefinition {
   const { definition } = info
   const fields = Object.entries(definition.inputSchema.properties ?? {})
   const textInputs = fields.every(([, schema]) => schema.type === 'string')
-  const grantable = definition.permissions.every(
-    (permission) =>
-      (SKILL_PERMISSIONS as Record<string, { grantable: boolean } | undefined>)[permission]
-        ?.grantable === true
-  )
   const available =
-    info.enabled &&
-    info.runtimeCompatible &&
-    info.health.status !== 'UNHEALTHY' &&
-    grantable &&
-    textInputs
+    info.enabled && info.runtimeCompatible && info.health.status !== 'UNHEALTHY' && textInputs
   const why = !textInputs
     ? ' Not usable as a workflow step: its inputs are not all text.'
     : info.blockedReason

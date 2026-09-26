@@ -1,7 +1,10 @@
 import { describe, expect, it } from 'vitest'
 import { z } from 'zod'
 import {
-  SKILL_PERMISSIONS,
+  PERMISSION_CATALOGUE,
+  PermissionName,
+  PermissionRequest,
+  offeredDecisions,
   SKILL_RUNTIME,
   SkillDefinition,
   SkillId,
@@ -454,14 +457,77 @@ describe('Skills (SET 6)', () => {
     expect(SkillDefinition.safeParse({ ...skill, timeoutMs: 999_999 }).success).toBe(false)
   })
 
-  it('grants only low-risk read permissions before the Permission Engine', () => {
-    const grantable = Object.entries(SKILL_PERMISSIONS)
-      .filter(([, value]) => value.grantable)
-      .map(([name, value]) => [name, value.risk])
-    expect(grantable).toEqual([
-      ['app.version.read', 'LOW'],
-      ['system.time.read', 'LOW'],
-      ['skills.read', 'LOW']
-    ])
+  it('knows the capabilities the Master Prompt names, each with a risk', () => {
+    for (const name of [
+      'computer.open_app',
+      'computer.type',
+      'computer.read_screen',
+      'computer.manage_window',
+      'computer.delete_file',
+      'browser.navigate',
+      'browser.download',
+      'browser.upload',
+      'browser.submit_form',
+      'camera.read',
+      'microphone.listen',
+      'memory.read',
+      'memory.write',
+      'email.send',
+      'plugin.install',
+      'shell.execute'
+    ]) {
+      expect(name in PERMISSION_CATALOGUE, name).toBe(true)
+      expect(PermissionName.safeParse(name).success, name).toBe(true)
+    }
+  })
+})
+
+describe('Permissions (SET 7)', () => {
+  it('never offers Always allow for a CRITICAL action', () => {
+    expect(offeredDecisions('CRITICAL')).toEqual(['ALLOW_ONCE', 'DENY'])
+    expect(offeredDecisions('HIGH')).toContain('ALWAYS_ALLOW')
+    const critical = Object.entries(PERMISSION_CATALOGUE)
+      .filter(([, info]) => info.risk === 'CRITICAL')
+      .map(([name]) => name)
+    expect(critical).toEqual(
+      expect.arrayContaining([
+        'computer.delete_file',
+        'files.delete_bulk',
+        'browser.upload',
+        'plugin.install',
+        'shell.execute',
+        'system.configure',
+        'credentials.change',
+        'payment.make'
+      ])
+    )
+  })
+
+  it('describes a request strictly, with the answers it offers', () => {
+    const request = {
+      requestId: '01a0d82f-22b6-762b-b369-29675d970c01',
+      capability: 'shell.execute',
+      subject: { kind: 'skill', id: 'runner', name: 'Runner' },
+      actor: 'core',
+      target: 'cmd /c dir',
+      reason: 'List files',
+      risk: 'CRITICAL',
+      summary: 'Run a command',
+      consequence: 'It runs.',
+      reversible: false,
+      dataLeavesDevice: null,
+      missionId: null,
+      missionTitle: null,
+      stepId: null,
+      stepTitle: null,
+      skillId: null,
+      offered: ['ALLOW_ONCE', 'DENY'],
+      status: 'PENDING',
+      decision: null,
+      createdAt: '2026-09-26T10:00:00.000Z',
+      decidedAt: null
+    }
+    expect(PermissionRequest.safeParse(request).success).toBe(true)
+    expect(PermissionRequest.safeParse({ ...request, extra: 1 }).success).toBe(false)
   })
 })

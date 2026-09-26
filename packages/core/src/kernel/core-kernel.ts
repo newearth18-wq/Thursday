@@ -39,7 +39,8 @@ import type { ProviderAdapter } from '../ai/adapter'
 import { ChatService } from '../ai/chat'
 import { MissionManager } from '../missions/manager'
 import { BUILTIN_SKILLS, type SkillImplementation } from '../skills/builtin'
-import { SkillRegistry } from '../skills/registry'
+import { PermissionEngine, type DefaultGrant } from '../permissions/engine'
+import { SkillRegistry, type SkillResource } from '../skills/registry'
 import { ResourceDenied, type SkillSandbox } from '../skills/sandbox'
 import { STEP_TYPES } from '../workflow/catalogue'
 import { templatePlanDraft } from '../workflow/planner'
@@ -112,6 +113,8 @@ export interface CoreKernelOptions {
   readonly skillSandbox?: SkillSandbox
   /** Skills registered besides the built-in ones (test fixtures in the test environment). */
   readonly extraSkills?: readonly SkillImplementation[]
+  /** Resources for those Skills (the test fixtures' in-memory notes). */
+  readonly extraResources?: Readonly<Record<string, SkillResource>>
   readonly now?: () => Date
 }
 
@@ -127,6 +130,7 @@ export class CoreKernel {
   readonly chat: ChatService
   readonly missions: MissionManager
   readonly skills: SkillRegistry
+  readonly permissions: PermissionEngine
   private readonly supervisor: ServiceSupervisor
   private readonly logger: Logger
   private readonly now: () => Date
@@ -204,7 +208,16 @@ export class CoreKernel {
       now: this.now
     })
 
+    // SET 7: a new session per Core process; session grants end with it.
+    this.permissions = new PermissionEngine({
+      database: () => this.requireDatabase(),
+      bus: this.bus,
+      logger: this.logger.child({ component: 'permission-engine' }),
+      now: this.now,
+      sessionId: uuidv7()
+    })
     this.skills = new SkillRegistry({
+      permissions: this.permissions,
       database: () => this.requireDatabase(),
       bus: this.bus,
       logger: this.logger.child({ component: 'skill-registry' }),
@@ -220,8 +233,11 @@ export class CoreKernel {
           )
       },
       resources: {
+        // Extra resources first: they can never replace a built-in one.
+        ...options.extraResources,
         'app.version': {
           permission: 'app.version.read',
+          target: 'jupiter:app-version',
           handler: () => {
             const build = options.config.build
             if (!build)
@@ -234,6 +250,7 @@ export class CoreKernel {
         },
         'system.time': {
           permission: 'system.time.read',
+          target: 'system:clock',
           handler: () => {
             const now = this.now()
             return {
@@ -252,6 +269,10 @@ export class CoreKernel {
       logger: this.logger.child({ component: 'mission-manager' }),
       now: this.now,
       skills: this.skills
+    })
+    // A Mission step that waited for a permission continues (or fails) once the person answers.
+    this.permissions.onDecided((request) => {
+      this.missions.permissionAnswered(request)
     })
     for (const capability of coreCapabilities(this)) this.dispatcher.register(capability)
     this.registerServices()
@@ -318,6 +339,7 @@ export class CoreKernel {
         await this.supervisor.retry('event-bus')
         await this.supervisor.retry('model-router')
         await this.supervisor.retry('mission-manager')
+        await this.supervisor.retry('permission-engine')
         await this.supervisor.retry('skill-registry')
       }
       return null
@@ -733,6 +755,30 @@ export class CoreKernel {
       }
     })
 
+    // SET 7: the Permission Engine. Start ends the requests and session grants
+    // of earlier sessions and creates Jupiter's default grants (once).
+    this.supervisor.register({
+      id: 'permission-engine',
+      version: null,
+      capabilities: ['permissions.decide', 'permissions.grants', 'permissions.audit'],
+      critical: false,
+      retryable: true,
+      start: () => {
+        if (!this.database)
+          throw new JupiterError(
+            'DEPENDENCY_UNAVAILABLE',
+            'The Permission Engine needs the database, which is not available.',
+            {
+              category: 'dependency',
+              userAction: 'Fix the Database service, then press Retry on it.',
+              retryable: true
+            }
+          )
+        this.permissions.start(defaultGrants())
+        return undefined
+      }
+    })
+
     // SET 6: the Skill Registry. Start registers the Skills of this build,
     // records invocations a Core stop cut off, and runs every health check.
     this.supervisor.register({
@@ -1047,4 +1093,38 @@ export class CoreKernel {
       this.droppedAudit = 0
     }
   }
+}
+
+/** Where each built-in resource points: the exact target a grant must name. */
+const BUILTIN_TARGETS: Readonly<Record<string, string>> = {
+  'app.version.read': 'jupiter:app-version',
+  'system.time.read': 'system:clock',
+  'skills.read': 'jupiter:skills'
+}
+
+/**
+ * Jupiter's default policy: the built-in Skills may use the low-risk,
+ * read-only resource each of them exists for. These grants are visible in
+ * Settings › Permissions and can be revoked like any other.
+ */
+function defaultGrants(): DefaultGrant[] {
+  return BUILTIN_SKILLS.flatMap((skill) =>
+    skill.definition.permissions.flatMap((capability) => {
+      const target = BUILTIN_TARGETS[capability]
+      return target
+        ? [
+            {
+              capability,
+              subject: {
+                kind: 'skill' as const,
+                id: skill.definition.skillId,
+                name: skill.definition.name
+              },
+              target,
+              reason: `${skill.definition.name} is built into Jupiter and only reads ${target}.`
+            }
+          ]
+        : []
+    })
+  )
 }

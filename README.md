@@ -3,21 +3,25 @@
 Jupiter is a Windows desktop AI agent, built in stages (SET 0–24). This
 repository is the Jupiter monorepo.
 
-**Current stage: SET 6 — Skill System** (on top of SET 5, Planner and
-Workflow Engine; SET 4, Mission System; SET 3, AI providers, Model Router and
-Chat; SET 2, the product shell; SET 1, Core architecture; and SET 0, the
-repository foundation). **Skills** are what Jupiter can do: typed, checked,
-cancellable capabilities that may touch only what they declare and Core
-grants. Each run is isolated and can be stopped at any moment. The _Skills_
-screen shows every Skill with its health, permissions and version, and lets
-you try the safe built-in ones. A request becomes a **Mission**, which the
-**planner** (the AI model you set up in _AI Models_) turns into a checked
-plan of steps, including Skills. The plan runs as a workflow: parallel
-steps, approvals, retries and timeouts, and it continues after a restart. A
-failed Mission can be re-planned with your corrections. _Chat_ streams
-answers with Stop, Ask again and Edit. Home, Chat, Missions, Skills, AI
-Models, Settings and Diagnostics work; the other five screens are labelled
-_Coming later_ with the SET that builds them.
+**Current stage: SET 7 — Permission and Security Engine** (on top of SET 6,
+Skill System; SET 5, Planner and Workflow Engine; SET 4, Mission System;
+SET 3, AI providers, Model Router and Chat; SET 2, the product shell; SET 1,
+Core architecture; and SET 0, the repository foundation). Nothing Jupiter
+does with an effect happens without a **permission** that matches exactly
+what, who, which target and for how long. When one is missing, Jupiter asks
+you: what it wants to do, why, the exact target, the risk, which Mission,
+step and Skill, what leaves your computer, the consequence and whether it can
+be undone. You answer Allow once, Allow until Jupiter closes, Always allow or
+Deny (critical actions offer only Allow once and Deny, every time).
+_Settings › Permissions_ lists every permission given, lets you revoke it,
+and shows the audit trail. **Skills** are what Jupiter can do: typed,
+checked, cancellable capabilities, each run isolated. A request becomes a
+**Mission**, which the **planner** turns into a checked plan of steps; the
+plan runs as a workflow with parallel steps, approvals, permissions,
+retries and timeouts, and continues after a restart. _Chat_ streams answers
+with Stop, Ask again and Edit. Home, Chat, Missions, Skills, AI Models,
+Settings and Diagnostics work; the other five screens are labelled _Coming
+later_ with the SET that builds them.
 
 |                 |                                                                                            |
 | --------------- | ------------------------------------------------------------------------------------------ |

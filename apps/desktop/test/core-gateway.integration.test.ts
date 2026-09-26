@@ -401,10 +401,11 @@ describe('SET 1 — typed gateway, authorization and persistence (real app)', ()
     expect(new Set(after).size).toBe(after.length)
     expect(after).toEqual([...after].sort((a, b) => b - a))
 
-    // The old subscriptions were released: only the current page is subscribed.
+    // The old subscriptions were released: only the current page is subscribed, once for
+    // the Diagnostics event log and once for the permission prompt (SET 7).
     await expect
       .poll(async () => (await query(page, 'diagnostics.snapshot')).events.activeSubscriptions)
-      .toBe(1)
+      .toBe(2)
     // The stored log has no duplicates either, and its order is total.
     const all = await query(page, 'events.list', {
       afterSequence: 0,

@@ -19,6 +19,7 @@ import {
   type Plan,
   type PlanIssue,
   type PlanSource,
+  type PermissionRequest,
   type PlanStep,
   type RouteDecision,
   type StepStatus,
@@ -346,6 +347,7 @@ export class MissionManager {
     if (
       step?.status !== 'WAITING' ||
       step.waitingFor !== 'approval' ||
+      this.catalogue().lookup(step.kind)?.checkpoint !== 'approval' ||
       (record.status !== 'RUNNING' && record.status !== 'WAITING_APPROVAL')
     )
       throw new JupiterError('STEP_NOT_WAITING', 'That step is not waiting for approval.', {
@@ -424,6 +426,80 @@ export class MissionManager {
     return this.detail(missionId)
   }
 
+  /**
+   * The person answered a permission request (SET 7). A step that waited for
+   * it runs again on allow (a new attempt, which the new grant covers), or
+   * fails on deny. The answer itself comes only from the Permission Engine.
+   */
+  permissionAnswered(request: PermissionRequest): void {
+    if (!request.missionId || !request.stepId || request.status === 'PENDING') return
+    const database = this.options.database()
+    const record = database.missions.mission(request.missionId)
+    if (!record?.currentExecutionId) return
+    const step = database.missions
+      .steps(record.currentExecutionId)
+      .find((item) => item.stepId === request.stepId)
+    if (
+      step?.status !== 'WAITING' ||
+      step.waitingFor !== 'approval' ||
+      this.catalogue().lookup(step.kind)?.checkpoint ||
+      (record.status !== 'RUNNING' && record.status !== 'WAITING_APPROVAL')
+    )
+      return
+    const context = { correlationId: uuidv7(), actor: CORE_ACTOR }
+    const allowed = request.status === 'ALLOWED'
+    const now = this.now()
+    database.transactions.run(() => {
+      if (allowed) {
+        database.missions.updateStep(step.stepId, {
+          status: 'PENDING',
+          waitingFor: null,
+          detail: 'Permission given; it runs again.'
+        })
+      } else {
+        const error = createErrorEnvelope({
+          code: 'PERMISSION_DENIED',
+          category: 'permission',
+          message: `You did not allow “${request.summary}” for “${step.title}”.`,
+          userAction: 'Re-plan the Mission without this step, or leave it as it is.',
+          retryable: false,
+          missionId: record.missionId,
+          executionId: step.executionId
+        })
+        database.missions.updateStep(step.stepId, {
+          status: 'FAILED',
+          waitingFor: null,
+          error,
+          detail: step.required
+            ? 'Permission denied. This step is required, so the Mission cannot complete.'
+            : 'Permission denied. This step is optional; the Mission continues without it.',
+          completedAt: now
+        })
+        database.missions.insertError({
+          errorId: uuidv7(),
+          missionId: record.missionId,
+          executionId: step.executionId,
+          stepId: step.stepId,
+          error,
+          at: now
+        })
+        this.stepFinished(record.missionId, step, 'FAILED', 'PERMISSION_DENIED', context)
+      }
+      if (record.status === 'WAITING_APPROVAL') {
+        database.missions.updateExecution(step.executionId, { status: 'RUNNING' })
+        this.transition(
+          record,
+          'RUNNING',
+          allowed ? `Permission given: ${step.title}` : `Permission denied: ${step.title}`,
+          context
+        )
+      }
+    })
+    const run = this.active.get(record.missionId)
+    if (record.status === 'RUNNING' && run) run.wake()
+    else this.launch(record.missionId, context.correlationId, (next) => this.runWorkflow(next))
+  }
+
   archive(missionId: string, context: OperationContext): MissionDetail {
     const database = this.options.database()
     const record = this.load(missionId, database)
@@ -453,6 +529,7 @@ export class MissionManager {
   recover(): { interrupted: number; resumed: number; started: number } {
     const database = this.options.database()
     const context = { correlationId: uuidv7(), actor: CORE_ACTOR }
+    this.renewPermissionWaits(context)
     const stale = database.missions
       .inFlight()
       .filter((record) => !this.active.has(record.missionId))
@@ -531,6 +608,48 @@ export class MissionManager {
       })
     }
     return { interrupted, resumed, started: ready.length }
+  }
+
+  /**
+   * A permission request ends with the Core session that asked it (SET 7).
+   * A step that was waiting for one runs again, and so asks again; its
+   * Mission is running again (and is continued by `recover`).
+   */
+  private renewPermissionWaits(context: Context): void {
+    const database = this.options.database()
+    const records = database.missions
+      .listMissions({ includeArchived: false, limit: MAX_LISTED })
+      .filter((record) => record.status === 'WAITING_APPROVAL' || record.status === 'RUNNING')
+    for (const record of records) {
+      const executionId = record.currentExecutionId
+      if (!executionId || this.active.has(record.missionId)) continue
+      const waiting = database.missions
+        .steps(executionId)
+        .filter(
+          (step) =>
+            step.status === 'WAITING' &&
+            step.waitingFor === 'approval' &&
+            !this.catalogue().lookup(step.kind)?.checkpoint
+        )
+      if (waiting.length === 0) continue
+      database.transactions.run(() => {
+        for (const step of waiting)
+          database.missions.updateStep(step.stepId, {
+            status: 'PENDING',
+            waitingFor: null,
+            detail: 'Its permission request ended when Jupiter Core stopped; it asks again.'
+          })
+        if (record.status === 'WAITING_APPROVAL') {
+          database.missions.updateExecution(executionId, { status: 'RUNNING' })
+          this.transition(
+            record,
+            'RUNNING',
+            'Permission requests ended when Jupiter Core stopped; asking again',
+            context
+          )
+        }
+      })
+    }
   }
 
   /** Shutdown: stop every running step. The workflows continue at the next start. */
@@ -1180,6 +1299,10 @@ export class MissionManager {
           this.stopStep(run, initial, attempt, startedAt)
           return
         }
+        if (error instanceof PermissionWait) {
+          this.waitForPermission(run, initial, error)
+          return
+        }
         const envelope = watchdog.timedOut
           ? createErrorEnvelope({
               code: 'STEP_TIMEOUT',
@@ -1256,6 +1379,58 @@ export class MissionManager {
         signal.removeEventListener('abort', forward)
       }
     }
+  }
+
+  /**
+   * A step whose Skill needs the person's permission waits for the answer.
+   * If the request was already answered while the Skill was stopping, the
+   * answer applies at once.
+   */
+  private waitForPermission(run: Run, step: MissionStep, wait: PermissionWait): void {
+    const database = this.options.database()
+    const context = { correlationId: run.correlationId, actor: CORE_ACTOR }
+    const request = database.permissions.request(wait.requestId)
+    if (request && request.status !== 'PENDING') {
+      if (request.status === 'ALLOWED') {
+        database.missions.updateStep(step.stepId, {
+          status: 'PENDING',
+          waitingFor: null,
+          detail: 'Permission given; it runs again.'
+        })
+        return
+      }
+      this.failStep(
+        run,
+        step,
+        createErrorEnvelope({
+          code: request.status === 'DENIED' ? 'PERMISSION_DENIED' : 'PERMISSION_EXPIRED',
+          category: 'permission',
+          message:
+            request.status === 'DENIED'
+              ? `You did not allow “${request.summary}” for “${step.title}”.`
+              : `The permission request for “${step.title}” expired.`,
+          userAction: 'Re-plan the Mission, or retry it to ask again.',
+          retryable: false,
+          missionId: run.missionId,
+          executionId: step.executionId
+        })
+      )
+      return
+    }
+    database.transactions.run(() => {
+      database.missions.updateStep(step.stepId, {
+        status: 'WAITING',
+        waitingFor: 'approval',
+        detail: wait.message.slice(0, 500)
+      })
+      this.publish(
+        run.missionId,
+        step.executionId,
+        'mission.step_waiting',
+        { stepId: step.stepId, index: step.index, waitingFor: 'approval' },
+        context
+      )
+    })
   }
 
   /** What each step type really does. */
@@ -1353,12 +1528,19 @@ export class MissionManager {
       skillId: step.kind,
       input,
       missionId: run.missionId,
+      missionTitle: this.options.database().missions.mission(run.missionId)?.title ?? null,
+      stepId: step.stepId,
+      stepTitle: step.title,
       timeoutMs: definition.timeoutMs,
       idempotencyKey: `mission-step:${step.stepId}:${String(attempt)}`,
       actor: CORE_ACTOR,
       correlationId: run.correlationId,
       signal
     })
+    // The Skill needs a permission the person has not given yet: the step waits for the answer.
+    const requestId = result.error?.sanitizedDetails?.requestId
+    if (result.status === 'WAITING_APPROVAL' && typeof requestId === 'string')
+      throw new PermissionWait(requestId, result.error?.message ?? 'Waiting for your permission.')
     if (result.status !== 'SUCCESS' || result.error)
       throw new JupiterError(
         result.error?.code ?? 'SKILL_FAILED',
@@ -1960,4 +2142,15 @@ function haltOf(run: Run): string | null {
 
 function shuttingDown(run: Run): boolean {
   return run.shutdown
+}
+
+/** A Skill step stopped because it needs the person's permission (SET 7). */
+class PermissionWait extends Error {
+  constructor(
+    readonly requestId: string,
+    message: string
+  ) {
+    super(message)
+    this.name = 'PermissionWait'
+  }
 }

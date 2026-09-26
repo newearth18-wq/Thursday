@@ -1,44 +1,44 @@
 import { useRef } from 'react'
-import type { RiskLevel } from '@jupiter/contracts'
+import type { PermissionDecision, PermissionRequest } from '@jupiter/contracts'
 import { useI18n, type MessageKey } from '../i18n'
+import { RISK_TONE, subjectText } from '../permissionText'
 import { Dialog } from './Dialog'
 
 /**
- * Permission and identity modal shells (SET 2).
+ * The permission request (SET 7) and identity (SET 14) dialogs.
  *
- * Nothing in this build asks for permission or identity: the Permission
- * Engine is SET 7 and identity verification is SET 14. These dialogs define
- * how such a request will be presented — exact target, risk level, an
- * explicit answer, safe default focus — and are exercised by unit tests. The
- * identity dialog states truthfully that verification is unavailable.
+ * A permission request shows everything the person needs to decide: what,
+ * why, the exact target, the risk, who asks and for which Mission and step,
+ * what leaves the computer, the consequence and whether it can be undone.
+ * Only the answers the request offers are shown (a critical request never
+ * offers "Always allow"), there is no close button, Escape does not answer,
+ * and Deny has the first focus. The identity dialog states truthfully that
+ * verification is unavailable.
  */
 
-export interface PermissionPrompt {
-  /** The capability that wants to run, e.g. `files.delete`. */
-  readonly capability: string
-  /** The exact target, e.g. a full file path. */
-  readonly target: string
-  readonly risk: RiskLevel
-  /** Why it is needed, in the requester's words (untrusted text, shown as text). */
-  readonly reason: string
-  readonly requestedBy: string
-}
-
 export function PermissionRequestDialog({
-  prompt,
-  onAllowOnce,
-  onDeny
+  request,
+  busy,
+  error,
+  waiting,
+  onAnswer
 }: {
-  readonly prompt: PermissionPrompt | null
-  readonly onAllowOnce: () => void
-  readonly onDeny: () => void
+  readonly request: PermissionRequest | null
+  readonly busy: boolean
+  /** Why the last answer was not saved, if it was not. */
+  readonly error: string | null
+  /** Further requests waiting after this one. */
+  readonly waiting: number
+  readonly onAnswer: (decision: PermissionDecision) => void
 }) {
   const { t } = useI18n()
   const denyRef = useRef<HTMLButtonElement>(null)
+  const none = t('permission.none')
+  const allows = request ? request.offered.filter((decision) => decision !== 'DENY') : []
   return (
     <Dialog
-      open={prompt !== null}
-      onClose={onDeny}
+      open={request !== null}
+      onClose={() => undefined}
       title={t('permission.title')}
       description={t('permission.description')}
       dismissible={false}
@@ -52,55 +52,110 @@ export function PermissionRequestDialog({
             type="button"
             className="button"
             data-testid="permission-deny"
-            onClick={onDeny}
+            disabled={busy}
+            onClick={() => {
+              onAnswer('DENY')
+            }}
           >
-            {t('permission.deny')}
+            {t('permission.decision.DENY')}
           </button>
-          <button
-            type="button"
-            className="button button-primary"
-            data-testid="permission-allow"
-            onClick={onAllowOnce}
-          >
-            {t('permission.allowOnce')}
-          </button>
+          {allows.map((decision, index) => (
+            <button
+              key={decision}
+              type="button"
+              className={index === 0 ? 'button button-primary' : 'button'}
+              data-testid={`permission-${decision.toLowerCase().replace('_', '-')}`}
+              disabled={busy}
+              onClick={() => {
+                onAnswer(decision)
+              }}
+            >
+              {t(`permission.decision.${decision}` as MessageKey)}
+            </button>
+          ))}
         </>
       }
     >
-      {prompt ? (
-        <dl className="facts facts-stacked">
-          <div>
-            <dt>{t('permission.action')}</dt>
-            <dd>
-              <code>{prompt.capability}</code>
-            </dd>
-          </div>
-          <div>
-            <dt>{t('permission.target')}</dt>
-            <dd>
-              <code data-testid="permission-target">{prompt.target}</code>
-            </dd>
-          </div>
-          <div>
-            <dt>{t('permission.risk')}</dt>
-            <dd>
-              <span
-                className={`badge badge-${prompt.risk === 'LOW' ? 'info' : prompt.risk === 'MEDIUM' ? 'warning' : 'error'}`}
-                data-testid="permission-risk"
-              >
-                {t(`risk.${prompt.risk}` as MessageKey)}
-              </span>
-            </dd>
-          </div>
-          <div>
-            <dt>{t('permission.requestedBy')}</dt>
-            <dd>{prompt.requestedBy}</dd>
-          </div>
-          <div>
-            <dt>{t('permission.reason')}</dt>
-            <dd>{prompt.reason}</dd>
-          </div>
-        </dl>
+      {request ? (
+        <>
+          <dl className="facts facts-stacked" data-testid="permission-facts">
+            <div>
+              <dt>{t('permission.summary')}</dt>
+              <dd>
+                {request.summary}{' '}
+                <code data-testid="permission-capability">{request.capability}</code>
+              </dd>
+            </div>
+            <div>
+              <dt>{t('permission.target')}</dt>
+              <dd>
+                <code data-testid="permission-target">{request.target}</code>
+              </dd>
+            </div>
+            <div>
+              <dt>{t('permission.risk')}</dt>
+              <dd>
+                <span
+                  className={`badge badge-${RISK_TONE[request.risk]}`}
+                  data-testid="permission-risk"
+                >
+                  {t(`risk.${request.risk}` as MessageKey)}
+                </span>
+              </dd>
+            </div>
+            <div>
+              <dt>{t('permission.reason')}</dt>
+              <dd data-testid="permission-reason">{request.reason || none}</dd>
+            </div>
+            <div>
+              <dt>{t('permission.requestedBy')}</dt>
+              <dd data-testid="permission-subject">{subjectText(request.subject, t)}</dd>
+            </div>
+            <div>
+              <dt>{t('permission.startedBy')}</dt>
+              <dd>{t(`actor.${request.actor}` as MessageKey)}</dd>
+            </div>
+            <div>
+              <dt>{t('permission.mission')}</dt>
+              <dd data-testid="permission-mission">{request.missionTitle ?? none}</dd>
+            </div>
+            <div>
+              <dt>{t('permission.step')}</dt>
+              <dd>{request.stepTitle ?? none}</dd>
+            </div>
+            <div>
+              <dt>{t('permission.consequence')}</dt>
+              <dd data-testid="permission-consequence">{request.consequence}</dd>
+            </div>
+            <div>
+              <dt>{t('permission.reversible')}</dt>
+              <dd data-testid="permission-reversible">
+                {t(request.reversible ? 'permission.reversibleYes' : 'permission.reversibleNo')}
+              </dd>
+            </div>
+            <div>
+              <dt>{t('permission.dataLeaves')}</dt>
+              <dd data-testid="permission-data">
+                {request.dataLeavesDevice ?? t('permission.dataStays')}
+              </dd>
+            </div>
+          </dl>
+          {request.risk === 'CRITICAL' ? (
+            <p className="notice notice-warning" data-testid="permission-critical">
+              {t('permission.criticalNote')}
+            </p>
+          ) : null}
+          {error ? (
+            <p className="notice notice-error" role="alert" data-testid="permission-error">
+              {t('permission.answerFailed')}: {error}
+            </p>
+          ) : null}
+          {waiting > 0 ? (
+            <p className="muted small" data-testid="permission-more">
+              {t('permission.more', { count: waiting })}
+            </p>
+          ) : null}
+        </>
       ) : null}
     </Dialog>
   )

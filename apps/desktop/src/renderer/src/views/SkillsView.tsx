@@ -362,7 +362,7 @@ function SkillPanel({
                   {t(`risk.${permission.risk}` as MessageKey)}
                 </Badge>{' '}
                 <span className="muted small">
-                  {t(permission.grantable ? 'skills.granted' : 'skills.notGrantable')}
+                  {t(permission.granted ? 'skills.granted' : 'skills.notGranted')}
                 </span>
               </span>
             ))}

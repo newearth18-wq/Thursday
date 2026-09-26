@@ -24,6 +24,9 @@ import type {
   Plan,
   PlanIssue,
   PlanStep,
+  PermissionAuditEntry,
+  PermissionGrant,
+  PermissionRequest,
   ServiceHealth,
   SkillDefinition,
   SkillExecutionRecord,
@@ -322,6 +325,46 @@ export interface SkillStore {
   running(): SkillExecutionRecord[]
 }
 
+/**
+ * Permission requests, grants and the permission audit trail (SET 7). The
+ * audit trail is append-only.
+ */
+export interface PermissionStore {
+  insertRequest(request: PermissionRequest, sessionId: string): void
+  request(requestId: string): PermissionRequest | null
+  /** Newest first. */
+  requests(options: {
+    pendingOnly: boolean
+    missionId?: string | undefined
+    limit: number
+  }): PermissionRequest[]
+  updateRequest(
+    requestId: string,
+    changes: Pick<PermissionRequest, 'status' | 'decision' | 'decidedAt'>
+  ): void
+  /** Requests still pending from another Core session. */
+  pendingFromOtherSessions(sessionId: string): PermissionRequest[]
+  insertGrant(grant: PermissionGrant): void
+  grant(grantId: string): PermissionGrant | null
+  /** Newest first. */
+  grants(options: { includeEnded: boolean; limit: number }): PermissionGrant[]
+  /** Active grants for this capability and subject. */
+  activeGrants(capability: string, subjectKind: string, subjectId: string): PermissionGrant[]
+  /** Any grant, active or ended, ever made for this capability and subject by `createdBy`. */
+  everGranted(
+    capability: string,
+    subjectKind: string,
+    subjectId: string,
+    createdBy: string
+  ): boolean
+  updateGrant(grantId: string, changes: Pick<PermissionGrant, 'state' | 'usedAt' | 'endedAt'>): void
+  /** Active session grants that belong to another Core session. */
+  sessionGrantsOutside(sessionId: string): PermissionGrant[]
+  insertAudit(entry: PermissionAuditEntry): void
+  /** Newest first. */
+  audit(limit: number): PermissionAuditEntry[]
+}
+
 export interface BackupOptions {
   readonly signal?: AbortSignal
   readonly onProgress?: (copiedPages: number, totalPages: number) => void
@@ -337,6 +380,7 @@ export interface DatabasePort {
   readonly chat: ChatStore
   readonly missions: MissionStore
   readonly skills: SkillStore
+  readonly permissions: PermissionStore
   info(): DatabaseInfo
   backup(reason: BackupInfo['reason'], options?: BackupOptions): Promise<BackupInfo>
   close(): void

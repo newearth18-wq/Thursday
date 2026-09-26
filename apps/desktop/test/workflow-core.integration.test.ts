@@ -157,7 +157,7 @@ describe('Planner', () => {
     ).toEqual({ issues: 1, codes: ['schema'] })
   })
 
-  it('AT10: a cyclic plan or one that needs permissions cannot run', async () => {
+  it('AT10: a cyclic plan or one that needs an unknown capability cannot run', async () => {
     const running = await startCore(standard())
     await withModel(running)
     server.enqueue(
@@ -168,7 +168,7 @@ describe('Planner', () => {
           step('c', { dependencies: ['b'] })
         ])
       ),
-      planned(plan([step('a')], { requiredPermissions: ['files.write'] })),
+      planned(plan([step('a')], { requiredPermissions: ['files.teleport'] })),
       planned(plan([step('a'), step('b', { dependencies: ['ghost'] })]))
     )
     const cyclic = await settled(running, await modelMission(running, 'Cycle'), 'FAILED')

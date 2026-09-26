@@ -26,12 +26,6 @@ interface ServiceDependencies {
 /** Jupiter Core modules and isolated runtimes that later SETs deliver. Never started, never shown as working. */
 export const PLANNED_SERVICES = [
   {
-    id: 'permission-engine',
-    availability: 'COMING_LATER',
-    plannedSet: 7,
-    capabilities: ['permissions.decide']
-  },
-  {
     id: 'agent-runtime',
     availability: 'COMING_LATER',
     plannedSet: 8,

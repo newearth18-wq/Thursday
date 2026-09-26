@@ -416,10 +416,11 @@ Decisions and alternatives: [ADR 0007](decisions/0007-skill-registry-and-sandbox
   per invocation, the Skill's code in a `vm` context with no `require`,
   `process`, timers or environment; timeout and cancel terminate the thread.
   A broken Skill ends as a structured failure; Core carries on.
-- **Permissions.** Granted by the invocation context: before SET 7 only
-  low-risk read permissions. Resources (`context.use`) check that the Skill
-  declared and was granted the permission; any other use fails the execution
-  with `PERMISSION_DENIED`.
+- **Permissions.** A Skill may use only the resources it declared; each
+  resource fixes its capability and exact target, and every use is decided
+  by the Permission Engine (SET 7). An undeclared use fails the execution
+  with `PERMISSION_DENIED`; a declared one without a grant ends the run as
+  `WAITING_APPROVAL` and asks the person.
 - **Validation.** Disabled, unhealthy, incompatible or unknown Skills do not
   run; input and output are checked against the schemas; invalid output fails
   the execution.
@@ -431,8 +432,38 @@ Decisions and alternatives: [ADR 0007](decisions/0007-skill-registry-and-sandbox
   runtime, schemas and recent runs; low-risk internal Skills can be tried
   through a real invocation with Cancel.
 
-## Not in SET 6
+## Permission Engine (SET 7)
 
-The Permission Engine and approvals (SET 7), agents (SET 8), attachments through the Artifact Manager (SET 10),
-plugins with their own runtime (SET 15), and everything after that. The five unfinished destinations are shown as
-_Coming later_ in the app, and none of them is presented as working.
+Decisions and alternatives: [ADR 0008](decisions/0008-permission-engine.md).
+
+- **Catalogue.** `PERMISSION_CATALOGUE` (contracts): every capability with its
+  risk (LOW, MEDIUM, HIGH, CRITICAL), summary, consequence, reversibility and
+  what leaves the computer. Unknown capabilities are always denied.
+- **Engine** (`packages/core/src/permissions/engine.ts`, Core service
+  `permission-engine`): `check` at the moment of use — deny by default; a
+  grant must match capability, requester (kind and id), exact target (or a
+  `*` prefix), Mission, session and expiry. Otherwise a request is put to
+  the person. ALLOW_ONCE is used up in the same transaction; ALLOW_SESSION
+  ends with the Core process; ALWAYS_ALLOW until revoked; CRITICAL (and HIGH
+  started by an automation) accept only a fresh ALLOW_ONCE.
+- **Who decides.** Only the `user-interface` actor may answer or revoke
+  (dispatcher policy and the engine). Jupiter's defaults are visible grants
+  made once by `core`, revocable, never recreated after revocation.
+- **Missions.** A Skill step without a grant waits (step WAITING, Mission
+  WAITING_APPROVAL); allow runs it again, deny fails it with
+  `PERMISSION_DENIED`. After a Core restart the request has expired and the
+  step asks again.
+- **Storage.** Migration 7: `permission_requests`, `permission_grants`
+  (ended, never deleted) and the append-only `permission_audit` (redacted).
+- **Interface.** A global permission dialog (all facts of the request, only
+  the offered answers, Deny focused first, no close button); Settings ›
+  Permissions (pending requests, grants with Revoke, audit trail); Mission
+  notice for a step waiting for permission; the Skill Center shows granted
+  permissions.
+
+## Not in SET 7
+
+Agents (SET 8), attachments through the Artifact Manager (SET 10), identity
+verification (SET 14), plugins with their own runtime (SET 15), and everything
+after that. The five unfinished destinations are shown as _Coming later_ in
+the app, and none of them is presented as working.

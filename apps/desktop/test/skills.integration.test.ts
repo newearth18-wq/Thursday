@@ -102,6 +102,9 @@ describe('SET 6 — Skill System, in the real application', () => {
     expect(Object.fromEntries(await listed())).toEqual({
       echo_text: 'HEALTHY',
       fixture_broken_health: 'UNHEALTHY',
+      // Their health check would need a permission nobody has given (SET 7).
+      fixture_note_writer: 'UNKNOWN',
+      fixture_notes_clearer: 'UNKNOWN',
       fixture_slow: 'HEALTHY',
       get_app_version: 'HEALTHY',
       get_system_time: 'HEALTHY',

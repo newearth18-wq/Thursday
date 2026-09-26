@@ -1,7 +1,12 @@
 import { join } from 'node:path'
 import { DatabaseSync } from 'node:sqlite'
 import { SKILL_RUNTIME, type SkillDefinition } from '@jupiter/contracts'
-import { TEST_FIXTURE_SKILLS, uuidv7, type SkillImplementation } from '@jupiter/core'
+import {
+  TEST_FIXTURE_SKILLS,
+  createFixtureResources,
+  uuidv7,
+  type SkillImplementation
+} from '@jupiter/core'
 import { describe, expect, it } from 'vitest'
 import {
   call,
@@ -207,7 +212,7 @@ describe('Skill Registry', () => {
     expect(await invoke(second, 'echo_text', { text: 'hi' })).toMatchObject({ status: 'SUCCESS' })
   })
 
-  it('AT7: a resource the Skill did not declare is denied, and so is a permission Core cannot grant', async () => {
+  it('AT7: a resource the Skill did not declare is denied; a declared one is checked when used', async () => {
     const running = await startCore(standard())
     running.core.skills.register(
       skill(
@@ -223,16 +228,16 @@ describe('Skill Registry', () => {
     })
     expect(sneaky.error?.message).toContain('system.time.read')
 
+    // A declared permission is asked for when it is used (SET 7), not refused up front.
     running.core.skills.register(
       skill({ skillId: 'file_writer', permissions: ['files.write'] }, 'async () => ({ text: "" })')
     )
     const writer = await invoke(running, 'file_writer', { text: 'x' })
-    expect(writer).toMatchObject({ status: 'FAILED', error: { code: 'PERMISSION_NOT_GRANTED' } })
-    expect(writer.error?.message).toContain('SET 7')
+    expect(writer).toMatchObject({ status: 'SUCCESS' })
     const info = await call(running, 'skills.get', { skillId: 'file_writer' })
     expect(info).toMatchObject({
       testable: false,
-      permissions: [{ name: 'files.write', risk: 'HIGH', grantable: false }]
+      permissions: [{ name: 'files.write', risk: 'HIGH', granted: false }]
     })
 
     // Declared and granted: allowed.
@@ -318,7 +323,12 @@ describe('Skill Registry', () => {
   })
 
   it('searches and filters by text, category, provider and health', async () => {
-    const running = await startCore(standard(), new Map(), TEST_FIXTURE_SKILLS)
+    const running = await startCore(
+      standard(),
+      new Map(),
+      TEST_FIXTURE_SKILLS,
+      createFixtureResources().resources
+    )
     const ids = async (filter: object) =>
       (await call(running, 'skills.list', { filter })).skills.map((item) => item.definition.skillId)
     expect(await ids({ query: 'system time' })).toEqual(['get_system_time'])
@@ -330,7 +340,14 @@ describe('Skill Registry', () => {
     ])
     expect(await ids({ provider: 'test-fixture' })).toEqual([
       'fixture_broken_health',
+      'fixture_note_writer',
+      'fixture_notes_clearer',
       'fixture_slow'
+    ])
+    // Their health cannot be known without a permission nobody has given yet.
+    expect(await ids({ health: 'UNKNOWN' })).toEqual([
+      'fixture_note_writer',
+      'fixture_notes_clearer'
     ])
     expect(await ids({ health: 'UNHEALTHY' })).toEqual(['fixture_broken_health', 'get_app_version'])
   })

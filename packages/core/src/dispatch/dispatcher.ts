@@ -38,7 +38,10 @@ import type { Logger } from '../logging/logger'
  *   9. writes the audit record and returns a correlated result.
  * It never throws: every outcome is a ResultEnvelope.
  *
- * SET 7 plugs the Permission Engine into step 4.
+ * Step 4 decides who may call a capability at all (e.g. only the person may
+ * answer a permission request). What Skills, Missions, plugins and
+ * automations may do with an effect is decided by the Permission Engine
+ * (SET 7, `permissions/engine.ts`) at the moment they use it.
  */
 
 export interface RequestContext {

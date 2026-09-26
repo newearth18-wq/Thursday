@@ -359,7 +359,14 @@ describe('SET 2 — navigation, persistence and language (real app)', () => {
     // Controls that move focus with arrow keys: tabs and radio groups.
     await open(page, 'settings')
     await page.getByTestId('tab-general').focus()
-    for (const tab of ['appearance', 'accessibility', 'notifications', 'advanced', 'general']) {
+    for (const tab of [
+      'appearance',
+      'accessibility',
+      'notifications',
+      'permissions',
+      'advanced',
+      'general'
+    ]) {
       await page.keyboard.press('ArrowRight')
       expect(await page.evaluate(() => document.activeElement?.getAttribute('data-tab'))).toBe(tab)
     }

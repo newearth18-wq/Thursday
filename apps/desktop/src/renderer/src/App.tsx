@@ -3,6 +3,7 @@ import type { GatewayStatus } from '@jupiter/contracts'
 import { JupiterMark } from '@jupiter/ui'
 import type { ViewId } from '../../shared/views'
 import { AboutDialog, ShortcutsDialog } from './components/InfoDialogs'
+import { PermissionPrompt } from './components/PermissionPrompt'
 import { Sidebar } from './components/Sidebar'
 import { useNotify } from './components/Toasts'
 import { TopBar } from './components/TopBar'
@@ -12,7 +13,7 @@ import { useI18n } from './i18n'
 import { usePreferences } from './preferences'
 import { useView } from './router'
 import { useShortcuts } from './useShortcuts'
-import { useRuntimeContext, type Loadable } from './useRuntime'
+import { coreSessionOf, useRuntimeContext, type Loadable } from './useRuntime'
 import { ChatView } from './views/ChatView'
 import { DiagnosticsView } from './views/DiagnosticsView'
 import { FeatureView } from './views/FeatureViews'
@@ -167,6 +168,7 @@ export function App() {
           setDialog(null)
         }}
       />
+      <PermissionPrompt coreSession={coreSessionOf(status)} />
     </div>
   )
 }

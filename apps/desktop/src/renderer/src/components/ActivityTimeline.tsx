@@ -1,6 +1,7 @@
 import type { DomainEvent } from '@jupiter/contracts'
 import { intlLocale, useI18n, type MessageKey, type Translate } from '../i18n'
 import { describeMissionEvent, isMissionEvent } from '../missionText'
+import { describePermissionEvent, isPermissionEvent } from '../permissionText'
 import { describeSkillEvent, isSkillEvent } from '../skillText'
 import { useEventLog } from '../useEventLog'
 import { Timeline, type TimelineEntry } from './Timeline'
@@ -14,6 +15,7 @@ export function describeEvent(event: DomainEvent, t: Translate): Omit<TimelineEn
   const base = { id: event.eventId, at: event.occurredAt }
   if (isMissionEvent(event)) return { ...base, ...describeMissionEvent(event, t) }
   if (isSkillEvent(event)) return { ...base, ...describeSkillEvent(event, t) }
+  if (isPermissionEvent(event)) return { ...base, ...describePermissionEvent(event, t) }
   switch (event.type) {
     case 'core.started':
       return { ...base, tone: 'success', title: t('activity.coreStarted') }

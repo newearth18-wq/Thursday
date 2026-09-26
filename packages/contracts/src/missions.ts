@@ -273,7 +273,7 @@ export const MissionArtifact = z
   .strict()
 export type MissionArtifact = z.infer<typeof MissionArtifact>
 
-/** A permission a Mission needs. The Permission Engine arrives in SET 7; no step needs one yet. */
+/** A permission a Mission needs; the Permission Engine (SET 7) asks for it when a step uses it. */
 export const MissionPermission = z
   .object({
     name: z.string().min(1).max(120),

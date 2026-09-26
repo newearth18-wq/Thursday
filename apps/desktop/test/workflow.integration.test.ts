@@ -230,7 +230,7 @@ describe('SET 5 — Planner and Workflow Engine, in the real application', () =>
     await evidence('02-workflow-completed', detail().getByTestId('mission-workflow'))
   })
 
-  it('AT2 + AT10: invalid, cyclic and permission-needing plans are rejected with reasons; nothing runs', async () => {
+  it('AT2 + AT10: invalid, cyclic and unknown-capability plans are rejected with reasons; nothing runs', async () => {
     model.reset()
     model.enqueue({ chunks: ['Sure! Let me think step by step first…'] })
     await createMission('Plan with prose')
@@ -250,8 +250,8 @@ describe('SET 5 — Planner and Workflow Engine, in the real application', () =>
     ).toBe('cycle')
     await evidence('04-plan-rejected-cycle', detail().getByTestId('mission-plan'))
 
-    model.enqueue(planned(plan([step('a')], { requiredPermissions: ['files.write'] })))
-    await createMission('Plan that needs a permission')
+    model.enqueue(planned(plan([step('a')], { requiredPermissions: ['files.teleport'] })))
+    await createMission('Plan that needs an unknown capability')
     await expect.poll(statusOf).toBe('FAILED')
     expect(
       await detail().getByTestId('plan-rejected').locator('li').first().getAttribute('data-code')

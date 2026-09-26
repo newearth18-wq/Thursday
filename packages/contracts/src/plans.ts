@@ -34,12 +34,15 @@ export const SkillId = z
   )
 export type SkillId = z.infer<typeof SkillId>
 
-/** A permission a step needs, e.g. `files.read`. Granted by the Permission Engine (SET 7). */
+/** A capability a step needs, e.g. `files.read` (see PERMISSION_CATALOGUE, SET 7). */
 export const PermissionName = z
   .string()
   .min(3)
   .max(64)
-  .regex(/^[a-z][a-z0-9]*(?:\.[a-z0-9-]+)+$/, 'Expected a permission such as "files.read"')
+  .regex(
+    /^[a-z][a-z0-9_]*(?:\.[a-z0-9_-]+)+$/,
+    'Expected a permission such as "files.read" or "computer.open_app"'
+  )
 
 export const RetryPolicy = z
   .object({

@@ -1,4 +1,5 @@
 import { SKILL_RUNTIME, type SkillDefinition } from '@jupiter/contracts'
+import type { SkillResource } from './registry'
 
 /**
  * A Skill's code and its self-check (SET 6).
@@ -187,5 +188,90 @@ export const TEST_FIXTURE_SKILLS: readonly SkillImplementation[] = [
     source: 'async () => { for (;;) {} }',
     healthInput: null,
     verificationHints: []
+  },
+  {
+    definition: {
+      version: '1.0.0',
+      provider: 'test-fixture',
+      compatibleRuntime: SKILL_RUNTIME,
+      skillId: 'fixture_note_writer',
+      name: 'Note writer fixture',
+      description:
+        'Test fixture: adds a note to a list kept in memory by the test environment. Needs memory.write.',
+      category: 'developer',
+      permissions: ['memory.write'],
+      timeoutMs: 5_000,
+      inputSchema: {
+        type: 'object',
+        properties: { text: { type: 'string', minLength: 1, maxLength: 200 } },
+        required: ['text'],
+        additionalProperties: false
+      },
+      outputSchema: {
+        type: 'object',
+        properties: { count: { type: 'integer', minimum: 0 } },
+        required: ['count'],
+        additionalProperties: false
+      }
+    },
+    source:
+      'async (input, context) => ({ count: await context.use("fixture.notes.append", { text: input.text }) })',
+    healthInput: { text: 'health check' },
+    verificationHints: []
+  },
+  {
+    definition: {
+      version: '1.0.0',
+      provider: 'test-fixture',
+      compatibleRuntime: SKILL_RUNTIME,
+      skillId: 'fixture_notes_clearer',
+      name: 'Notes clearer fixture',
+      description:
+        'Test fixture: deletes every note in the test list at once. A critical action (files.delete_bulk).',
+      category: 'developer',
+      permissions: ['files.delete_bulk'],
+      timeoutMs: 5_000,
+      inputSchema: { type: 'object', properties: {}, additionalProperties: false },
+      outputSchema: {
+        type: 'object',
+        properties: { cleared: { type: 'integer', minimum: 0 } },
+        required: ['cleared'],
+        additionalProperties: false
+      }
+    },
+    source: 'async (input, context) => ({ cleared: await context.use("fixture.notes.clear") })',
+    healthInput: {},
+    verificationHints: []
   }
 ]
+
+/**
+ * The resources the fixture Skills use: a list of notes in memory, with a
+ * real effect a test can observe. Created fresh for each Core, only in the
+ * test environment, like the fixture Skills.
+ */
+export function createFixtureResources(): {
+  readonly resources: Readonly<Record<string, SkillResource>>
+  readonly notes: readonly string[]
+} {
+  const notes: string[] = []
+  return {
+    notes,
+    resources: {
+      'fixture.notes.append': {
+        permission: 'memory.write',
+        target: 'fixture:notes',
+        handler: (args) => {
+          const text = (args as { text?: unknown } | null)?.text
+          notes.push(typeof text === 'string' ? text.slice(0, 200) : '')
+          return notes.length
+        }
+      },
+      'fixture.notes.clear': {
+        permission: 'files.delete_bulk',
+        target: 'fixture:notes/*',
+        handler: () => notes.splice(0).length
+      }
+    }
+  }
+}

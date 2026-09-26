@@ -200,6 +200,9 @@ export function PlanPanel({
   )
 }
 
+/** The approval checkpoint step type; other steps wait only for a permission (SET 7). */
+const APPROVAL_STEP = 'checkpoint.approval'
+
 /** The approval a Mission is waiting for, with the only two answers. */
 export function ApprovalNotice({
   detail,
@@ -219,6 +222,18 @@ export function ApprovalNotice({
     (detail.mission.status !== 'WAITING_APPROVAL' && detail.mission.status !== 'RUNNING')
   )
     return null
+  // A Skill step waiting for a permission is answered in the permission request, not here.
+  if (waiting.kind !== APPROVAL_STEP)
+    return (
+      <div className="notice notice-warning" role="status" data-testid="mission-permission-wait">
+        <p className="notice-title">{t('workflow.waitingPermission')}</p>
+        <p>
+          <strong>{waiting.title}</strong>
+          {waiting.detail ? `: ${waiting.detail}` : null}
+        </p>
+        <p className="small">{t('workflow.permissionNotice')}</p>
+      </div>
+    )
   return (
     <div className="notice notice-warning" role="status" data-testid="mission-approval">
       <p className="notice-title">{t('workflow.waitingApproval')}</p>
@@ -368,7 +383,11 @@ function WorkflowNode({
       {step.waitingFor ? (
         <p className="small" data-testid="step-waiting">
           {t(
-            step.waitingFor === 'approval' ? 'workflow.waitingApproval' : 'workflow.waitingIdentity'
+            step.waitingFor === 'identity'
+              ? 'workflow.waitingIdentity'
+              : step.kind === APPROVAL_STEP
+                ? 'workflow.waitingApproval'
+                : 'workflow.waitingPermission'
           )}
         </p>
       ) : null}

@@ -30,6 +30,13 @@ import {
 } from './missions'
 import { SkillId, StepTypeInfo } from './plans'
 import { SkillExecutionRecord, SkillFilter, SkillInfo, SkillResult, SkillVersion } from './skills'
+import {
+  CapabilityCatalogueEntry,
+  PermissionAuditEntry,
+  PermissionDecision,
+  PermissionGrant,
+  PermissionRequest
+} from './permissions'
 import { BackupInfo, DatabaseInfo } from './database'
 import { ErrorEnvelope } from './errors'
 import { DomainEvent, EventFilter } from './events'
@@ -502,6 +509,50 @@ export const Capabilities = {
       .object({ skillId: SkillId.optional(), limit: z.number().int().min(1).max(200) })
       .strict(),
     output: z.object({ executions: z.array(SkillExecutionRecord).max(200) }).strict()
+  },
+
+  // ---- Permissions (SET 7) ----
+  /** Every capability Jupiter knows, with its risk and consequences. */
+  'permissions.catalogue': {
+    kind: 'query',
+    input: Empty,
+    output: z.object({ capabilities: z.array(CapabilityCatalogueEntry).max(100) }).strict()
+  },
+  /** Permission requests waiting for an answer (or all recent ones). */
+  'permissions.requests': {
+    kind: 'query',
+    input: z
+      .object({
+        status: z.enum(['PENDING', 'ALL']),
+        missionId: Uuidv7.optional(),
+        limit: z.number().int().min(1).max(200)
+      })
+      .strict(),
+    output: z.object({ requests: z.array(PermissionRequest).max(200) }).strict()
+  },
+  /** The person's answer to a request. Only the answers the request offers are accepted. */
+  'permissions.decide': {
+    kind: 'command',
+    input: z.object({ requestId: Uuidv7, decision: PermissionDecision }).strict(),
+    output: PermissionRequest
+  },
+  'permissions.grants': {
+    kind: 'query',
+    input: z
+      .object({ includeEnded: z.boolean(), limit: z.number().int().min(1).max(500) })
+      .strict(),
+    output: z.object({ grants: z.array(PermissionGrant).max(500) }).strict()
+  },
+  'permissions.revoke': {
+    kind: 'command',
+    input: z.object({ grantId: Uuidv7 }).strict(),
+    output: PermissionGrant
+  },
+  /** The permission audit trail, newest first. Targets and reasons are redacted. */
+  'permissions.audit': {
+    kind: 'query',
+    input: z.object({ limit: z.number().int().min(1).max(500) }).strict(),
+    output: z.object({ entries: z.array(PermissionAuditEntry).max(500) }).strict()
   }
 } as const satisfies Record<string, { kind: RequestKind; input: z.ZodType; output: z.ZodType }>
 

@@ -127,8 +127,9 @@ describe('plan validation', () => {
     ).toEqual(['skills-not-declared'])
   })
 
-  it('rejects any plan that needs a permission: nothing can grant one before SET 7', () => {
-    expect(codes(draft([step('a')], { requiredPermissions: ['files.write'] }))).toEqual([
+  it('accepts known capabilities (asked for at run time) and rejects unknown ones', () => {
+    expect(codes(draft([step('a')], { requiredPermissions: ['files.write'] }))).toEqual([])
+    expect(codes(draft([step('a')], { requiredPermissions: ['files.teleport'] }))).toEqual([
       'permission-unavailable'
     ])
   })

@@ -87,10 +87,18 @@ Do not modify `legacy/thursday-browser` unless a task is explicitly about it.
 - Skills (SET 6): a new Skill is a `SkillImplementation` (definition as data,
   code as a function-expression string run in the sandbox, a health input) in
   `packages/core/src/skills/builtin.ts`. It reaches nothing but
-  `context.use(resource)`, and every resource needs a permission from
-  `SKILL_PERMISSIONS`. Never let a caller pass permissions, never store a
-  Skill's input or output content (only `summarize`), and never add a
-  grantable permission that is not low-risk and read-only before SET 7.
+  `context.use(resource)`; a resource fixes its capability and exact target.
+  Never let a caller pass permissions, and never store a Skill's input or
+  output content (only `summarize`).
+- Permissions (SET 7): every action with an effect goes through
+  `PermissionEngine.check` (`packages/core/src/permissions/engine.ts`) at the
+  moment of use; a new capability is an entry in `PERMISSION_CATALOGUE`
+  (`packages/contracts/src/permissions.ts`) with its risk, consequence,
+  reversibility and what leaves the computer. Never grant in code (defaults
+  are visible, revocable grants made by `core` once), never let anything but
+  the `user-interface` actor answer or revoke, never offer more than
+  ALLOW_ONCE/DENY for CRITICAL, never delete a grant (end it), and never
+  update or delete the audit trail.
 - Schema changes are new migrations at the end of `JUPITER_MIGRATIONS`; never
   edit a migration that has shipped (see `packages/database/README.md`).
 
