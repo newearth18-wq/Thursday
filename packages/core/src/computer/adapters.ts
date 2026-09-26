@@ -110,8 +110,31 @@ const notepad: AppAdapter = {
           userAction: 'Look at Notepad, answer or cancel its dialog, then try again.'
         }
       )
+    // Notepad has saved when its title names the file (it writes the file as the dialog returns).
+    const name = path.split(/[\\/]/).pop() ?? path
+    let title = ''
+    const saved = await waitFor(context, 10_000, async () => {
+      const { windows } = await driver.call('listWindows', {})
+      const own = windows.find((item) => item.handle === window.handle)
+      title = own?.title ?? ''
+      return own?.title.toLowerCase().includes(name.toLowerCase()) ? true : null
+    })
+    if (!saved) {
+      const { windows } = await driver.call('listWindows', {})
+      const others = windows
+        .filter((item) => item.processId === window.processId && item.handle !== window.handle)
+        .map((item) => `"${item.title}"`)
+      throw new JupiterError(
+        'SAVE_NOT_COMPLETED',
+        `The Save As dialog closed, but Notepad's title is "${title}", not the saved file's name${others.length > 0 ? `; Notepad also shows ${others.join(', ')}` : ''}.`,
+        {
+          category: 'dependency',
+          userAction: 'Look at Notepad, answer or cancel its dialog, then try again.'
+        }
+      )
+    }
     return {
-      observation: `Opened Save As with Ctrl+S, entered the path in the file name box (automation id 1001) and invoked Save (automation id 1); the dialog "${dialog.title}" closed.`
+      observation: `Opened Save As with Ctrl+S, entered the path in the file name box (automation id 1001) and invoked Save (automation id 1); the dialog "${dialog.title}" closed and Notepad's title is now "${title}".`
     }
   }
 }

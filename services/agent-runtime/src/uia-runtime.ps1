@@ -28,6 +28,11 @@ public static class JupiterNative {
   [DllImport("user32.dll")] public static extern uint GetWindowThreadProcessId(IntPtr h, out uint processId);
   [StructLayout(LayoutKind.Sequential)] public struct RECT { public int Left; public int Top; public int Right; public int Bottom; }
   [DllImport("user32.dll")] public static extern bool GetWindowRect(IntPtr h, out RECT rect);
+  [DllImport("user32.dll")] static extern bool SetWindowPos(IntPtr h, IntPtr after, int x, int y, int cx, int cy, uint flags);
+  // Moves (or resizes) a top-level window through the window manager, without activating it
+  // or changing its z-order. SWP_NOSIZE 0x1, SWP_NOMOVE 0x2, SWP_NOZORDER 0x4, SWP_NOACTIVATE 0x10.
+  public static bool MoveWindowTo(IntPtr h, int x, int y) { return SetWindowPos(h, IntPtr.Zero, x, y, 0, 0, 0x1 | 0x4 | 0x10); }
+  public static bool ResizeWindowTo(IntPtr h, int width, int height) { return SetWindowPos(h, IntPtr.Zero, 0, 0, width, height, 0x2 | 0x4 | 0x10); }
   [DllImport("user32.dll", CharSet = CharSet.Unicode)] static extern IntPtr SendMessage(IntPtr h, uint msg, IntPtr w, StringBuilder l);
   [DllImport("user32.dll", CharSet = CharSet.Unicode)] static extern IntPtr SendMessage(IntPtr h, uint msg, IntPtr w, string l);
   [DllImport("user32.dll")] static extern IntPtr SendMessage(IntPtr h, uint msg, IntPtr w, IntPtr l);
@@ -331,13 +336,16 @@ function Op-WindowOp($p) {
     'maximize' { $pattern.SetWindowVisualState($state::Maximized) }
     'restore' { $pattern.SetWindowVisualState($state::Normal) }
     { $_ -eq 'move' -or $_ -eq 'resize' } {
-      $transform = Get-Pattern $window ([System.Windows.Automation.TransformPattern]::Pattern)
-      if ($null -eq $transform) { Fail 'WINDOW_OP_UNSUPPORTED' 'The window cannot be moved or resized.' }
-      if ($p.operation -eq 'move') { $transform.Move([double]$p.x, [double]$p.y) }
-      else { $transform.Resize([double]$p.width, [double]$p.height) }
+      $ptr = [IntPtr][long]$p.handle
+      if ($p.operation -eq 'move') { $done = [JupiterNative]::MoveWindowTo($ptr, [int]$p.x, [int]$p.y) }
+      else { $done = [JupiterNative]::ResizeWindowTo($ptr, [int]$p.width, [int]$p.height) }
+      if (-not $done) { Fail 'WINDOW_OP_UNSUPPORTED' "Windows did not $($p.operation) the window." }
     }
   }
   Start-Sleep -Milliseconds 150
+  if ($p.operation -ne 'minimize' -and -not [JupiterNative]::IsWindowVisible([IntPtr][long]$p.handle)) {
+    Fail 'WINDOW_STATE_NOT_APPLIED' "The window is no longer visible after $($p.operation)."
+  }
   return [ordered]@{ window = Window-Info (Get-WindowElement $p.handle) }
 }
 
