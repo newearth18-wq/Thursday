@@ -1,0 +1,9 @@
+/*
+ * Fonts are bundled with the app (no network fetch, compatible with the
+ * strict Content Security Policy and with LOCAL_ONLY mode). Only the Thai and
+ * Latin subsets are included.
+ */
+@import '@fontsource/noto-sans-thai/thai-400.css';
+@import '@fontsource/noto-sans-thai/thai-600.css';
+@import '@fontsource/inter/latin-400.css';
+@import '@fontsource/inter/latin-600.css';

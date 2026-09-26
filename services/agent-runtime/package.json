@@ -1,0 +1,21 @@
+{
+  "name": "@jupiter/agent-runtime",
+  "version": "0.1.0",
+  "private": true,
+  "description": "The agent runtime (SET 8): Windows UI Automation in its own process, behind a narrow, typed RPC contract.",
+  "license": "MIT",
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "scripts": {
+    "typecheck": "tsc -p tsconfig.json"
+  },
+  "dependencies": {
+    "@jupiter/contracts": "0.1.0",
+    "zod": "^4.6.5"
+  },
+  "devDependencies": {
+    "@jupiter/testing": "0.1.0"
+  }
+}

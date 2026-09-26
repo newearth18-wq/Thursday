@@ -1,0 +1,33 @@
+# Jupiter packaging. Windows 10/11 x64 is the primary target (Global Contract).
+# SET 0 produces an installable NSIS build or a validated unpacked build;
+# signing, branding, first-run and uninstall options belong to SET 20.
+appId: dev.jupiter.desktop
+productName: Jupiter
+copyright: Copyright © 2026 Jupiter Project
+directories:
+  output: dist
+  buildResources: build
+# The main, preload and renderer bundles are self-contained: no node_modules ship.
+files:
+  - out/**/*
+  - package.json
+  - '!**/*.map'
+asar: true
+npmRebuild: false
+nodeGypRebuild: false
+publish: null
+win:
+  target:
+    - target: nsis
+      arch: [x64]
+  artifactName: Jupiter-Setup-${version}-${arch}.${ext}
+nsis:
+  # Per-user install by default; no elevation. Installer UX is SET 20.
+  oneClick: true
+  perMachine: false
+  deleteAppDataOnUninstall: false
+linux:
+  executableName: jupiter
+  target:
+    - target: dir
+  category: Utility

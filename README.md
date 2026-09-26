@@ -1,251 +1,121 @@
-# Thursday Browser — Alpha
+# Jupiter
 
-An AI-first Chromium desktop browser with a modular Plugin/Skill architecture.
+Jupiter is a Windows desktop AI agent, built in stages (SET 0–24). This
+repository is the Jupiter monorepo.
 
-Thursday is a real browser first. The AI core, the plugin engine, missions and
-workflows are all optional layers stacked on top of it — disable every one of
-them and the browser still opens tabs, navigates, and goes back and forward.
+**Current stage: SET 8 — Windows Computer Agent** (on top of SET 7,
+Permission and Security Engine; SET 6, Skill System; SET 5, Planner and
+Workflow Engine; SET 4, Mission System; SET 3, AI providers, Model Router and
+Chat; SET 2, the product shell; SET 1, Core architecture; and SET 0, the
+repository foundation). On Windows, Jupiter can use real applications through
+Windows UI Automation: open Notepad, type exact text, save it through Notepad's
+own Save As dialog to your Desktop, and read the file back before it reports
+success. Every action asks for its permission first (with the exact file
+path), returns what it really observed, and can be cancelled; the automation
+runs in its own process, so a fault there never takes Jupiter down. Coordinate
+clicks are an opt-in, labelled last resort. On other systems the agent is shown
+as _Unavailable_, with the reason. Nothing Jupiter does with an effect happens
+without a **permission** that matches exactly what, who, which target and for
+how long; _Settings › Permissions_ lists them and the audit trail. **Skills**,
+**Missions** planned by your model, _Chat_, _AI Models_, _Settings_ and
+_Diagnostics_ work; the other five screens are labelled _Coming later_ with
+the SET that builds them.
 
-The goal of this Alpha is **not** feature count. It is a foundation that can
-gain new abilities through plugins without the core changing.
+|                 |                                                                                            |
+| --------------- | ------------------------------------------------------------------------------------------ |
+| Target platform | Windows 10/11 x64 (Linux is used for CI and development only)                              |
+| Stack           | Electron 44 · React 19 · TypeScript 6 (strict) · Vite 7 / electron-vite 5 · npm workspaces |
+| Node.js         | 22.12 or newer (see `.nvmrc`)                                                              |
 
----
-
-## Status
-
-Alpha. All 24 required acceptance tests pass, plus 8 additional checks written
-to verify the core principles (plugin isolation, permission enforcement,
-browser independence, approval gates, IPC validation).
-
-```
-Required acceptance tests : 24/24 passed
-Core principle checks     : 8/8 passed
-```
-
-Run them yourself with `npm run test:acceptance`. CI runs the same suite, plus
-a packaging check, on every pull request — see `.github/workflows/ci.yml`. See
-[docs/ACCEPTANCE.md](docs/ACCEPTANCE.md) for what each test proves — and for an
-explicit list of what is **not** covered.
-
----
-
-## Requirements
-
-| | |
-|---|---|
-| Node.js | 20.11 or newer (22.x recommended) |
-| npm | 10 or newer |
-| OS | Linux, macOS or Windows |
-
-No native module compilation is needed. Thursday stores its data with Node's
-built-in `node:sqlite`, which ships inside Electron's runtime, so there is no
-`node-gyp` step and no ABI mismatch to debug.
-
----
-
-## Installation
+## Quick start
 
 ```bash
-git clone <this repository>
-cd Thursday
-npm install
+npm ci          # install exactly what package-lock.json records
+npm run dev     # start Jupiter in development mode (dev server + Electron)
 ```
 
-## Development commands
+Running as root in a container? Chromium's sandbox cannot start as root, so use
+`npm run dev -w @jupiter/desktop -- --noSandbox`. Don't do this on a normal desktop.
 
-```bash
-npm run dev              # build plugins, then start with hot reload
-npm run build            # typecheck, build plugins, build main/preload/renderer
-npm run start            # preview a production build
-npm run typecheck        # TypeScript only, no emit
-npm run build:plugins    # compile plugins/*/src into their entry files
-npm run test:acceptance  # run the full acceptance suite against a real app
-npm run dist             # package a distributable with electron-builder
+## Scripts
+
+| Script                            | What it does                                                                                              |
+| --------------------------------- | --------------------------------------------------------------------------------------------------------- |
+| `npm run dev`                     | Development mode: Vite dev server + Electron, development data folder, DevTools allowed                   |
+| `npm run build`                   | Production build of main, preload and renderer into `apps/desktop/out/`                                   |
+| `npm run start`                   | Launch the production build without packaging it                                                          |
+| `npm test`                        | Unit tests, then build, then integration + Electron end-to-end tests                                      |
+| `npm run test:unit`               | Unit tests only (fast, no Electron)                                                                       |
+| `npm run test:integration`        | Build, then real-filesystem, secret-scan and Electron E2E tests (Linux: xvfb + a throwaway GNOME Keyring) |
+| `npm run test:dev-smoke`          | Proves `npm run dev` really launches the app                                                              |
+| `npm run lint`                    | ESLint with full type information, zero warnings allowed                                                  |
+| `npm run typecheck`               | Strict TypeScript across every workspace                                                                  |
+| `npm run format` / `format:check` | Prettier                                                                                                  |
+| `npm run check:secrets`           | Scan the repository for hardcoded credentials                                                             |
+| `npm run package:windows`         | Windows NSIS installer (on Windows, or anywhere with Wine)                                                |
+| `npm run package:windows:dir`     | Unpacked Windows build (works on Linux)                                                                   |
+| `npm run package:linux:dir`       | Unpacked Linux build (CI and development)                                                                 |
+| `npm run package:validate`        | Validate the Windows package and write evidence to `test-results/`                                        |
+| `npm run verify`                  | Every gate above, in order — run before opening a pull request                                            |
+
+## Repository layout
+
+```text
+apps/desktop/            Jupiter desktop app: host (Electron main + gateway), Core utility process, preload, React renderer
+packages/contracts/      Versioned zod schemas for every trust boundary
+packages/core/           Core kernel: capability dispatcher, event bus, service supervisor, logger, IDs; model router, chat, adapter port; Mission Manager, planner and workflow engine; Skill Registry and sandbox
+packages/providers/      Provider adapters (OpenAI-compatible, Anthropic), reached only through Core's guarded transport
+packages/database/       SQLite (node:sqlite): migrations, transactions, backups, repositories
+packages/security/       Secret patterns and redaction
+packages/ui/             Visual Design Lock v1: design tokens, fonts, icons, the Jupiter mark
+packages/testing/        Launch the real app with Playwright; credential-shaped test values; provider protocol test servers
+services/agent-runtime/  Coming later (SET 8)
+services/browser-runtime/ Coming later (SET 9)
+services/plugin-runtime/ Coming later (SET 15)
+plugins/                 Coming later (SET 15)
+docs/                    Architecture, decisions, definition of done, SET reports
+scripts/                 verify, secret scan, package validation, dev smoke test
+legacy/thursday-browser/ The earlier Thursday Browser prototype, preserved and still tested
 ```
 
-### Running as root (containers, CI)
+## Where Jupiter keeps its data
 
-Chromium refuses to start as root without an explicit flag:
+| Environment | Folder                                         |
+| ----------- | ---------------------------------------------- |
+| Production  | `%APPDATA%\Jupiter`                            |
+| Development | `%APPDATA%\Jupiter (Development)`              |
+| Test        | always an explicit temporary `--user-data-dir` |
 
-```bash
-npx electron-vite dev -- --no-sandbox
-```
+Logs are JSON Lines in `<data folder>\logs\jupiter.log`, rotated at 5 MB with
+five files kept, owner-only permissions, and credentials redacted before
+anything is written. The database is `<data folder>\jupiter.db` (SQLite, WAL);
+backups — including one taken automatically before any schema upgrade — are in
+`<data folder>\backups\`. Jupiter never deletes files there other than its own
+older backups (the newest ten are kept). Preferences (language, theme, text
+size, motion, avatar, notifications), AI providers, models, routing settings,
+conversations and Missions (with their full history) are stored in the database; `<data folder>\window-state.json`
+remembers the window's size, position and last screen. API keys are **not** in
+the database: each is a file in `<data folder>\credentials\` encrypted by the
+operating system (DPAPI on Windows, the Keychain on macOS, the Secret Service
+on Linux), readable only by your user account. On Linux without a running
+Secret Service (GNOME Keyring or KWallet), Jupiter says so and does not store
+keys; providers that need no key still work.
 
-Do not use `--no-sandbox` for everyday use on a normal desktop account.
+## Documentation
 
----
-
-## First run
-
-1. Launch Thursday. A tab opens on the home page.
-2. Open **Settings → AI providers** and add a provider. Pick the type, set the
-   base URL, paste an API key if the provider needs one, and press
-   **Add provider**.
-3. Press **Test connection**. Thursday makes a real request and reports exactly
-   what came back — including the reason if it failed.
-4. Press **Fetch models**, then choose a provider and model in the Thursday
-   sidebar on the right.
-5. Type a message. The reply streams in.
-
-Running Ollama or LM Studio locally? **Settings → Local AI** probes both and
-reports Detected / Not detected / Connection error based on an actual HTTP
-round trip — never on the port merely being plausible. Press **Add as
-provider** on a detected runtime to wire it up in one click.
-
----
-
-## What is in the Alpha
-
-**Browser Core** — tabs, navigation, back/forward/reload, address bar,
-downloads, session state. Pages run in `WebContentsView` with `nodeIntegration`
-off, `contextIsolation` on and the sandbox enabled. Web pages get no preload
-script, so no part of Thursday's API is reachable from a loaded page.
-
-**Thursday AI Core** — conversations, streaming responses, model selection, and
-a tool-calling interface that discovers what it can do through the Skill
-Registry. It contains no plugin-specific code.
-
-**Model Router** — one `ModelProvider` interface with six adapters: OpenAI,
-Anthropic, Google Gemini, OpenAI-compatible, Ollama and LM Studio. Models are
-discovered from each provider's own endpoint rather than hard-coded.
-
-**Plugin Engine** — every enabled plugin runs in its own OS process. Install,
-uninstall, enable, disable, reload, health and permissions are all real. A
-plugin that throws on load, hangs or crashes its process takes its own skills
-offline and nothing else.
-
-**Skill Registry** — the single place the AI core, missions and workflows look
-to find out what Thursday can do. Inputs are validated against each skill's
-declared JSON Schema before the plugin sees them.
-
-**Mission system + Agent Supervisor** — one supervisor that walks a mission's
-steps, retries what is retryable, pauses for approval where a step demands it,
-and verifies every step finished before reporting the mission complete.
-Missions persist across restarts.
-
-**Workflow Engine** — eight node types (`ai`, `skill`, `condition`, `wait`,
-`human_approval`, `file`, `browser`, `output`) with explicit branching. There is
-no visual canvas in Alpha; the execution model came first.
-
-**Command Center** — the dashboard, with a neural brain whose colour, signal
-rate and stability are all computed from real application state. When Thursday
-is idle it visibly does nothing.
-
-**Diagnostics** — every line is the result of a check run at that moment.
-
-**Permissions** — the full catalogue is modelled now; four are enforced in
-Alpha (`browser.read`, `filesystem.read`, `filesystem.write`, `network`). The
-rest are declaration-only and are labelled as such in the UI. A plugin can
-never receive a permission it did not declare.
-
-### Deliberately not in the Alpha
-
-Desktop/computer control, game control, trading execution, voice, camera
-vision, avatars, video or image generation, Obsidian, mobile sync, smart home,
-automated purchasing, and the visual workflow canvas. Only the interfaces
-future plugins will need exist today.
-
----
-
-## Project layout
-
-```
-src/
-  shared/            contract shared by all three processes
-    schemas.ts         zod schemas — the source of truth for every type
-    ipc.ts             typed IPC contract (channel -> input schema, return type)
-    channels.ts        dependency-free channel names for the sandboxed preload
-    permissions.ts     permission catalogue
-    plugin-api.ts      the interface plugin authors write against
-  main/              Electron main process
-    core/              db, logger, events, settings, secrets, typed IPC, app state
-    browser/           tab manager, downloads          <- Browser Core
-    ai/                router, chat, providers/*       <- Thursday AI Core
-    plugins/           engine + isolated host process
-    skills/            registry + JSON Schema validation
-    missions/          store + agent supervisor
-    workflow/          execution engine
-    diagnostics/       live health checks
-  preload/           sandboxed context bridge
-  renderer/          React UI (Vite)
-plugins/
-  demo-tools/        the sample plugin
-scripts/
-  build-plugins.mjs  compiles plugin TypeScript
-  run-acceptance.mjs the acceptance suite
-  mock-provider.mjs  local OpenAI-compatible server used by the suite
-docs/
-```
-
-Further reading: [Architecture](docs/ARCHITECTURE.md) ·
-[Plugin development](docs/PLUGINS.md) · [Acceptance results](docs/ACCEPTANCE.md)
-
----
-
-## Where Thursday keeps your data
-
-| | |
-|---|---|
-| Linux | `~/.config/thursday-browser` |
-| macOS | `~/Library/Application Support/thursday-browser` |
-| Windows | `%APPDATA%\thursday-browser` |
-
-`thursday.db` holds settings, providers, plugin metadata, conversations,
-missions, workflow runs and logs. `plugin-data/<plugin-id>/` is the only
-directory a plugin can write to.
-
-API keys are encrypted with Electron `safeStorage`, backed by the OS keychain.
-When no keychain is available — common on a bare Linux server — Thursday still
-stores the key so the app works, marks it as unencrypted, and Diagnostics
-reports **Secure Storage: Degraded** with the reason. It never implies a key is
-protected when it is not.
-
----
-
-## Troubleshooting
-
-**`Running as root without --no-sandbox is not supported`**
-You are running as root. Use `npx electron-vite dev -- --no-sandbox`, or run as
-a normal user.
-
-**The window opens but stays blank in dev**
-The renderer dev server did not come up. Check the terminal for the
-`dev server running ... http://localhost:5173/` line. If port 5173 is taken,
-stop the other process and restart.
-
-**A web page shows through the Settings or Command Center screen**
-Web pages render in a native view stacked above the UI. The app hides them when
-you leave the Browser tab. If you ever see this, it means
-`browser:setViewport` did not reach the main process — check the console for an
-IPC error.
-
-**`Connection refused by 127.0.0.1:11434`**
-Ollama is not running. Start it with `ollama serve`, then press **Re-scan** in
-Settings → Local AI.
-
-**Test connection fails with HTTP 401**
-The API key is wrong or missing for that provider. Re-enter it in
-Settings → AI providers. The detail line shows what the provider actually said.
-
-**A plugin shows `crashed`**
-Its host process exited. Thursday restarts it twice, then stops and keeps the
-reason on the plugin card. Fix the cause and press **Reload**. The browser core
-and every other plugin are unaffected — this is by design, and the acceptance
-suite checks it.
-
-**A skill fails with `Permission "filesystem.write" is not granted`**
-The permission is declared in the plugin's manifest but not granted. Tick it on
-the plugin's card under **Plugins**.
-
-**`npm run dev` fails on a fresh clone**
-Run `npm run build:plugins` on its own and read the error. Plugins compile
-before Electron starts, so a plugin TypeScript error stops the dev server.
-
-**Changes to a plugin are not picked up**
-Plugin entry files are built, not loaded from source. Run `npm run build:plugins`,
-then press **Reload** on the plugin's card.
-
----
+- [AGENTS.md](AGENTS.md) — rules for anyone (human or AI) changing this repository
+- [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) — how the foundation fits together
+- [SECURITY.md](SECURITY.md) — security principles and their current enforcement
+- [CONTRIBUTING.md](CONTRIBUTING.md) — workflow, checks and conventions
+- [docs/DEFINITION_OF_DONE.md](docs/DEFINITION_OF_DONE.md) — when a SET is complete
+- [docs/sets/SET-00-foundation.md](docs/sets/SET-00-foundation.md) — SET 0 report and acceptance results
+- [docs/sets/SET-01-core-architecture.md](docs/sets/SET-01-core-architecture.md) — SET 1 report and acceptance results
+- [docs/sets/SET-02-product-shell.md](docs/sets/SET-02-product-shell.md) — SET 2 report and acceptance results
+- [docs/sets/SET-03-ai-providers-and-chat.md](docs/sets/SET-03-ai-providers-and-chat.md) — SET 3 report and acceptance results
+- [docs/sets/SET-04-mission-system.md](docs/sets/SET-04-mission-system.md) — SET 4 report and acceptance results
+- [docs/sets/SET-05-planner-and-workflow-engine.md](docs/sets/SET-05-planner-and-workflow-engine.md) — SET 5 report and acceptance results
+- [docs/sets/SET-06-skill-system.md](docs/sets/SET-06-skill-system.md) — SET 6 report and acceptance results
+- [docs/decisions/](docs/decisions/) — architecture decision records
 
 ## License
 

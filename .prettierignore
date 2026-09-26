@@ -1,0 +1,7 @@
+node_modules/
+out/
+dist/
+coverage/
+package-lock.json
+# The legacy Thursday Browser keeps its original formatting; it is preserved, not maintained here.
+legacy/

@@ -1,284 +1,498 @@
-# Architecture
+# Jupiter architecture — after SET 6
 
-## The one rule
+This document describes what exists after SET 6 (Skill System) on top of
+SET 5 (Planner and Workflow Engine), SET 4 (Mission System), SET 3 (AI providers, Model Router and Chat), SET 2 (product shell, design system and accessible
+interface), SET 1 (Core architecture, IPC, events and
+database) and the SET 0 foundation. Later SETs extend it;
+each section says what is deliberately not here yet. Decisions and their
+alternatives are in [docs/decisions/](decisions/).
 
-Layers depend downward, never upward.
+## Monorepo
 
-```
-            ┌──────────────────────────────────────────┐
-            │  Renderer (React)                        │
-            │  Browser · Command Center · Workflows    │
-            │  Plugins · Settings · Diagnostics        │
-            └───────────────────┬──────────────────────┘
-                                │  window.thursday  (context bridge)
-            ┌───────────────────┴──────────────────────┐
-            │  Preload — sandboxed, contextIsolation   │
-            └───────────────────┬──────────────────────┘
-                                │  typed IPC, zod-validated
-┌───────────────────────────────┴───────────────────────────────────────┐
-│  Main process                                                         │
-│                                                                       │
-│   Missions ──▶ Supervisor ──┐                                         │
-│   Workflows ──▶ Engine ─────┼──▶ Skill Registry ──▶ Plugin Engine     │
-│   AI Core ──▶ Model Router ─┘                            │            │
-│                                                          │ fork()     │
-│   Browser Core   Diagnostics   Logger   Settings   DB    ▼            │
-│                                                  ┌──────────────────┐ │
-│                                                  │ Plugin host      │ │
-│                                                  │ (its own process)│ │
-│                                                  └──────────────────┘ │
-└───────────────────────────────────────────────────────────────────────┘
+npm workspaces, one lockfile, strict TypeScript everywhere.
+
+```text
+apps/desktop          ── depends on ──▶ contracts, core, database, providers, security, ui   (bundled, nothing external at runtime)
+packages/providers    ── depends on ──▶ contracts, core, zod   (adapters; installed only in the Core entry)
+packages/database     ── depends on ──▶ contracts, core            (node:sqlite, built into Electron's Node.js)
+packages/core         ── depends on ──▶ contracts, security, zod
+packages/security     ── no dependencies (patterns file is dependency-free on purpose)
+packages/contracts    ── depends on ──▶ zod
+packages/ui           ── depends on ──▶ @fontsource fonts (React is a peer)
+packages/testing      ── depends on ──▶ playwright            (tests only; also provider protocol test servers)
+services/*, plugins/  placeholders: no code, labelled Coming later
+legacy/thursday-browser                   separate npm project, own lockfile, not a workspace
 ```
 
-The Browser Core sits at the bottom and imports nothing from the AI core, the
-plugin engine, missions or workflows. Turn every one of those off and it still
-works — the acceptance suite has a test that proves it.
+Workspace packages are consumed as TypeScript source (`exports` point at
+`src/*.ts`). electron-vite bundles them into four outputs — host main
+(`out/main/index.js`), Jupiter Core (`out/main/core.js`), preload and
+renderer — so a packaged Jupiter ships **no `node_modules`** and no native
+modules (SQLite is `node:sqlite`, part of Electron's Node.js). The package
+validator checks this.
 
----
-
-## Shared contract
-
-`src/shared/` is the only code all three processes agree on.
-
-`schemas.ts` holds zod schemas, and every domain type is inferred from one.
-There is no second place where a `Mission` or a `ProviderConfig` is described,
-so a schema change is a compile error everywhere it matters.
-
-`ipc.ts` maps each channel to its input schema and its return type. The main
-process validates every call against that schema before a handler runs, so a
-handler can trust its input completely.
-
-`channels.ts` is a deliberate split. The preload script runs sandboxed and
-cannot `require` from `node_modules`, so it cannot import zod. The plain string
-lists live here, and `ipc.ts` carries a compile-time assertion that the two
-descriptions of the channel set are identical:
-
-```ts
-type ChannelDrift = Exclude<IpcChannel, ChannelName> | Exclude<ChannelName, IpcChannel>
-export type _ChannelsInSync = AssertNever<ChannelDrift>
-```
-
-Add a channel to one and forget the other and the build fails, rather than
-producing a channel that is bridged but unvalidated.
-
----
+Domain code (`contracts`, `core`, `database`) does not import Electron or
+React. The Core bundle imports only `node:crypto`, `node:fs`, `node:path` and
+`node:sqlite` — a build-output test enforces it.
 
 ## Process model
 
-**Main** owns everything stateful: the database, the tab views, provider
-adapters, the plugin engine, the supervisor.
-
-**Renderer** owns no state of its own beyond view state. It reads through IPC
-and follows events.
-
-**Plugin hosts** are separate OS processes, one per enabled plugin, forked with
-`ELECTRON_RUN_AS_NODE=1`. This is the mechanism behind core principle #4:
-in-process plugins can take the app down, out-of-process plugins cannot.
-
-**Web pages** are `WebContentsView`s with `nodeIntegration: false`,
-`contextIsolation: true`, `sandbox: true` and no preload script. Popups are
-turned into tabs; permission requests from pages are denied.
-
----
-
-## Browser Core
-
-`src/main/browser/tab-manager.ts`.
-
-Tabs are `WebContentsView`s added to the window's content view, which places
-them above the React document. Only the active tab is visible.
-
-The renderer measures the hole in its layout and reports the rectangle through
-`browser:setViewport`. That call also carries `visible`, which is how
-full-screen panels work: leaving the Browser tab sends `visible: false` and
-every page view is hidden, so nothing punches through Settings or the Command
-Center.
-
-`normaliseUrl()` is the single entry point for turning user text into a URL. It
-adds a scheme, falls back to a search when the text is not host-shaped, and
-rejects anything that is not `http:` or `https:` — so `file:` and `javascript:`
-never reach a tab.
-
----
-
-## Model Router
-
-Every provider implements one interface:
-
-```ts
-interface ModelProvider {
-  readonly id: string
-  readonly kind: string
-  readonly requiresApiKey: boolean
-  testConnection(signal?: AbortSignal): Promise<ConnectionResult>
-  listModels(signal?: AbortSignal): Promise<ModelInfo[]>
-  chat(request: ChatRequest, tools: ToolSpec[], signal?: AbortSignal): AsyncIterable<ChatChunk>
-}
+```text
+┌─────────────────────────────────────────────┐
+│ Renderer (React 19) — jupiter://app#/<view> │  sandboxed, contextIsolation, no Node.js,
+│ 12 destinations: Home · Chat · Missions ·   │  strict CSP, validates every reply and push
+│   AI Models · Settings · Diagnostics work;  │
+│   6 are Coming later                        │
+└───────────────────┬─────────────────────────┘
+                    │ window.jupiter — 7 frozen functions (contract v1)
+┌───────────────────┴─────────────────────────┐
+│ Preload (sandboxed, CommonJS)               │  6 fixed invoke channels + 1 push channel
+└───────────────────┬─────────────────────────┘
+                    │ ipcRenderer.invoke / on   (jupiter:v1:*)
+┌───────────────────┴─────────────────────────┐
+│ Host — Electron main                        │
+│  jupiter:// protocol · window · security    │
+│  Host gateway (sender check, size, schema,  │
+│    actor assignment, ownership, audit)      │
+│  Host services: build-metadata, environment,│
+│    storage, logging, secure-storage,        │
+│    core (supervisor)                        │
+│  Credential vault (safeStorage: DPAPI /     │
+│    Keychain / Secret Service), host ops     │
+│    host.credentials.* for Core only         │
+│  Host capabilities (logs.reveal,            │
+│    notifications.status/show) — run only    │
+│    when Core's dispatcher asks              │
+│  Window state (window-state.json)           │
+└───────────────────┬─────────────────────────┘
+                    │ MessagePort (utility process), versioned protocol,
+                    │ schema-validated both ways, heartbeat
+┌───────────────────┴─────────────────────────┐
+│ Jupiter Core — Electron utility process     │
+│  Capability dispatcher (validate, authorize │
+│    deny-by-default, timeout, cancel, audit) │
+│  Event bus (per-stream order, persistence,  │
+│    replay-safe subscriptions)               │
+│  Services: database · event-bus ·           │
+│    model-router · mission-manager ·         │
+│    capability-dispatcher                    │
+│  Providers + router + chat; adapters reach  │
+│    the network only via the guarded         │
+│    transport (Local only, no redirects)     │
+│  SQLite (WAL, FULL sync, FKs, STRICT tables,│
+│    append-only events and audit, backups)   │
+└─────────────────────────────────────────────┘
+   Workflow Engine, Skill Registry, Permission Engine,
+   Identity Gateway, Artifact Manager, Agent/Browser/Plugin
+   runtimes: COMING_LATER (SET 5–15). They will register capabilities with
+   the dispatcher and publish on the event bus; nothing reaches the host
+   without going through the dispatcher.
 ```
 
-Adding a provider means writing one adapter and adding one line to the factory.
-Nothing above the router changes.
+Why Core is a separate process: a crash, a hang or a runaway query in Core
+cannot take down the window or the host. The host reports it, fails pending
+requests truthfully, and restarts Core (see _Crash isolation_).
 
-Three wire formats are covered: OpenAI Chat Completions (shared by
-`openai`, `openai-compat` and `lmstudio`), Anthropic Messages, Gemini
-`streamGenerateContent`, and Ollama's newline-delimited JSON.
+## Contract v1 (`packages/contracts`)
 
-**Errors name the problem.** `explainNetworkError` turns `ECONNREFUSED` into
-*"Connection refused by 127.0.0.1:11434 — nothing is listening on that
-address"*. HTTP failures carry the provider's own error body. There is no
-"something went wrong" anywhere in the codebase.
+All shapes crossing a process or trust boundary are zod schemas, validated on
+both sides.
 
-**Timeouts guard the handshake, not the stream.** `fetch` settles when response
-headers arrive, and the timer is cleared at that point — so a slow streaming
-body is never cut off, while a dead host still fails fast. The caller's abort
-signal stays attached for the whole request, which is what makes **Stop** work
-mid-stream.
+| Schema                             | Purpose                                                                                                                                                                                       |
+| ---------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `RequestEnvelope`                  | `v`, `requestId` (UUIDv7, chosen by the caller), `kind` (`command` \| `query`), `type` (capability id), `payload`, `missionId`, `executionId`, `sentAt`. Strict: unknown fields are rejected. |
+| `ResultEnvelope`                   | `v`, `requestId`, `correlationId`, `ok`, `data` or `error` (`ErrorEnvelope`), `completedAt`                                                                                                   |
+| `ErrorEnvelope`                    | code, category (validation, permission, identity, configuration, provider, timeout, cancellation, dependency, unsupported, internal), message, user action, retryable, reference              |
+| `ProgressUpdate`                   | request id, stage, measured `completed`/`total` (both or neither), unit, message                                                                                                              |
+| `DomainEvent`                      | discriminated by `type`, with per-type payload schemas; stream, stream and global sequence (persistent events only), correlation/causation ids, actor, Mission/execution ids                  |
+| `AuditEvent`                       | actor, capability, target, decision (ALLOWED/DENIED/REJECTED), risk, outcome, redacted metadata                                                                                               |
+| `Capabilities`                     | the catalogue: kind, input schema and output schema for each capability id                                                                                                                    |
+| `GatewayStatus`, `RendererMessage` | what the host sends the renderer                                                                                                                                                              |
+| `HostToCore`, `CoreToHost`         | the host↔Core protocol (versioned separately)                                                                                                                                                 |
 
----
+The **correlation model**: the request id is the correlation id. The gateway
+assigns the **actor** from the sender (never from the message); Core gives the
+capability handler a context with request id, correlation id, Mission and
+execution ids, actor, received time and an `AbortSignal` (cancel, timeout or
+shutdown). Every log line, audit record and event produced by the request
+carries the correlation id — across both processes.
 
-## Plugin Engine and isolation
+## IPC surface (renderer ↔ host)
 
-A plugin package is a directory with `manifest.json` and a JavaScript entry
-file. Manifests are validated with zod on every load; an invalid one is skipped
-with a specific reason and the other plugins still load.
+| Invoke channel              | Served by                         | Purpose                                              |
+| --------------------------- | --------------------------------- | ---------------------------------------------------- |
+| `jupiter:v1:request`        | Core dispatcher (via the gateway) | every command and query                              |
+| `jupiter:v1:cancel`         | gateway → Core                    | cancel a request the same window started             |
+| `jupiter:v1:subscribe`      | gateway → Core event bus          | live events with replay after a sequence             |
+| `jupiter:v1:unsubscribe`    | gateway → Core                    | close a subscription the same window owns            |
+| `jupiter:v1:gateway-status` | host                              | app info, runtime status, Core process state         |
+| `jupiter:v1:retry-service`  | host (audited)                    | Retry on a failed service — must work with Core down |
 
-Starting a plugin forks `out/main/plugin-host.js`. The engine sends `init` with
-the entry path, the plugin's data directory and **only the granted
-permissions**. The host imports the entry module, collects its skills and
-replies `ready` with their descriptors, which the engine registers in the Skill
-Registry.
+Push channel `jupiter:v1:message` carries `gateway-status`, `event`,
+`progress` and `subscription-ended` messages, each validated before sending
+and only to the window that owns the request or subscription. No other channel
+is registered, so any other name is unreachable.
 
-Failure handling:
+For each call the gateway: checks the sender is the Jupiter window's top frame
+on `jupiter://app`; limits size (256 KiB of plain data — functions and other
+non-cloneable values cannot cross at all); validates the envelope; refuses
+duplicate request ids and more than 64 in-flight requests per window; assigns
+the actor; forwards to Core; audits every refusal. A window that reloads,
+navigates, crashes or closes has its requests cancelled and subscriptions
+closed.
 
-| What happens | What Thursday does |
-|---|---|
-| Entry module throws on import | health `error`, reason recorded, skills withdrawn |
-| Does not become ready in 15s | health `error`, host killed |
-| Process exits unexpectedly | health `crashed`, skills withdrawn, restarted up to twice |
-| Restart budget exhausted | stays `crashed` with a message saying so |
-| A skill call exceeds 30s | that call returns `TIMEOUT`; the plugin keeps running |
-| Deliberate stop (disable/reload) | `stopping` flag set, so the exit is not logged as a crash |
+## Capability dispatcher (Core)
 
-In every one of those rows, the browser core and all other plugins are
-untouched.
+Every command and query — including host-privileged ones — is a registered
+capability with: kind, input and output schemas, allowed actor types, risk
+level, required services, timeout, audit policy and provider (`core` or
+`host`). Dispatch order: envelope → known capability → kind matches →
+**actor allowed (deny by default)** → not a duplicate → capacity → payload
+schema → required services available → run with timeout and cancellation →
+output schema. It never throws; every outcome is a typed `ResultEnvelope`.
+Denials and rejections are always audited. Capabilities that change state or
+reach the host (`settings.update`, `database.backup`, `host.logs.reveal`,
+`runtime.report-host-status`) are audited on every call with their outcome;
+read-only queries are audited only when refused.
 
-### The permission gate
+Capabilities: `diagnostics.snapshot`, `diagnostics.report-renderer-error`,
+`settings.list`, `settings.update`, `events.list`, `audit.list`,
+`database.backup`, `host.logs.reveal`, `host.notifications.status` and
+`host.notifications.show` (host provider; the last two added in SET 2), and
+`runtime.report-host-status` (host actor only). There is no capability that
+reads files, credentials or runs commands.
 
-Plugins reach host services through a request/response bridge. Every method is
-gated in the parent process, which is the side the plugin cannot modify:
+## Event bus
 
-```
-plugin calls context.host.writeFile(...)
-  → host process sends { type: 'bridge', method: 'writeFile' }
-  → engine checks granted permissions          ← the gate
-  → engine confines the path to plugin-data/<id>/   ← and the sandbox
-  → reply
-```
+- **Streams and order.** Each event belongs to a stream (`system/core`,
+  `settings/<key>`, `mission/<id>`, …). Persistent events get a gap-free stream
+  sequence and a global sequence in the same transaction, so order within one
+  Mission is total and stable, also after restarts.
+- **Persistence.** Persistent events are appended inside the caller's
+  transaction and delivered only after it commits; a rolled-back transaction
+  publishes nothing. Transient events are delivered immediately and never
+  stored. `events` and `audit_log` are append-only (triggers refuse UPDATE and
+  DELETE).
+- **Subscriptions.** A subscriber asks for events after a sequence (or the
+  latest N); replay and live delivery are joined without gaps or duplicates
+  (per-subscriber high-water mark). If the requested sequence is too old the
+  receipt says `truncated` and the client resets. A subscriber that keeps
+  failing is dropped and told so.
+- **Reconnection.** The renderer keys events by global sequence and resumes
+  after the last one it saw — after a Core restart, or from the latest events
+  after a page reload (the old subscription is released by the gateway).
 
-Two independent protections: the permission must be granted, *and* the resolved
-path must stay inside the plugin's own directory. `..` and absolute paths are
-rejected.
+## Persistence (`packages/database`)
 
-`grantPermissions` refuses anything the manifest did not declare, and a
-previously granted permission that disappears from the manifest is dropped on
-the next load.
+- `node:sqlite` with `journal_mode=WAL`, `synchronous=FULL`, foreign keys on
+  (verified at open), `STRICT` tables and CHECK constraints.
+- Tables: `schema_migrations`, `settings`, `event_streams`, `events`,
+  `audit_log`, `service_health`; since migration 3 (SET 3) `ai_providers`
+  (credential id and fingerprint only — never a key), `ai_models`,
+  `chat_conversations` and `chat_messages`; since migration 4 (SET 4)
+  `missions`, `mission_executions`, `mission_steps` and the append-only
+  `mission_transitions`, `mission_errors`, `mission_verifications` and
+  `mission_artifacts`; since migration 5 (SET 5) the append-only
+  `mission_plans`, `mission_plan_rejections` and `mission_step_attempts`,
+  with `mission_executions` and `mission_steps` rebuilt for workflows (a
+  migration that rebuilds tables runs with foreign keys off and must pass
+  `PRAGMA foreign_key_check` before it commits); since migration 6 (SET 6)
+  `skills` (definition, enabled state, last health check per version) and
+  `skill_executions` (shape and size of input and output only, never content;
+  unique idempotency key per Skill).
+- **Migrations** are ordered, checksummed (sha256 of version, name and SQL) and
+  each applied atomically. Opening refuses a database newer than the app, a
+  modified or missing migration, and runs `quick_check` first (a corrupt file
+  is reported and never changed). An existing database is backed up before it
+  is migrated.
+- **Transactions**: `BEGIN IMMEDIATE`, nested work as savepoints, after-commit
+  hooks, rollback on any error; a crash mid-transaction leaves the last
+  committed state (WAL).
+- **Backups**: online SQLite backup to a `.partial` file with progress,
+  integrity and schema check of the copy, then an atomic rename. Only Jupiter's
+  own `jupiter-<time>-<reason>.db` files are ever pruned (10 kept).
+- Repository interfaces (`EventStore`, `SettingsStore`, `AuditStore`,
+  `ServiceHealthStore`, `TransactionRunner`) live in `packages/core/src/ports.ts`;
+  Core depends on those, not on SQLite.
 
----
+## Crash isolation, startup and shutdown
 
-## Skill Registry
+- **Startup**: host services start in order (build metadata, environment,
+  storage, logging, core). The `core` service forks the utility process, sends
+  `init`, and waits (30 s) for `ready`. Inside Core the database, event bus and
+  dispatcher start under their own supervisor. A failed service is FAILED with a
+  real `ErrorEnvelope` and a working Retry; everything that does not need it
+  keeps working (`DEPENDENCY_UNAVAILABLE` for the rest).
+- **Crash of Core**: pending requests are answered with `CORE_UNAVAILABLE`,
+  subscriptions end, the `core` service becomes FAILED `CORE_CRASHED` and the
+  window stays up. Core is restarted automatically after 1 s, 3 s and 10 s; a
+  fourth crash within five minutes waits for Retry. The new Core records
+  `core.crashed` and an `error.recorded` event. A Core that stops answering the
+  15 s heartbeat within 10 s is ended and handled the same way.
+- **Shutdown**: `shutdown` message → Core stops services, checkpoints and closes
+  the database → exits; killed after 8 s if it does not. The whole app quits
+  within 12 s.
 
-Skills are namespaced `<pluginId>.<skillId>`, so two plugins can both expose
-`echo` without colliding.
+## Environments
 
-The registry does not know what a plugin is. An owner registers descriptors
-plus an `invoke` function and an `availability()` callback, and can withdraw
-them at any time. That is why a crashed plugin's skills vanish from the AI
-core's tool list within the same tick.
+|                 | development                                           | test                       | production                                   |
+| --------------- | ----------------------------------------------------- | -------------------------- | -------------------------------------------- |
+| Chosen when     | unpackaged + dev server, or `JUPITER_ENV=development` | `JUPITER_ENV=test`         | packaged or previewed builds (default)       |
+| Data folder     | `Jupiter (Development)`                               | explicit `--user-data-dir` | `Jupiter`                                    |
+| Log level       | debug                                                 | debug                      | info (the `logging.level` setting overrides) |
+| DevTools        | allowed                                               | no                         | no                                           |
+| Renderer source | loopback dev server                                   | `jupiter://app`            | `jupiter://app`                              |
 
-Every invocation is validated against the skill's declared JSON Schema first, so
-a plugin never receives input shaped differently from what it published.
-
----
-
-## Missions and the Supervisor
-
-One supervisor, not a swarm.
-
-```
-steps in order
-  ├─ requiresApproval? ─▶ WAITING_APPROVAL, block until approve/reject
-  ├─ no skillId?       ─▶ checkpoint: completes, records that it did no work
-  └─ skillId           ─▶ invoke, retry recoverable failures with backoff
-                          (TIMEOUT / PLUGIN_UNHEALTHY / EXECUTION_ERROR)
-                          INVALID_INPUT and SKILL_NOT_FOUND fail immediately —
-                          they would fail identically on every retry
-VERIFYING ─▶ re-check every step really finished ─▶ COMPLETED or FAILED
-```
-
-The verify pass matters: a mission is only ever reported COMPLETED after the
-supervisor has confirmed each step ended in `completed` or `skipped`.
-
-A step with no skill is a **checkpoint**. It completes immediately and records
-`{ type: 'checkpoint' }` — it never claims to have performed work it did not do.
-
-Planning (`missions:plan`) asks the configured model to emit JSON referencing
-live skill ids, and rejects a plan that names a skill that is not registered.
-There is no offline fallback that invents plausible-looking steps: with no
-working provider, planning fails and says why.
-
----
-
-## Workflow Engine
-
-Nodes execute one at a time. Branching is explicit — `next` on a node,
-`onTrue`/`onFalse` on a condition — rather than a general graph, and a visit
-counter stops a looping definition after 100 nodes.
-
-Condition nodes compare two interpolated strings with a named operator. There is
-no expression evaluation anywhere, so a workflow definition can never execute
-arbitrary code. `{{nodeId}}` interpolation pulls earlier results out of the run
-context. `file` nodes are confined to a workflow files directory the same way
-plugin writes are confined.
-
----
-
-## Command Center and the brain
-
-`src/main/core/app-state.ts` holds the live state; `Brain.tsx` renders it.
-
-The brain's palette, signal launch rate, signal speed, glow and jitter are all
-read from a per-state profile. A running mission's phase always wins over the
-ambient state, so the visual cannot disagree with the mission badge next to it.
-Idle is slow and dim on purpose: an animation that looks busy while nothing is
-happening would be a lie about system state, which is the thing the whole panel
-exists to prevent.
-
----
-
-## Persistence
-
-`node:sqlite`, which ships inside Electron's Node runtime. No native module, no
-rebuild step, no ABI mismatch — the most common way an Electron app fails to
-install on a new machine simply does not apply.
-
-Migrations are a numbered list applied in a transaction; a failure rolls back
-and reports which migration and which database file.
-
-Secrets live in a separate table, encrypted with `safeStorage` and flagged with
-whether encryption was actually available. Diagnostics reports the truth either
-way.
-
----
+The database lives at `<data folder>/jupiter.db`, backups in
+`<data folder>/backups/`.
 
 ## Logging
 
-One structured call per important action:
+JSON Lines as in SET 0 (`ts`, `level`, `event`, `message`, `component`,
+`sessionId`, `correlationId`, redacted `data`), rotated at 5 MB × 5 files. Core
+sends its entries to the host over the Core port; the host re-redacts them and
+owns the files, so one file holds both processes under one session id.
 
-```ts
-log.info('SKILL', `Invoking ${skillId}`, { input })
-```
+## Product shell (SET 2)
 
-Categories are `CORE`, `BROWSER`, `DB`, `MODEL`, `PLUGIN`, `SKILL`, `WORKFLOW`,
-`MISSION`, `PERMISSION`, `ERROR`. Every entry goes to the console, to SQLite and
-live to the renderer. Entries logged before the database opens are buffered and
-flushed, so boot-time failures are not lost.
+Decisions and alternatives: [ADR 0003](decisions/0003-product-shell-preferences-and-window-state.md).
+
+- **Destinations.** Twelve screens, each at its own address
+  (`#/home`, `#/chat`, … `#/diagnostics`); an unknown address opens Home.
+  `destinations.ts` states for each one whether it works and which SET builds
+  it. Home (Command Center), Chat, AI Models (since SET 3), Missions (since
+  SET 4), Skills (since SET 6), Settings and Diagnostics work. Memory, Files,
+  Automations, Devices and Plugins open a screen labelled _Coming later_ with its SET, and
+  have no enabled controls, progress or motion.
+- **Command Center.** The Jupiter stage (mark + status) is driven only by
+  Core's real state as the host reports it: idle, attention (a service
+  degraded or failed), starting, connecting, or unavailable (Core stopped). It
+  never shows "thinking" or "working". Next to it: the chat composer
+  (working since SET 3 when a model is set up; otherwise disabled and says why), the current-Mission card (says no Mission is running),
+  recent activity from the event bus, and System health.
+- **Shell.** Skip link; a sidebar that collapses to icons (compact mode or
+  Ctrl+B); a top bar with the Jupiter menu (keyboard shortcuts, About), the
+  network indicator (as Chromium sees it) and the Core indicator. F6 moves
+  between sidebar, top bar and content. Ctrl+1…9, Ctrl+, and Ctrl+Shift+D
+  open screens, and F1 or Ctrl+/ lists the shortcuts. Shortcuts are ignored
+  while a dialog is open. On each screen change, focus moves to the screen's
+  heading and the window title names the screen.
+- **Components** (`apps/desktop/src/renderer/src/components`): modal dialog
+  (native `<dialog>`, focus trapped and restored), menu button, tabs,
+  radio/switch/select form controls, toasts, determinate and indeterminate
+  progress (numbers only when both amounts are known), state messages (empty,
+  loading, offline, unavailable, error with retry), timeline, the permission
+  and identity-check dialog shells (identity check says _Unavailable_ and
+  offers only Cancel), and the Mission card.
+- **Preferences** are Core settings (`ui.language`, `ui.theme`,
+  `ui.textScale`, `ui.compact`, `ui.reduceMotion`, `ui.avatar`,
+  `notifications.desktop`), validated on write and on read. The interface sets
+  `lang`, `data-theme`, `data-compact`, `data-motion` and `data-avatar` on
+  `<html>` and the root font size (100–200%), so a change takes effect at once
+  with no restart. If the database is down, a change is applied for the
+  session, shown as not saved, and saved when the database is back.
+- **Window state.** The host keeps size, position, maximized state and the
+  last screen in `<data folder>/window-state.json` (validated, written
+  atomically), fits them to the current displays, and opens the window at the
+  last screen. The title bar is the native Windows one, dark.
+- **Design tokens** in `packages/ui/src/tokens.ts` (mirrored as CSS custom
+  properties in `tokens.css`, tested equal). Everything is sized in `rem` with
+  container queries, so text size and Windows scaling from 100% to 200% keep
+  the layout usable from 720×480 (the smallest window) up to 4K. Reduce Motion
+  (Follow Windows / On / Off) sets every transition and animation to none;
+  Static and Hidden Avatar stop or remove the mark and keep the status text.
+  High contrast and Windows forced colours are supported.
+- **Copy.** Every string comes from the English or Thai catalogue. Both
+  catalogues have the same keys and placeholders, and a unit test parses the
+  renderer and fails on literal copy in components.
+
+## AI providers, Model Router and Chat (SET 3)
+
+Decisions and alternatives: [ADR 0004](decisions/0004-providers-router-credentials-and-chat.md).
+
+- **Adapter port.** `packages/core/src/ai/adapter.ts` defines what an adapter
+  does (describe itself, list models, stream chat, optionally embed) and the
+  provider error codes. `@jupiter/providers` implements the OpenAI-compatible
+  and Anthropic protocols. `apps/desktop/src/core/adapters.ts` is the only
+  place that lists them; Core never names a provider.
+- **Network guard.** `ai/transport.ts` is the only way adapters reach the
+  network: locality from the address (loopback = this device), Local only
+  blocks cloud addresses before connecting, redirects are refused, and a key
+  is never sent over plain `http` off this computer.
+- **Router.** `ai/router.ts` (pure) picks a model by capability, mode (Auto,
+  Cloud, Hybrid, Local only), conversation pin, preferences and cost/latency,
+  with fallbacks only as the policy allows (`never`, `same-locality`,
+  `allowed-by-mode`). `ai.route.preview` shows the result in the interface.
+- **Keys.** The host `CredentialVault` encrypts each key with `safeStorage`
+  into `<data folder>/credentials/<id>.bin` (0600) and refuses to store keys
+  without OS protection. Core reads keys through host operations for the Core
+  actor only; the renderer only ever sees a fingerprint.
+- **Chat.** `ai/chat.ts` stores the question and a `streaming` answer, streams
+  text as transient `chat.message.delta` events (40 ms batches, with offsets),
+  and stores the finished answer once as complete, cancelled or failed.
+  Stop aborts the provider request; retry and edit supersede, never delete;
+  answers interrupted by a Core stop are marked failed at the next start.
+- **Interface.** _AI Models_ (providers, keys, models, routing and a live
+  route preview per capability) and _Chat_ (conversations, streaming, Stop,
+  Ask again, Edit, per-conversation mode and model, the model shown on every
+  answer, tool calls shown and never run). The Home composer sends into a new
+  conversation. With no usable model, composers are disabled and say _Not
+  configured_ or _Unavailable_ with the reason and a link to AI Models.
+
+## Missions (SET 4)
+
+Decisions and alternatives: [ADR 0005](decisions/0005-mission-state-machine-and-executions.md).
+
+- **State machine.** `MISSION_TRANSITIONS` (contracts) is the table of
+  allowed changes between the 13 statuses. `MissionManager.transition` (Core)
+  is the only code that changes a status: accepted changes are stored and
+  published, others are stored as rejected, published, refused with
+  `INVALID_MISSION_TRANSITION` and audited. COMPLETED also needs a passed
+  verification and every required step succeeded.
+- **Executions.** Each run is an attempt with its own steps; Retry adds a
+  linked attempt and never changes an earlier one. History tables are
+  append-only.
+- **Runner.** Replaced in SET 5 by the Workflow Engine (below): a failed
+  required step ends the attempt as FAILED, a failed optional one allows
+  PARTIAL_SUCCESS.
+- **Timeline.** Persistent events on `mission/<id>`, turned into plain
+  language by the interface; rebuilt identically after a restart.
+- **Interface.** _Missions_ lists Missions and shows one in detail (request,
+  status, progress by finished steps, current and next step, elapsed time,
+  model, steps, results, verification, attempts, recovery actions and the
+  timeline). Home's Mission card and stage follow the current Mission.
+
+## Planner and Workflow Engine (SET 5)
+
+Decisions and alternatives: [ADR 0006](decisions/0006-planner-and-workflow-engine.md).
+
+- **Plans.** `PlanDraft`/`Plan` (contracts): goal, assumptions, a short
+  rationale, steps (id, title, description, step type, dependencies, input,
+  condition, timeout, retry policy, output check, required), required skills
+  and permissions, expected artifacts and a verification plan. Revisions are
+  kept; a re-plan adds one linked to the previous.
+- **Planner** (`packages/core/src/workflow/`). The chat model is asked for one
+  JSON plan (never its reasoning), through the same guarded path as Chat. Its
+  output must pass the strict schema and `validatePlan` (cycles, missing
+  dependencies, unknown/unavailable step types, undeclared skills, any
+  permission, timeouts, inputs, `{{step}}` references, conditions,
+  verification); otherwise it is stored as a rejection with its reasons and
+  nothing runs. Jupiter's answer plan is available as a template plan.
+- **Step types.** A built-in catalogue, plus every registered Skill whose inputs are text (SET 6):
+  `model.generate`, `text.compose`, `checkpoint.approval`, and
+  `checkpoint.identity` marked unavailable (SET 14).
+- **Engine** (`MissionManager.runWorkflow`). Runs the dependency graph:
+  independent steps in parallel (at most 3), conditions, per-attempt
+  timeouts, bounded retries with growing waits, outputs passed as `{{step}}`,
+  approval checkpoints (Mission WAITING_APPROVAL), Pause when no step runs,
+  Cancel aborting every running step. Each attempt is recorded; a step's
+  output is stored once, with its completion, and never produced again (the
+  step id is the idempotency key). The verification plan runs in VERIFYING.
+- **Recovery.** After a restart, running workflows continue from the stored
+  state: cut-off attempts are recorded as interrupted and run again;
+  completed steps are not. Paused and waiting Missions keep waiting.
+- **Service.** `workflow-engine` is a Core service with a real self-check;
+  commands that plan or run workflows require it.
+- **Interface.** The Mission screen shows the plan (source, revision, goal,
+  assumptions, rationale, expected results, checks, revisions, rejections
+  with reasons), the workflow by stages (status, current step, dependencies,
+  conditions, attempts and their outcomes, time limit, waiting), approval
+  with Approve/Reject, and _Correct and re-plan_ with corrections and a
+  planner choice. New Missions choose the planner or the answer plan.
+
+## Skill System (SET 6)
+
+Decisions and alternatives: [ADR 0007](decisions/0007-skill-registry-and-sandbox.md).
+
+- **Definitions.** `SkillDefinition` (contracts): id, name, description,
+  version, input and output schemas (a strict JSON Schema subset), permissions,
+  timeout, category, provider and compatible runtime. Invalid metadata is
+  refused at registration with every reason.
+- **Registry** (`packages/core/src/skills/registry.ts`, Core service
+  `skill-registry`): register, unregister, get, search, enable, disable,
+  health check, invoke, cancel, list versions. Built-in Skills: `echo_text`,
+  `get_app_version`, `get_system_time`, `list_available_skills`.
+- **Sandbox** (`WorkerSkillSandbox`, `@jupiter/core/node`): a worker thread
+  per invocation, the Skill's code in a `vm` context with no `require`,
+  `process`, timers or environment; timeout and cancel terminate the thread.
+  A broken Skill ends as a structured failure; Core carries on.
+- **Permissions.** A Skill may use only the resources it declared; each
+  resource fixes its capability and exact target, and every use is decided
+  by the Permission Engine (SET 7). An undeclared use fails the execution
+  with `PERMISSION_DENIED`; a declared one without a grant ends the run as
+  `WAITING_APPROVAL` and asks the person.
+- **Validation.** Disabled, unhealthy, incompatible or unknown Skills do not
+  run; input and output are checked against the schemas; invalid output fails
+  the execution.
+- **Workflows.** Registered Skills are step types: the planner offers them,
+  the validator checks them, the engine runs them through the registry.
+- **Interface.** The Skill Center lists Skills with search and filters
+  (category, provider, health) and shows provider, category, enabled state,
+  permissions with risk, version(s), health with detail and last check,
+  runtime, schemas and recent runs; low-risk internal Skills can be tried
+  through a real invocation with Cancel.
+
+## Permission Engine (SET 7)
+
+Decisions and alternatives: [ADR 0008](decisions/0008-permission-engine.md).
+
+- **Catalogue.** `PERMISSION_CATALOGUE` (contracts): every capability with its
+  risk (LOW, MEDIUM, HIGH, CRITICAL), summary, consequence, reversibility and
+  what leaves the computer. Unknown capabilities are always denied.
+- **Engine** (`packages/core/src/permissions/engine.ts`, Core service
+  `permission-engine`): `check` at the moment of use — deny by default; a
+  grant must match capability, requester (kind and id), exact target (or a
+  `*` prefix), Mission, session and expiry. Otherwise a request is put to
+  the person. ALLOW_ONCE is used up in the same transaction; ALLOW_SESSION
+  ends with the Core process; ALWAYS_ALLOW until revoked; CRITICAL (and HIGH
+  started by an automation) accept only a fresh ALLOW_ONCE.
+- **Who decides.** Only the `user-interface` actor may answer or revoke
+  (dispatcher policy and the engine). Jupiter's defaults are visible grants
+  made once by `core`, revocable, never recreated after revocation.
+- **Missions.** A Skill step without a grant waits (step WAITING, Mission
+  WAITING_APPROVAL); allow runs it again, deny fails it with
+  `PERMISSION_DENIED`. After a Core restart the request has expired and the
+  step asks again.
+- **Storage.** Migration 7: `permission_requests`, `permission_grants`
+  (ended, never deleted) and the append-only `permission_audit` (redacted).
+- **Interface.** A global permission dialog (all facts of the request, only
+  the offered answers, Deny focused first, no close button); Settings ›
+  Permissions (pending requests, grants with Revoke, audit trail); Mission
+  notice for a step waiting for permission; the Skill Center shows granted
+  permissions.
+
+## Windows Computer Agent (SET 8)
+
+Decisions and alternatives: [ADR 0009](decisions/0009-windows-computer-agent.md).
+
+- **Actions** (`ComputerAction`, contracts): OPEN_APP, CLOSE_APP,
+  FOCUS_WINDOW, MANAGE_WINDOW, LIST_WINDOWS, WAIT_FOR_WINDOW, READ_UI_TREE,
+  CLICK_ELEMENT, TYPE_TEXT, PRESS_KEYS, SCROLL, SELECT_ELEMENT, SCREENSHOT,
+  SAVE_FILE and the opt-in CLICK_POINT. Each returns action, target, success,
+  method (UI Automation, keyboard, coordinate, system), observation,
+  evidence, error, started and completed.
+- **Core** (`packages/core/src/computer/`, service `computer-agent`): asks for
+  every permission before acting, runs actions one at a time, checks each
+  effect (text read back, file read back, window state), re-resolves stale
+  windows, cancels at the next boundary, stores tasks (migration 8) and
+  publishes `computer.*` events. Adapters: Generic Windows, Notepad, File
+  Explorer.
+- **Host** (`computer-host.ts`, host operation `host.computer.call`, Core
+  only): the only place that knows executables, the save folder (Desktop) and
+  the evidence folder; verifies saved files.
+- **Agent runtime** (`services/agent-runtime`, host service `agent-runtime`):
+  PowerShell with the .NET UI Automation client, one JSON-lines call at a
+  time, deadlines, crash reporting and restart.
+- **Missions**: step type `computer.notepad_write` (unavailable where the
+  host has no agent).
+- **Interface**: Diagnostics › Computer Agent (availability, runtime,
+  screen, save folder, recent tasks with per-action method and observation);
+  permission requests in the global dialog.
+
+## Not in SET 8
+
+Computer vision and drag and drop for the Computer Agent, the Browser Agent
+(SET 9), attachments through the Artifact Manager (SET 10), identity
+verification (SET 14), plugins with their own runtime (SET 15), and everything
+after that. The five unfinished destinations are shown as _Coming later_ in
+the app, and none of them is presented as working.

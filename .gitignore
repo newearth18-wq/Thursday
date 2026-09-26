@@ -1,11 +1,16 @@
 node_modules/
 out/
 dist/
+coverage/
 .vite/
 *.log
-
-# Plugin entry files are generated from plugins/*/src by `npm run build:plugins`.
-plugins/*/index.js
-
-# TypeScript incremental build info
 *.tsbuildinfo
+
+# Local environment files never belong in version control. Jupiter keeps
+# credentials in OS-backed secure storage, never in .env files.
+.env
+.env.*
+!.env.example
+
+# Test and verification evidence produced locally (CI uploads its own copy).
+test-results/

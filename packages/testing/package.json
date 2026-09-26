@@ -1,0 +1,19 @@
+{
+  "name": "@jupiter/testing",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Test helpers: launching the real Jupiter Electron app with Playwright and isolated profiles, credential-shaped test values, and provider protocol test servers.",
+  "license": "MIT",
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts",
+    "./fake-credentials": "./src/fake-credentials.ts",
+    "./protocol-servers": "./src/protocol-servers.ts"
+  },
+  "scripts": {
+    "typecheck": "tsc -p tsconfig.json"
+  },
+  "devDependencies": {
+    "playwright": "^1.63.0"
+  }
+}
