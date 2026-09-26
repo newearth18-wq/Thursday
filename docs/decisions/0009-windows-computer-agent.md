@@ -86,9 +86,20 @@ Jupiter's own processes are never affected.
 ### 3. Semantic first, verified always
 
 **Controls.** Controls are found by automation id, name, control type and
-class. Notepad's adapter uses the Document control and the common Save As
-dialog, by automation ids `1001` (file name) and `1` (Save). The Save
-dialog is opened with Notepad's own accelerator, Ctrl+S.
+class. Notepad's adapter finds its editor by role: the current Notepad's
+`RichEditD2DPT` Document, or classic Notepad's Win32 `Edit` control (found by
+class, since UI Automation may report it as an Edit, a Document or a Pane).
+It uses the common Save As dialog by automation ids `1001` (file name) and
+`1` (Save), opened with Notepad's own accelerator, Ctrl+S.
+
+**Classic Win32 controls.** The runtime registers UI Automation's client-side
+providers, which some Windows editions do not load by themselves. When a
+classic Win32 edit box still has no Value pattern, the runtime reads and sets
+its text through the control's own messages (`WM_GETTEXT`, `WM_SETTEXT`),
+gives it focus with Win32 focus, and clicks a classic button with `BM_CLICK`:
+still the control's semantic content, never a screen position. Windows are
+listed from the window manager (`EnumWindows`), so a window that UI
+Automation misses for a moment is not reported as closed.
 
 **Typing.** The agent sets the control's value through UI Automation's
 Value pattern when it has one, and falls back to the keyboard otherwise.

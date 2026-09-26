@@ -152,7 +152,8 @@ export class FakeDesktop {
             window.fileName,
             this.faults.saveWritesWrongContent ? `${notepad.text} (changed)` : notepad.text
           )
-          notepad.title = `${window.fileName.split('\\').pop() ?? ''} - Notepad`
+          // As Notepad names itself when Windows hides file extensions ("hello - Notepad").
+          notepad.title = `${(window.fileName.split('\\').pop() ?? '').replace(/\.[^.]*$/, '')} - Notepad`
           this.windows = this.windows.filter((item) => item !== window)
         }
         return { element }

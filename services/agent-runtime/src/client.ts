@@ -246,6 +246,10 @@ export class AgentRuntime {
           )
         }
       })
+      // Writing to a runtime that has just died fails (EPIPE); its exit is reported to the callers.
+      child.stdin.on('error', (error) => {
+        this.lastErrorText ??= `The agent runtime stopped reading requests: ${error.message}`
+      })
       child.stderr.on('data', (chunk: Buffer) => {
         this.stderr = (this.stderr + chunk.toString('utf8')).slice(-4_000)
       })
