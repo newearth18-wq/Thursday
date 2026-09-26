@@ -53,11 +53,14 @@ const notepad: AppAdapter = {
   app: 'notepad',
   name: 'Notepad',
   owns: genericOwns(['notepad']),
-  // Classic Notepad exposes its text as an Edit control; the current Notepad as a Document.
+  // The current Notepad's text is a RichEditD2DPT Document. Classic Notepad's is its Win32
+  // Edit control (automation id 15), which UI Automation reports as an Edit, a Document or,
+  // without its client-side providers, a Pane: it is found by its class, whatever its type.
   editor: [
-    { controlType: 'Edit', className: 'Edit' },
+    { className: 'RichEditD2DPT' },
     { controlType: 'Document' },
-    { className: 'RichEditD2DPT' }
+    { automationId: '15', className: 'Edit' },
+    { className: 'Edit' }
   ],
   async save(context, window, path) {
     const { driver } = context
