@@ -2,7 +2,8 @@
 
 - Status: **all 10 acceptance tests pass on a real Windows desktop**, and the
   required demonstration passes in the real application. Evidence: CI on
-  Linux, Windows and Legacy (`61a2bd9`, run 36250056233). See §7 and §12.
+  Linux, Windows and Legacy (`692a928`, run 36251841189, attempt 2; the
+  real-desktop suite also passed on `61a2bd9`, run 36250056233). See §7 and §12.
   Tagged `jupiter-set-08-windows-computer-agent`.
 - SET 7 was checked first: green in CI on Linux and Windows (`f6ec992`,
   run 36231978700) and tagged `jupiter-set-07-permission-and-security-engine`.
@@ -258,7 +259,7 @@ CI: GitHub Actions runs on PR #4 and PR #5, the Linux and Windows jobs.
 
 ## 7. Automated test results
 
-### CI evidence (commit `61a2bd9`, run 36250056233)
+### CI evidence (commit `692a928`, run 36251841189, attempt 2)
 
 | Job                                                                                                                   | Result  |
 | --------------------------------------------------------------------------------------------------------------------- | ------- |
@@ -268,6 +269,11 @@ CI: GitHub Actions runs on PR #4 and PR #5, the Linux and Windows jobs.
 
 On Windows: 32 test files passed and 1 was skipped; 242 tests passed and 5
 were skipped. The skipped ones are the Linux-only "Unavailable" checks.
+
+The same results, all 10 real-desktop tests and the demonstration, were first
+green on `61a2bd9` (run 36250056233). The demonstration then failed once, on
+a documentation-only commit, which is why `692a928` changed the permission
+dialog (see the table below).
 
 The SET 8 suites in that run:
 
@@ -290,15 +296,17 @@ What the Windows run did:
 
 The Windows runner showed what could not be known in advance:
 
-| Run | Found                                                                                                                           | Fix                                                                                                 |
-| --- | ------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------- |
-| 24  | The editor query `controlType=Document` did not match; the E2E waited for the dialog to hide between requests; no display modes | Editor found by role; the E2E waits for the next request id; display modes read in C#               |
-| 26  | A diagnostic printed Notepad's UI tree: its editor was a Win32 `Edit` (id 15) reported as a bare `Pane`                         | Editor candidates include the Win32 `Edit` by class; windows listed with `EnumWindows`              |
-| 28  | UI Automation could not focus that Pane; an unhandled EPIPE after the crash test                                                | Win32 focus fallback; the runtime client handles errors on its input stream                         |
-| 29  | Typing verified, but the Save button (`Button` id 1) was also a bare Pane                                                       | Button found by class and clicked with `BM_CLICK`                                                   |
-| 30  | The file was checked before Notepad had written it; after a UI Automation move, Notepad's window was no longer visible          | Wait for Notepad's title to name the file; move and resize with `SetWindowPos`; invisible = failure |
-| 31  | Notepad titles the file without its extension ("hello - Notepad")                                                               | Title matched with or without the extension; the test double does the same                          |
-| 32  | —                                                                                                                               | All green                                                                                           |
+| Run | Found                                                                                                                                        | Fix                                                                                                 |
+| --- | -------------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------- |
+| 24  | The editor query `controlType=Document` did not match; the E2E waited for the dialog to hide between requests; no display modes              | Editor found by role; the E2E waits for the next request id; display modes read in C#               |
+| 26  | A diagnostic printed Notepad's UI tree: its editor was a Win32 `Edit` (id 15) reported as a bare `Pane`                                      | Editor candidates include the Win32 `Edit` by class; windows listed with `EnumWindows`              |
+| 28  | UI Automation could not focus that Pane; an unhandled EPIPE after the crash test                                                             | Win32 focus fallback; the runtime client handles errors on its input stream                         |
+| 29  | Typing verified, but the Save button (`Button` id 1) was also a bare Pane                                                                    | Button found by class and clicked with `BM_CLICK`                                                   |
+| 30  | The file was checked before Notepad had written it; after a UI Automation move, Notepad's window was no longer visible                       | Wait for Notepad's title to name the file; move and resize with `SetWindowPos`; invisible = failure |
+| 31  | Notepad titles the file without its extension ("hello - Notepad")                                                                            | Title matched with or without the extension; the test double does the same                          |
+| 32  | —                                                                                                                                            | All green                                                                                           |
+| 33  | The same code, on a docs-only commit: after "Allow once" the dialog kept the answered request for 15 s, while Core had nothing pending       | The dialog drops a request as soon as Core confirms the answer, without waiting to re-read the list |
+| 34  | All SET 8 tests and the demonstration passed. SET 5 AT6 and SET 7 AT3 failed on a runner whose SQLite-only suites ran 3–8× slower than usual | Re-run once (explained on PR #5): all green at normal speed (attempt 2)                             |
 
 Two tests from earlier SETs were also adjusted:
 
@@ -341,7 +349,7 @@ Computer Agent card saying **Unavailable** and "needs Windows".
 - `04-computer-agent-diagnostics.png`: the task, with each action's method
   and observation
 
-They are in the CI artifact `jupiter-windows-installer` of run 36250056233,
+They are in the CI artifact `jupiter-windows-installer` of run 36251841189,
 under `test-results/set-08/`. The proxy of the environment that wrote this
 report blocks downloads from GitHub's artifact storage. So these screenshots
 were **not** copied into the repository, and they were **not** reviewed by
@@ -394,15 +402,17 @@ npx vitest run apps/desktop/test/computer-windows.integration.test.ts
 
 ## 11. Evidence and artifact paths
 
-- **CI run 36250056233** (commit `61a2bd9`):
-  - Windows job 108426278373 log: the SET 8 suites, the Notepad diagnostic
+- **CI run 36251841189, attempt 2** (commit `692a928`):
+  - Windows job 108433436645 log: the SET 8 suites, the Notepad diagnostic
     and the demonstration
   - artifact `jupiter-windows-installer`: `test-results/set-08/*.png`
+- **CI run 36250056233** (commit `61a2bd9`): the first all-green run, Windows
+  job 108426278378
 - `docs/sets/set-08/01-unavailable-here.png` (Linux)
 
 ## 12. Acceptance tests
 
-| #   | Test                                                         | Status   | Evidence (Windows CI run 36250056233 unless noted)                                                                                                                                                                                                           |
+| #   | Test                                                         | Status   | Evidence (Windows CI, runs 36250056233 and 36251841189, unless noted)                                                                                                                                                                                        |
 | --- | ------------------------------------------------------------ | -------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
 | 1   | Launch real Notepad                                          | **PASS** | `OPEN_APP` starts System32 `notepad.exe`. It succeeds only when a new Notepad window appears (handle, process). The diagnostic test recorded the process, `C:\Windows\System32` and version 10.0.26100.32860                                                 |
 | 2   | Type actual text                                             | **PASS** | `TYPE_TEXT` into the editor (a Win32 `Edit`, found by class), method `keyboard`; succeeds only when reading the control back equals the text ("reading Pane #15 back confirms the text is there")                                                            |
