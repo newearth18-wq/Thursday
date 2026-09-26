@@ -1,8 +1,10 @@
 # SET 4 — Mission System
 
-- Status: **all 10 acceptance tests pass locally on Linux**, after a clean
-  `npm ci` and `npm run verify` (13/13 steps). CI on Linux and Windows is
-  recorded in §7 once it has run on the pushed commit.
+- Status: **all 10 acceptance tests pass** locally on Linux, after a clean
+  `npm ci` and `npm run verify` (13/13 steps), and in CI on Linux and Windows
+  (commit `4dd4b9c`, run 36210734566). See §7.
+- Checkpoint tag: `jupiter-set-04-mission-system` on `4dd4b9c` (created in the
+  development environment, which can push branches only).
 - SET 3 re-checked before SET 4 was committed: green in CI on Linux and
   Windows (`abb94f8`, run 36208820322), tagged
   `jupiter-set-03-ai-providers-and-chat`.
@@ -112,8 +114,13 @@ unpacked builds and validation, packaged launch).
 The first push (`0bcbc6c`) failed CI at lint: three findings in two new test
 files. Fixed in `323ce81` before any test step ran.
 
-CI (Linux and Windows) on the pushed commit: see the pull request; this
-section is updated with the run once it completes.
+### CI evidence (commit `4dd4b9c`, run 36210734566)
+
+| Job                                                                                                                                  | Result  |
+| ------------------------------------------------------------------------------------------------------------------------------------ | ------- |
+| Linux — format, lint, typecheck, unit, build, integration + E2E (incl. the 8 SET 4 E2E tests), secret scan, dev smoke, packages      | success |
+| Windows — unit, integration and E2E (incl. the SET 4 E2E and in-process suites), NSIS installer, package validation, packaged launch | success |
+| Legacy Thursday — build and acceptance checks                                                                                        | success |
 
 ## 8. Manual tests
 
