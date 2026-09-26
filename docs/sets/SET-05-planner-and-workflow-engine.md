@@ -1,8 +1,10 @@
 # SET 5 — Planner and Workflow Engine
 
 - Status: **all 10 acceptance tests pass** locally on Linux with
-  `npm run verify` (13/13 steps). See §7. CI evidence is recorded in §7 once
-  the pushed commit has run.
+  `npm run verify` (13/13 steps), and in CI on Linux and Windows (commit
+  `8d21447`, run 36226415156). See §7.
+- Checkpoint tag: `jupiter-set-05-planner-and-workflow-engine` on `8d21447`
+  (created in the development environment, which can push branches only).
 - SET 4 re-checked first: green in CI on Linux and Windows (`4dd4b9c`, run
   36210734566), tagged `jupiter-set-04-mission-system`. Its E2E and in-process
   suites pass again on the SET 5 code (§12).
@@ -169,9 +171,13 @@ the recorded run: two parallel requests race for scripted replies, so the
 restart tests now make the step that is cut off depend on the other one,
 and assertions about parallel outputs accept either order.
 
-### CI evidence
+### CI evidence (commit `8d21447`, run 36226415156)
 
-Recorded after the push (see the PR's checks).
+| Job                                                                                                                                  | Result  |
+| ------------------------------------------------------------------------------------------------------------------------------------ | ------- |
+| Linux — format, lint, typecheck, unit, build, integration + E2E (incl. the 8 SET 5 E2E tests), secret scan, dev smoke, packages      | success |
+| Windows — unit, integration and E2E (incl. the SET 5 E2E and in-process suites), NSIS installer, package validation, packaged launch | success |
+| Legacy Thursday — build and acceptance checks                                                                                        | success |
 
 ## 8. Manual tests
 
