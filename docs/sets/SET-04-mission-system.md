@@ -86,14 +86,31 @@ upgrade (SET 1 mechanism).
 
 ```bash
 npm ci                    # 0 vulnerabilities
-npm run verify            # result recorded in §7
+npm run verify            # 13/13 steps PASS (on 323ce81)
 node scripts/with-display.mjs npx vitest run --project integration apps/desktop/test/missions.integration.test.ts   # 8/8
 npx vitest run --project integration apps/desktop/test/missions-core.integration.test.ts                          # 8/8
 ```
 
 ## 7. Automated test results
 
-The full `npm run verify` result and the per-suite counts are added here once the run on the final tree completes.
+`npm run verify` on `323ce81`: **13/13 steps PASS** (format, lint, typecheck,
+unit, build, integration + E2E, secret scan, dev smoke, Windows and Linux
+unpacked builds and validation, packaged launch).
+
+| Suite                                          | Result                                                                      |
+| ---------------------------------------------- | --------------------------------------------------------------------------- |
+| Unit (23 files)                                | **220 passed**, 0 failed (incl. 4 new Mission state-machine contract tests) |
+| Integration (20 files)                         | **140 passed**, 0 failed, 3 skipped (packaged tests, run as their own step) |
+| — SET 4 E2E, real app (`missions.integration`) | **8 passed**                                                                |
+| — SET 4 Core in process (`missions-core`)      | **8 passed**                                                                |
+| — database (`missions.integration`, new)       | **4 passed**                                                                |
+| Packaged app launch (Linux unpacked)           | **3 passed**                                                                |
+| Development-mode smoke                         | **5/5**                                                                     |
+| Secret scan (sources + build output)           | **341 files**, 0 findings                                                   |
+| Windows / Linux package validation             | **6/6** / **5/5**                                                           |
+
+The first push (`0bcbc6c`) failed CI at lint: three findings in two new test
+files. Fixed in `323ce81` before any test step ran.
 
 CI (Linux and Windows) on the pushed commit: see the pull request; this
 section is updated with the run once it completes.
