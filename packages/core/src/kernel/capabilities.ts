@@ -73,6 +73,15 @@ const SKILL_INVOKE: Policy = { ...SKILL_WRITE, risk: 'MEDIUM', timeoutMs: 610_00
 /** Permissions (SET 7): only the person may answer or revoke; every change is audited. */
 const PERMISSION_READ: Policy = { ...UI_READ, requires: ['database', 'permission-engine'] }
 const PERMISSION_WRITE: Policy = { ...PERMISSION_READ, risk: 'HIGH', audit: 'always' }
+/** The Windows Computer Agent (SET 8): every task is audited; a task may take minutes. */
+const COMPUTER_READ: Policy = { ...UI_READ, requires: ['database', 'computer-agent'] }
+const COMPUTER_RUN: Policy = {
+  ...COMPUTER_READ,
+  requires: ['database', 'permission-engine', 'computer-agent'],
+  risk: 'HIGH',
+  audit: 'always',
+  timeoutMs: 600_000
+}
 /** Commands that plan or run a workflow (SET 5) also need the workflow engine. */
 const WORKFLOW_WRITE: Policy = {
   ...MISSION_WRITE,
@@ -427,6 +436,31 @@ export function coreCapabilities(kernel: CoreKernel): CapabilityDefinition<never
     })),
 
     // ---- Permissions (SET 7) ----
+    // ---- Windows Computer Agent (SET 8) ----
+    define('computer.status', { ...COMPUTER_READ, timeoutMs: 30_000 }, () =>
+      kernel.computer.status()
+    ),
+    define(
+      'computer.run',
+      COMPUTER_RUN,
+      (input, context) =>
+        kernel.computer.run(input, {
+          actor: context.request.actor.type,
+          correlationId: context.request.correlationId,
+          signal: context.signal
+        }),
+      (input) => `computer-task:${input.taskId}`
+    ),
+    define(
+      'computer.cancel',
+      { ...COMPUTER_READ, audit: 'always' },
+      (input) => ({ cancelled: kernel.computer.cancel(input.taskId) }),
+      (input) => `computer-task:${input.taskId}`
+    ),
+    define('computer.tasks', COMPUTER_READ, (input) => ({
+      tasks: kernel.computer.tasks(input.limit)
+    })),
+
     define('permissions.catalogue', PERMISSION_READ, () => ({
       capabilities: kernel.permissions.catalogue()
     })),

@@ -17,6 +17,7 @@ export default defineConfig({
           name: 'unit',
           include: [
             'packages/*/src/**/*.test.{ts,tsx}',
+            'services/*/src/**/*.test.ts',
             'apps/*/src/**/*.test.{ts,tsx}',
             'apps/*/scripts/**/*.test.ts'
           ],
@@ -31,6 +32,7 @@ export default defineConfig({
           include: [
             'packages/*/src/**/*.integration.test.ts',
             'packages/*/test/**/*.integration.test.ts',
+            'services/*/test/**/*.integration.test.ts',
             'apps/*/test/**/*.integration.test.ts'
           ],
           environment: 'node',

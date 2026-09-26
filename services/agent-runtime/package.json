@@ -1,11 +1,21 @@
 {
   "name": "@jupiter/agent-runtime",
-  "version": "0.0.0",
+  "version": "0.1.0",
   "private": true,
-  "description": "Coming later (SET 8): isolated process that runs agents such as the Windows Computer Agent behind a narrow, typed RPC contract.",
+  "description": "The agent runtime (SET 8): Windows UI Automation in its own process, behind a narrow, typed RPC contract.",
   "license": "MIT",
-  "jupiter": {
-    "status": "COMING_LATER",
-    "plannedSet": 8
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "scripts": {
+    "typecheck": "tsc -p tsconfig.json"
+  },
+  "dependencies": {
+    "@jupiter/contracts": "0.1.0",
+    "zod": "^4.6.5"
+  },
+  "devDependencies": {
+    "@jupiter/testing": "0.1.0"
   }
 }

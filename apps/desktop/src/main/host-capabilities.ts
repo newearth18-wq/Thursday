@@ -7,6 +7,7 @@ import {
   type ErrorEnvelope
 } from '@jupiter/contracts'
 import { JupiterError, createErrorEnvelope, describeError, type Logger } from '@jupiter/core'
+import type { ComputerHost } from './computer-host'
 import type { CredentialVault } from './credential-vault'
 
 /**
@@ -41,6 +42,8 @@ export interface HostCapabilityDependencies {
   readonly openPath: (path: string) => Promise<string>
   readonly notifier: DesktopNotifier
   readonly vault: CredentialVault
+  /** The Windows Computer Agent's host side (SET 8). */
+  readonly computer: ComputerHost
   readonly now?: () => number
 }
 
@@ -51,7 +54,8 @@ export const HOST_CAPABILITIES = [
   'host.credentials.status',
   'host.credentials.store',
   'host.credentials.read',
-  'host.credentials.delete'
+  'host.credentials.delete',
+  'host.computer.call'
 ] as const
 
 /** Desktop notifications the interface may show per minute. */
@@ -80,6 +84,8 @@ export class HostCapabilities {
       case 'host.credentials.read':
       case 'host.credentials.delete':
         return this.credentialOperation(call, call.capability, log)
+      case 'host.computer.call':
+        return this.computerOperation(call, log)
       default:
         log.warn('host-capability.unknown', `Refused unknown host capability ${call.capability}`)
         return this.failure(
@@ -235,6 +241,50 @@ export class HostCapabilities {
         'HOST_ACTION_FAILED',
         'dependency',
         `Secure storage failed: ${describeError(error)}`,
+        null
+      )
+    }
+  }
+
+  /** Computer actions are performed only for Jupiter Core, which has already checked the permissions. */
+  private async computerOperation(call: HostCall, log: Logger): Promise<HostOutcome> {
+    if (call.actor.type !== 'core') {
+      log.warn('host-capability.denied', `Refused host.computer.call for ${call.actor.type}`)
+      return this.failure(
+        'PERMISSION_DENIED',
+        'permission',
+        'Only Jupiter Core may use host.computer.call.',
+        null
+      )
+    }
+    const input = HostOperations['host.computer.call'].input.safeParse(call.input)
+    if (!input.success)
+      return this.failure(
+        'INVALID_PAYLOAD',
+        'validation',
+        `Invalid input for host.computer.call: ${input.error.issues.map((issue) => issue.message).join('; ')}`,
+        null
+      )
+    try {
+      return { ok: true, data: await this.deps.computer.call(input.data) }
+    } catch (error) {
+      if (error instanceof JupiterError) {
+        log.info('host-capability.computer.failed', `${input.data.op} failed: ${error.code}`)
+        return {
+          ok: false,
+          error: createErrorEnvelope({
+            code: error.code,
+            category: error.category,
+            message: error.message,
+            userAction: error.userAction,
+            retryable: error.retryable
+          })
+        }
+      }
+      return this.failure(
+        'HOST_ACTION_FAILED',
+        'dependency',
+        `The computer action failed: ${describeError(error)}`,
         null
       )
     }

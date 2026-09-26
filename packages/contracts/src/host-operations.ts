@@ -1,5 +1,6 @@
 import { z } from 'zod'
 import { ApiKeyInput } from './ai'
+import { AutomationCall } from './computer'
 import { Uuidv7 } from './primitives'
 
 /**
@@ -33,7 +34,12 @@ export const HostOperations = {
   'host.credentials.delete': {
     input: z.object({ credentialId: Uuidv7 }).strict(),
     output: z.object({ deleted: z.boolean() }).strict()
-  }
+  },
+  /**
+   * The Windows Computer Agent's calls (SET 8). The result is checked by
+   * Core against the operation's own result schema (`AutomationOps`).
+   */
+  'host.computer.call': { input: AutomationCall, output: z.unknown() }
 } as const satisfies Record<string, { input: z.ZodType; output: z.ZodType }>
 
 export type HostOperationName = keyof typeof HostOperations

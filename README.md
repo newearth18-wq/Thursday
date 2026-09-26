@@ -3,25 +3,23 @@
 Jupiter is a Windows desktop AI agent, built in stages (SET 0–24). This
 repository is the Jupiter monorepo.
 
-**Current stage: SET 7 — Permission and Security Engine** (on top of SET 6,
-Skill System; SET 5, Planner and Workflow Engine; SET 4, Mission System;
-SET 3, AI providers, Model Router and Chat; SET 2, the product shell; SET 1,
-Core architecture; and SET 0, the repository foundation). Nothing Jupiter
-does with an effect happens without a **permission** that matches exactly
-what, who, which target and for how long. When one is missing, Jupiter asks
-you: what it wants to do, why, the exact target, the risk, which Mission,
-step and Skill, what leaves your computer, the consequence and whether it can
-be undone. You answer Allow once, Allow until Jupiter closes, Always allow or
-Deny (critical actions offer only Allow once and Deny, every time).
-_Settings › Permissions_ lists every permission given, lets you revoke it,
-and shows the audit trail. **Skills** are what Jupiter can do: typed,
-checked, cancellable capabilities, each run isolated. A request becomes a
-**Mission**, which the **planner** turns into a checked plan of steps; the
-plan runs as a workflow with parallel steps, approvals, permissions,
-retries and timeouts, and continues after a restart. _Chat_ streams answers
-with Stop, Ask again and Edit. Home, Chat, Missions, Skills, AI Models,
-Settings and Diagnostics work; the other five screens are labelled _Coming
-later_ with the SET that builds them.
+**Current stage: SET 8 — Windows Computer Agent** (on top of SET 7,
+Permission and Security Engine; SET 6, Skill System; SET 5, Planner and
+Workflow Engine; SET 4, Mission System; SET 3, AI providers, Model Router and
+Chat; SET 2, the product shell; SET 1, Core architecture; and SET 0, the
+repository foundation). On Windows, Jupiter can use real applications through
+Windows UI Automation: open Notepad, type exact text, save it through Notepad's
+own Save As dialog to your Desktop, and read the file back before it reports
+success. Every action asks for its permission first (with the exact file
+path), returns what it really observed, and can be cancelled; the automation
+runs in its own process, so a fault there never takes Jupiter down. Coordinate
+clicks are an opt-in, labelled last resort. On other systems the agent is shown
+as _Unavailable_, with the reason. Nothing Jupiter does with an effect happens
+without a **permission** that matches exactly what, who, which target and for
+how long; _Settings › Permissions_ lists them and the audit trail. **Skills**,
+**Missions** planned by your model, _Chat_, _AI Models_, _Settings_ and
+_Diagnostics_ work; the other five screens are labelled _Coming later_ with
+the SET that builds them.
 
 |                 |                                                                                            |
 | --------------- | ------------------------------------------------------------------------------------------ |

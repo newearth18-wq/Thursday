@@ -3,6 +3,7 @@ import { JupiterError, describeError, type ServiceSupervisor } from '@jupiter/co
 import { probeWritableDirectory, type RotatingFileSink } from '@jupiter/core/node'
 import { readBuildMetadata } from './build-metadata'
 import type { CoreProcessManager } from './core-process'
+import type { ComputerHost } from './computer-host'
 import type { CredentialVault } from './credential-vault'
 import type { MainEnvironment } from './environment'
 
@@ -19,18 +20,13 @@ interface ServiceDependencies {
   readonly fileSink: RotatingFileSink
   readonly core: CoreProcessManager
   readonly vault: CredentialVault
+  readonly computer: ComputerHost
   /** Set by the restart policy so the next Core start is counted as an automatic restart. */
   readonly takeAutomaticRestart: () => boolean
 }
 
 /** Jupiter Core modules and isolated runtimes that later SETs deliver. Never started, never shown as working. */
 export const PLANNED_SERVICES = [
-  {
-    id: 'agent-runtime',
-    availability: 'COMING_LATER',
-    plannedSet: 8,
-    capabilities: ['agent.computer']
-  },
   {
     id: 'browser-runtime',
     availability: 'COMING_LATER',
@@ -205,6 +201,33 @@ export function registerServices(supervisor: ServiceSupervisor, deps: ServiceDep
       return core.stop()
     }
   })
+
+  // SET 8: the agent runtime, where the Windows Computer Agent's UI Automation runs.
+  if (deps.computer.available) {
+    supervisor.register({
+      id: 'agent-runtime',
+      version: null,
+      capabilities: ['agent.computer'],
+      critical: false,
+      retryable: true,
+      timeoutMs: 45_000,
+      async start() {
+        // A real start: the runtime process comes up and answers with the screen it sees.
+        await deps.computer.probe()
+        return undefined
+      },
+      stop() {
+        return deps.computer.stop()
+      }
+    })
+  } else {
+    supervisor.registerPlanned({
+      id: 'agent-runtime',
+      availability: 'UNAVAILABLE',
+      plannedSet: 8,
+      capabilities: ['agent.computer']
+    })
+  }
 
   for (const planned of PLANNED_SERVICES) {
     supervisor.registerPlanned({ ...planned, capabilities: [...planned.capabilities] })

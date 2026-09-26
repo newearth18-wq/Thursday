@@ -111,6 +111,21 @@ export const PERMISSION_CATALOGUE = {
     reversible: true,
     dataLeavesDevice: null
   },
+  'computer.click': {
+    risk: 'HIGH',
+    summary: 'Click, select or scroll controls in an application',
+    consequence: 'The control does what it does when you click it.',
+    reversible: false,
+    dataLeavesDevice: null
+  },
+  'computer.click_point': {
+    risk: 'HIGH',
+    summary: 'Click a point in a window (coordinate fallback)',
+    consequence:
+      'Whatever is at that point in the window is clicked, without knowing which control it is.',
+    reversible: false,
+    dataLeavesDevice: null
+  },
   'computer.delete_file': {
     risk: 'CRITICAL',
     summary: 'Delete a file',
@@ -229,7 +244,7 @@ export function offeredDecisions(risk: RiskLevel): PermissionDecision[] {
 /** Who wants to use the capability. */
 export const PermissionSubject = z
   .object({
-    kind: z.enum(['skill', 'plugin', 'automation', 'core']),
+    kind: z.enum(['skill', 'plugin', 'automation', 'agent', 'core']),
     id: z.string().min(1).max(64),
     /** Shown to the person, e.g. the Skill's name. */
     name: z.string().min(1).max(120)

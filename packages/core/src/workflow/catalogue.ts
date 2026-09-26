@@ -5,7 +5,8 @@ import type { SkillInfo, StepTypeInfo } from '@jupiter/contracts'
  *
  * A plan may use only these and the registered Skills (SET 6). What a
  * Skill step may do is decided by the Permission Engine (SET 7) when it
- * uses a resource; the built-in step types need no permission.
+ * uses a resource. A Computer Agent step (SET 8) asks for its permissions
+ * before it touches the computer.
  */
 
 export interface StepTypeDefinition extends StepTypeInfo {
@@ -13,8 +14,8 @@ export interface StepTypeDefinition extends StepTypeInfo {
   readonly minTimeoutMs: number
   /** A checkpoint waits for a person instead of running. */
   readonly checkpoint: 'approval' | 'identity' | null
-  /** `skill`: run through the Skill Registry (SET 6). */
-  readonly runner: 'builtin' | 'skill'
+  /** `skill`: run through the Skill Registry (SET 6). `computer`: the Computer Agent (SET 8). */
+  readonly runner: 'builtin' | 'skill' | 'computer'
 }
 
 /** Finds a step type by id: the built-in ones and, since SET 6, registered Skills. */
@@ -77,6 +78,27 @@ export const STEP_TYPES: readonly StepTypeDefinition[] = [
     minTimeoutMs: 1_000,
     checkpoint: 'approval',
     runner: 'builtin'
+  },
+  {
+    skillId: 'computer.notepad_write',
+    name: 'Write a text file with Notepad',
+    description:
+      'Opens the real Notepad, types the text into its editor, saves it on the Desktop under the given name through Notepad’s Save As dialog, reads the saved file back to check it, and closes Notepad. Needs Windows.',
+    inputs: [
+      { name: 'text', required: true, description: 'The exact text to type and save.' },
+      {
+        name: 'fileName',
+        required: true,
+        description:
+          'A plain .txt file name, e.g. hello.txt. An existing file is never overwritten.'
+      }
+    ],
+    producesOutput: true,
+    permissions: ['computer.open_app', 'computer.manage_window', 'computer.type', 'files.write'],
+    available: true,
+    minTimeoutMs: 30_000,
+    checkpoint: null,
+    runner: 'computer'
   },
   {
     skillId: 'checkpoint.identity',

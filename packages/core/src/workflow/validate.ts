@@ -1,6 +1,7 @@
 import {
   PlanDraft,
   PlanStepKey,
+  SaveFileName,
   capabilityInfo,
   type PlanIssue,
   type PlanStep
@@ -119,6 +120,16 @@ export function validatePlan(
     for (const name of Object.keys(step.input))
       if (!type.inputs.some((input) => input.name === name))
         add('schema', `Step "${step.id}": "${type.skillId}" has no input "${name}".`, step.id)
+    // A Computer Agent step saves only a plain file name in the folder the host chose.
+    if (type.runner === 'computer') {
+      const fileName = step.input.fileName
+      if (
+        fileName !== undefined &&
+        !fileName.includes('{{') &&
+        !SaveFileName.safeParse(fileName).success
+      )
+        add('schema', `Step "${step.id}": "${fileName}" is not a plain .txt file name.`, step.id)
+    }
     if (step.timeoutMs < type.minTimeoutMs)
       add(
         'invalid-timeout',

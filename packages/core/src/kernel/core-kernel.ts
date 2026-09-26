@@ -6,6 +6,7 @@ import {
   type AuditEvent,
   type BackupInfo,
   type CapabilityOutput,
+  type ComputerStatus,
   type CoreConfig,
   type DiagnosticsSnapshot,
   type DomainEventType,
@@ -37,6 +38,8 @@ import {
 import { EventBus, type EventDelivery, type PublishInput } from '../events/event-bus'
 import type { ProviderAdapter } from '../ai/adapter'
 import { ChatService } from '../ai/chat'
+import { ComputerAgent } from '../computer/agent'
+import { checkedDriver } from '../computer/driver'
 import { MissionManager } from '../missions/manager'
 import { BUILTIN_SKILLS, type SkillImplementation } from '../skills/builtin'
 import { PermissionEngine, type DefaultGrant } from '../permissions/engine'
@@ -131,11 +134,14 @@ export class CoreKernel {
   readonly missions: MissionManager
   readonly skills: SkillRegistry
   readonly permissions: PermissionEngine
+  readonly computer: ComputerAgent
   private readonly supervisor: ServiceSupervisor
   private readonly logger: Logger
   private readonly now: () => Date
   private readonly startedAt: Date
   private database: (DatabasePort & { checkpoint(): void }) | null = null
+  /** Whether the host can run the Computer Agent (known after the computer-agent service starts). */
+  private computerAvailable = false
   private readonly auditBuffer: AuditEvent[] = []
   private droppedAudit = 0
   private readonly lastStatus = new Map<string, ServiceHealth>()
@@ -262,13 +268,26 @@ export class CoreKernel {
         }
       }
     })
+    // SET 8: the Computer Agent decides and checks permissions here; the host acts.
+    this.computer = new ComputerAgent({
+      database: () => this.requireDatabase(),
+      bus: this.bus,
+      logger: this.logger.child({ component: 'computer-agent' }),
+      now: this.now,
+      permissions: this.permissions,
+      driver: checkedDriver((op, params, signal) =>
+        this.hostOperation('host.computer.call', { op, params }, uuidv7(), signal)
+      )
+    })
     this.missions = new MissionManager({
       database: () => this.requireDatabase(),
       providers: this.providers,
       bus: this.bus,
       logger: this.logger.child({ component: 'mission-manager' }),
       now: this.now,
-      skills: this.skills
+      skills: this.skills,
+      computer: this.computer,
+      computerAvailable: () => this.computerAvailable
     })
     // A Mission step that waited for a permission continues (or fails) once the person answers.
     this.permissions.onDecided((request) => {
@@ -279,6 +298,22 @@ export class CoreKernel {
     this.supervisor.onChange((status) => {
       this.onServicesChanged(status.services)
     })
+  }
+
+  /**
+   * Asks the host whether this computer can run the Computer Agent (SET 8)
+   * and remembers the answer for the workflow catalogue. Called once Core is
+   * running, and again by every `computer.status` query.
+   */
+  async refreshComputerAvailability(): Promise<ComputerStatus> {
+    try {
+      const status = await this.computer.status()
+      this.computerAvailable = status.available
+      return status
+    } catch (error) {
+      this.computerAvailable = false
+      throw error
+    }
   }
 
   /** Start every Core service. Never throws: failures become FAILED services. */
@@ -341,6 +376,7 @@ export class CoreKernel {
         await this.supervisor.retry('mission-manager')
         await this.supervisor.retry('permission-engine')
         await this.supervisor.retry('skill-registry')
+        await this.supervisor.retry('computer-agent')
       }
       return null
     } catch (error) {
@@ -541,6 +577,12 @@ export class CoreKernel {
     signal?: AbortSignal
   ): Promise<unknown> {
     if (!this.options.config.hostCapabilities.includes(operation)) {
+      if (operation === 'host.computer.call')
+        throw new JupiterError(
+          'COMPUTER_UNAVAILABLE',
+          'This host does not offer the Windows Computer Agent.',
+          { category: 'unsupported', userAction: null }
+        )
       throw new JupiterError(
         'SECURE_STORAGE_UNAVAILABLE',
         'The host does not offer secure storage for API keys.',
@@ -812,6 +854,31 @@ export class CoreKernel {
       },
       stop: () => {
         this.skills.stopAll()
+      }
+    })
+
+    // SET 8: the Computer Agent. Start records tasks a Core stop cut off.
+    this.supervisor.register({
+      id: 'computer-agent',
+      version: null,
+      capabilities: ['computer.tasks', 'computer.actions'],
+      critical: false,
+      retryable: true,
+      start: () => {
+        if (!this.database)
+          throw new JupiterError(
+            'DEPENDENCY_UNAVAILABLE',
+            'The Computer Agent needs the database, which is not available.',
+            {
+              category: 'dependency',
+              userAction: 'Fix the Database service, then press Retry on it.',
+              retryable: true
+            }
+          )
+        this.computer.start()
+        // Whether this computer can run the agent is asked once Core is running
+        // (`refreshComputerAvailability`): the host answers Core only then.
+        return undefined
       }
     })
 

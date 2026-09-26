@@ -461,9 +461,38 @@ Decisions and alternatives: [ADR 0008](decisions/0008-permission-engine.md).
   notice for a step waiting for permission; the Skill Center shows granted
   permissions.
 
-## Not in SET 7
+## Windows Computer Agent (SET 8)
 
-Agents (SET 8), attachments through the Artifact Manager (SET 10), identity
+Decisions and alternatives: [ADR 0009](decisions/0009-windows-computer-agent.md).
+
+- **Actions** (`ComputerAction`, contracts): OPEN_APP, CLOSE_APP,
+  FOCUS_WINDOW, MANAGE_WINDOW, LIST_WINDOWS, WAIT_FOR_WINDOW, READ_UI_TREE,
+  CLICK_ELEMENT, TYPE_TEXT, PRESS_KEYS, SCROLL, SELECT_ELEMENT, SCREENSHOT,
+  SAVE_FILE and the opt-in CLICK_POINT. Each returns action, target, success,
+  method (UI Automation, keyboard, coordinate, system), observation,
+  evidence, error, started and completed.
+- **Core** (`packages/core/src/computer/`, service `computer-agent`): asks for
+  every permission before acting, runs actions one at a time, checks each
+  effect (text read back, file read back, window state), re-resolves stale
+  windows, cancels at the next boundary, stores tasks (migration 8) and
+  publishes `computer.*` events. Adapters: Generic Windows, Notepad, File
+  Explorer.
+- **Host** (`computer-host.ts`, host operation `host.computer.call`, Core
+  only): the only place that knows executables, the save folder (Desktop) and
+  the evidence folder; verifies saved files.
+- **Agent runtime** (`services/agent-runtime`, host service `agent-runtime`):
+  PowerShell with the .NET UI Automation client, one JSON-lines call at a
+  time, deadlines, crash reporting and restart.
+- **Missions**: step type `computer.notepad_write` (unavailable where the
+  host has no agent).
+- **Interface**: Diagnostics › Computer Agent (availability, runtime,
+  screen, save folder, recent tasks with per-action method and observation);
+  permission requests in the global dialog.
+
+## Not in SET 8
+
+Computer vision and drag and drop for the Computer Agent, the Browser Agent
+(SET 9), attachments through the Artifact Manager (SET 10), identity
 verification (SET 14), plugins with their own runtime (SET 15), and everything
 after that. The five unfinished destinations are shown as _Coming later_ in
 the app, and none of them is presented as working.

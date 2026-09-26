@@ -19,6 +19,7 @@ import {
   type Plan,
   type PlanIssue,
   type PlanSource,
+  ComputerTaskRequest,
   type PermissionRequest,
   type PlanStep,
   type RouteDecision,
@@ -32,6 +33,7 @@ import type { EventBus } from '../events/event-bus'
 import { uuidv7 } from '../ids'
 import type { Logger } from '../logging/logger'
 import type { DatabasePort, ExecutionRecord, MissionRecord } from '../ports'
+import type { ComputerAgent } from '../computer/agent'
 import type { SkillRegistry } from '../skills/registry'
 import {
   catalogueWith,
@@ -80,6 +82,10 @@ export interface MissionManagerOptions {
   readonly maxParallel?: number
   /** Registered Skills are step types too (SET 6). */
   readonly skills?: SkillRegistry
+  /** Computer Agent steps (SET 8). */
+  readonly computer?: ComputerAgent
+  /** Whether the host can run the Computer Agent now; its steps are unavailable otherwise. */
+  readonly computerAvailable?: () => boolean
 }
 
 const CORE_ACTOR: Actor = { type: 'core', id: 'core' }
@@ -1492,6 +1498,8 @@ export class MissionManager {
         const type = this.catalogue().lookup(step.kind)
         if (type?.runner === 'skill' && this.options.skills)
           return this.runSkill(run, step, definition, outputs, attempt, signal)
+        if (type?.runner === 'computer' && this.options.computer)
+          return this.runComputer(run, step, definition, outputs, signal)
         throw new JupiterError('STEP_UNKNOWN', `Jupiter cannot run “${step.kind}” steps.`, {
           category: 'unsupported',
           userAction: 'Re-plan the Mission.'
@@ -1562,6 +1570,78 @@ export class MissionManager {
     }
   }
 
+  /**
+   * A Computer Agent step (SET 8): the real Notepad, the exact text, a
+   * semantic save to the folder the host chose, and the file read back. The
+   * step succeeds only when the saved file is verified. Missing permissions
+   * make the step wait for the person, like a Skill's.
+   */
+  private async runComputer(
+    run: Run,
+    step: MissionStep,
+    definition: PlanStep,
+    outputs: ReadonlyMap<string, string>,
+    signal: AbortSignal
+  ): Promise<StepOutput> {
+    const agent = this.options.computer
+    if (!agent || step.kind !== 'computer.notepad_write')
+      throw new JupiterError('STEP_UNKNOWN', `Jupiter cannot run “${step.kind}” steps.`, {
+        category: 'unsupported',
+        userAction: 'Re-plan the Mission.'
+      })
+    const text = substitute(definition.input.text ?? '', outputs)
+    const fileName = substitute(definition.input.fileName ?? '', outputs)
+    const notepad = { app: 'notepad' as const }
+    const parsed = ComputerTaskRequest.safeParse({
+      taskId: uuidv7(),
+      title: step.title.slice(0, 200) || 'Write a text file with Notepad',
+      allowCoordinateFallback: false,
+      actions: [
+        { type: 'OPEN_APP', app: 'notepad' },
+        { type: 'TYPE_TEXT', window: notepad, element: { controlType: 'Document' }, text },
+        { type: 'SAVE_FILE', window: notepad, fileName, expectedText: text },
+        { type: 'CLOSE_APP', window: notepad }
+      ]
+    })
+    if (!parsed.success)
+      throw new JupiterError(
+        'STEP_INPUT_INVALID',
+        `“${step.title}” has an invalid input: ${parsed.error.issues.map((issue) => issue.message).join('; ')}`,
+        { category: 'validation', userAction: 'Re-plan the Mission.' }
+      )
+    const task = await agent.run(parsed.data, {
+      actor: 'core',
+      correlationId: run.correlationId,
+      missionId: run.missionId,
+      missionTitle: this.options.database().missions.mission(run.missionId)?.title ?? null,
+      stepId: step.stepId,
+      stepTitle: step.title,
+      signal
+    })
+    const requestId = task.permissionRequests[0]
+    if (task.status === 'WAITING_APPROVAL' && requestId)
+      throw new PermissionWait(requestId, task.error?.message ?? 'Waiting for your permission.')
+    if (task.status !== 'SUCCEEDED')
+      throw new JupiterError(
+        task.error?.code ?? 'COMPUTER_TASK_FAILED',
+        task.error?.message ?? `“${step.title}” did not succeed (${task.status}).`,
+        {
+          category: task.error?.category ?? 'internal',
+          userAction: task.error?.userAction ?? 'Retry the Mission.',
+          retryable: task.error?.retryable ?? false
+        }
+      )
+    const saved = task.results.find((result) => result.evidence?.kind === 'file')
+    const evidence = saved?.evidence?.kind === 'file' ? saved.evidence : null
+    return {
+      text: evidence
+        ? `Saved and verified ${evidence.path} (${String(evidence.bytes)} bytes, SHA-256 ${evidence.sha256}).`
+        : 'Saved and verified.',
+      route: null,
+      detail: `The Windows Computer Agent ran ${String(task.results.length)} actions; every one was verified.`
+    }
+  }
+
   /** Built-in step types and the registered Skills, as they are now. */
   private catalogue(): { types: readonly StepTypeDefinition[]; lookup: StepTypeLookup } {
     const skills = (): StepTypeDefinition[] => {
@@ -1572,7 +1652,20 @@ export class MissionManager {
         return []
       }
     }
-    return catalogueWith(skills())
+    const computer = this.options.computerAvailable?.() ?? false
+    const { types } = catalogueWith(skills())
+    // Computer Agent steps can run only where the host offers the agent (Windows).
+    const adjusted = types.map((type) =>
+      type.runner === 'computer' && !computer
+        ? {
+            ...type,
+            available: false,
+            description: `${type.description} Unavailable on this computer.`.slice(0, 400)
+          }
+        : type
+    )
+    const byId = new Map(adjusted.map((type) => [type.skillId, type]))
+    return { types: adjusted, lookup: (skillId) => byId.get(skillId) ?? null }
   }
 
   private completeStep(

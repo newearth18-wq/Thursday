@@ -141,6 +141,13 @@ async function initialise(config: CoreConfig): Promise<void> {
     latestSequence: created.bus.latestSequence(),
     logLevel: created.effectiveLogLevel
   })
+  // Now that Core is running the host answers it: learn whether the Computer Agent can act here.
+  created.refreshComputerAvailability().catch((error: unknown) => {
+    log.warn(
+      'computer-agent.unavailable',
+      `The host did not report the Computer Agent's status: ${describeError(error)}`
+    )
+  })
 }
 
 async function handle(raw: unknown): Promise<void> {

@@ -506,5 +506,25 @@ export const JUPITER_MIGRATIONS: readonly Migration[] = [
       CREATE TRIGGER permission_audit_no_delete BEFORE DELETE ON permission_audit
         BEGIN SELECT RAISE(ABORT, 'the permission audit trail is append-only'); END;
     `
+  },
+  {
+    version: 8,
+    name: '0008_computer_tasks',
+    sql: `
+      -- The Windows Computer Agent (SET 8). One row per task: its actions (type
+      -- and application only, never typed text), each action's observed result,
+      -- and its final status.
+      CREATE TABLE computer_tasks (
+        task_id       TEXT PRIMARY KEY NOT NULL,
+        mission_id    TEXT,
+        status        TEXT NOT NULL
+                        CHECK (status IN ('RUNNING', 'SUCCEEDED', 'FAILED', 'CANCELLED', 'WAITING_APPROVAL')),
+        task_json     TEXT NOT NULL CHECK (json_valid(task_json)),
+        created_at    TEXT NOT NULL,
+        completed_at  TEXT
+      ) STRICT;
+
+      CREATE INDEX computer_tasks_by_time ON computer_tasks (created_at);
+    `
   }
 ]

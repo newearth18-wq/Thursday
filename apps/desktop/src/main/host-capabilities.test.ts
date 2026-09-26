@@ -1,10 +1,21 @@
-import { existsSync, mkdtempSync, readdirSync, readFileSync, rmSync, statSync } from 'node:fs'
+import {
+  existsSync,
+  mkdirSync,
+  mkdtempSync,
+  readdirSync,
+  readFileSync,
+  rmSync,
+  statSync,
+  writeFileSync
+} from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { CORE_PROTOCOL_VERSION, type DesktopNotification } from '@jupiter/contracts'
+import { AgentRuntime } from '@jupiter/agent-runtime'
 import { Logger, MemorySink, uuidv7 } from '@jupiter/core'
 import { fakeCredentials } from '@jupiter/testing/fake-credentials'
 import { afterEach, describe, expect, it, vi } from 'vitest'
+import { ComputerHost } from './computer-host'
 import { CredentialVault, type SafeStorageLike } from './credential-vault'
 import { HostCapabilities, type HostCall } from './host-capabilities'
 
@@ -39,6 +50,12 @@ function setup(
   const credentialsDirectory = join(root, 'credentials')
   const capabilities = new HostCapabilities({
     logger,
+    computer: new ComputerHost({
+      logger,
+      platform,
+      saveFolder: join(root, 'desktop'),
+      evidenceFolder: join(root, 'evidence')
+    }),
     vault: new CredentialVault(credentialsDirectory, fakeSafeStorage(storage), platform, logger),
     logsDirectory,
     openPath: open,
@@ -255,5 +272,76 @@ describe('secure storage for API keys (SET 3)', () => {
       call('host.credentials.read', { credentialId: uuidv7() }, core)
     )
     expect(missing).toMatchObject({ ok: false, error: { code: 'CREDENTIAL_NOT_FOUND' } })
+  })
+})
+
+describe('computer host operations (SET 8)', () => {
+  const core: HostCall['actor'] = { type: 'core', id: 'core' }
+
+  it('serves only Jupiter Core, and says plainly that the agent needs Windows', async () => {
+    const { capabilities } = setup(() => Promise.resolve(''))
+    const refused = await capabilities.execute(
+      call('host.computer.call', { op: 'listWindows', params: {} })
+    )
+    expect(refused).toMatchObject({ ok: false, error: { code: 'PERMISSION_DENIED' } })
+    const status = await capabilities.execute(
+      call('host.computer.call', { op: 'status', params: {} }, core)
+    )
+    expect(status).toMatchObject({
+      ok: true,
+      data: { available: false, runtime: { state: 'unavailable' }, saveFolder: null }
+    })
+    const launch = await capabilities.execute(
+      call('host.computer.call', { op: 'launch', params: { app: 'notepad' } }, core)
+    )
+    expect(launch).toMatchObject({
+      ok: false,
+      error: { code: 'COMPUTER_UNAVAILABLE', category: 'unsupported' }
+    })
+    // Parameters are checked before anything else.
+    const invalid = await capabilities.execute(
+      call('host.computer.call', { op: 'launch', params: { app: 'cmd' } }, core)
+    )
+    expect(invalid).toMatchObject({ ok: false, error: { code: 'INVALID_PAYLOAD' } })
+  })
+
+  it('saves only in its own folder and verifies content without returning it', async () => {
+    const root = mkdtempSync(join(tmpdir(), 'jupiter-computer-host-'))
+    roots.push(root)
+    const logger = Logger.create({ sessionId: uuidv7(), level: 'debug', sinks: [new MemorySink()] })
+    const host = new ComputerHost({
+      logger,
+      platform: 'win32',
+      saveFolder: join(root, 'desktop'),
+      evidenceFolder: join(root, 'evidence'),
+      // Never started by these operations: they are the host's own.
+      runtime: new AgentRuntime({ launch: { command: '/nonexistent', args: [], script: null } })
+    })
+    mkdirSync(join(root, 'desktop'))
+    const path = join(root, 'desktop', 'hello.txt')
+    expect(await host.call({ op: 'resolveSavePath', params: { fileName: 'hello.txt' } })).toEqual({
+      path,
+      exists: false
+    })
+    for (const fileName of ['../escape.txt', 'a/b.txt', 'C:\\x.txt', 'notes.exe'])
+      await expect(host.call({ op: 'resolveSavePath', params: { fileName } })).rejects.toThrow()
+    expect(
+      await host.call({ op: 'verifyFile', params: { fileName: 'hello.txt', expected: 'x' } })
+    ).toEqual({ path, exists: false, bytes: 0, sha256: null, matches: false })
+
+    // Notepad writes CRLF, sometimes with a byte-order mark; the content is what counts.
+    writeFileSync(
+      path,
+      Buffer.concat([Buffer.from([0xef, 0xbb, 0xbf]), Buffer.from('Hello\r\nJupiter')])
+    )
+    const verified = await host.call({
+      op: 'verifyFile',
+      params: { fileName: 'hello.txt', expected: 'Hello\nJupiter' }
+    })
+    expect(verified).toMatchObject({ exists: true, bytes: 17, matches: true })
+    expect(JSON.stringify(verified)).not.toContain('Jupiter')
+    expect(
+      await host.call({ op: 'verifyFile', params: { fileName: 'hello.txt', expected: 'Hello' } })
+    ).toMatchObject({ exists: true, matches: false })
   })
 })

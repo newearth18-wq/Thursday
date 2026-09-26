@@ -13,6 +13,7 @@ import { ProgressIndicator } from '../components/Progress'
 import { useNotify } from '../components/Toasts'
 import { useEventLog } from '../useEventLog'
 import { envelopeOf, type Loadable } from '../useRuntime'
+import { ComputerPanel } from './ComputerPanel'
 import { LoadFailure } from './LoadFailure'
 
 /**
@@ -122,6 +123,7 @@ export function DiagnosticsView({ status, coreRunning }: Props) {
         </>
       ) : null}
 
+      {coreRunning ? <ComputerPanel coreSession={coreSession} formatTime={formatTime} /> : null}
       <EventsPanel coreSession={coreSession} formatTime={formatTime} />
       {status.state === 'ready' ? (
         <LogsPanel status={status.value} coreRunning={coreRunning} />

@@ -99,6 +99,16 @@ Do not modify `legacy/thursday-browser` unless a task is explicitly about it.
   the `user-interface` actor answer or revoke, never offer more than
   ALLOW_ONCE/DENY for CRITICAL, never delete a grant (end it), and never
   update or delete the audit trail.
+- Computer Agent (SET 8): Core decides and checks every action
+  (`packages/core/src/computer/`); the host (`apps/desktop/src/main/computer-host.ts`)
+  chooses what may be acted on (executables, the save folder, the evidence
+  folder) and never takes a path or command from a request; UI Automation runs
+  only in the agent runtime (`services/agent-runtime`), one validated call at a
+  time. A new action needs a contract entry (`ComputerAction`), a permission
+  requirement with an exact target, and a check that reads its effect back — an
+  unverified effect is a failure. A new application is an adapter
+  (`computer/adapters.ts`) that finds controls semantically; coordinates are
+  only the labelled, opt-in `CLICK_POINT` fallback.
 - Schema changes are new migrations at the end of `JUPITER_MIGRATIONS`; never
   edit a migration that has shipped (see `packages/database/README.md`).
 

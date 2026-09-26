@@ -1083,7 +1083,56 @@ export const en = {
   'errorCode.PERMISSION_EXPIRED': 'The permission request expired.',
   'errorCode.PERMISSION_REQUEST_CLOSED': 'That request was already answered or expired.',
   'errorCode.PERMISSION_DECISION_NOT_OFFERED': 'That answer is not offered for this request.',
-  'errorCode.PERMISSION_GRANT_NOT_FOUND': 'That permission does not exist.'
+  'errorCode.PERMISSION_GRANT_NOT_FOUND': 'That permission does not exist.',
+  'computer.title': 'Computer Agent',
+  'computer.statusFailed': 'The Computer Agent’s status could not be read',
+  'computer.availability': 'Can act on this computer',
+  'computer.available': 'Available',
+  'computer.runtime': 'Agent runtime',
+  'computer.pid': 'process {pid}',
+  'computer.restarts': 'restarted {count} times',
+  'computer.lastError': 'Last runtime problem',
+  'computer.screen': 'Screen',
+  'computer.saveFolder': 'Saves files to',
+  'computer.tasks': 'Recent tasks',
+  'computer.noTasks': 'No task has run yet.',
+  'computer.done': 'Done',
+  'computer.notDone': 'Not done',
+  'computerRuntime.running': 'Running',
+  'computerRuntime.stopped': 'Not started yet',
+  'computerRuntime.crashed': 'Stopped after a fault; the next action starts it again',
+  'computerRuntime.unavailable': 'Unavailable',
+  'computerStatus.RUNNING': 'Running',
+  'computerStatus.SUCCEEDED': 'Succeeded',
+  'computerStatus.FAILED': 'Failed',
+  'computerStatus.CANCELLED': 'Cancelled',
+  'computerStatus.WAITING_APPROVAL': 'Waiting for your permission',
+  'computerMethod.semantic': 'UI Automation',
+  'computerMethod.keyboard': 'Keyboard',
+  'computerMethod.coordinate': 'Coordinate fallback',
+  'computerMethod.system': 'System',
+  'computerMethod.none': 'Not performed',
+  'computerEvent.started': 'Computer task started ({actions} actions)',
+  'computerEvent.actionDone': '{action} done ({method})',
+  'computerEvent.actionFailed': '{action} failed ({method})',
+  'computerEvent.finished': 'Computer task finished: {status}',
+  'permission.subject.agent': '{name}',
+  'service.computer-agent': 'Computer agent',
+  'errorCode.COMPUTER_UNAVAILABLE': 'The Windows Computer Agent cannot act on this computer.',
+  'errorCode.ELEMENT_NOT_FOUND': 'The control was not found in the application.',
+  'errorCode.WINDOW_NOT_FOUND': 'The application window was not found.',
+  'errorCode.ACTION_NOT_VERIFIED':
+    'The action’s effect could not be confirmed, so it counts as not done.',
+  'errorCode.SAVE_NOT_VERIFIED':
+    'The saved file could not be confirmed, so the save counts as not done.',
+  'errorCode.FILE_EXISTS':
+    'A file with that name already exists; Jupiter does not overwrite files.',
+  'errorCode.COORDINATE_FALLBACK_DISABLED':
+    'Clicking a screen position is not allowed for this task.',
+  'errorCode.POINT_OUTSIDE_WINDOW': 'A coordinate click must stay inside its window.',
+  'errorCode.RUNTIME_CRASHED':
+    'The agent runtime stopped; Jupiter starts a new one for the next action.',
+  'errorCode.RUNTIME_TIMEOUT': 'The agent runtime did not answer in time and was stopped.'
 } as const
 
 export type MessageKey = keyof typeof en

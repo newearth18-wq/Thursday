@@ -35,9 +35,11 @@ const RUNNING = [
   'workflow-engine',
   'skill-registry',
   'mission-manager',
+  'permission-engine',
+  'computer-agent',
   'capability-dispatcher'
 ] as const
-const PLANNED = ['agent-runtime', 'browser-runtime', 'plugin-runtime'] as const
+const PLANNED = ['browser-runtime', 'plugin-runtime'] as const
 
 beforeAll(() => {
   assertBuilt()
@@ -76,6 +78,10 @@ describe('Jupiter desktop shell — healthy start', () => {
         'COMING_LATER'
       )
     }
+    // SET 8: the agent runtime runs on Windows and is truthfully Unavailable elsewhere.
+    expect(await page.getByTestId('service-agent-runtime').getAttribute('data-status')).toBe(
+      process.platform === 'win32' ? 'HEALTHY' : 'UNAVAILABLE'
+    )
   })
 
   it('takes the version from build metadata supplied by the main process', async () => {

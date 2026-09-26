@@ -42,6 +42,7 @@ import { electronCoreLauncher } from './core-launcher'
 import { CoreProcessManager } from './core-process'
 import { prepareEnvironment, type MainEnvironment } from './environment'
 import { HostGateway } from './gateway'
+import { ComputerHost } from './computer-host'
 import { HOST_CAPABILITIES, HostCapabilities } from './host-capabilities'
 import { CredentialVault } from './credential-vault'
 import { createMainLogging, type MainLogging } from './logging'
@@ -134,8 +135,20 @@ async function start(environment: MainEnvironment, mainLogging: MainLogging): Pr
     process.platform,
     logger
   )
+  // SET 8: files are saved to the person's Desktop. Automated tests use a folder of their own.
+  const testFolder = process.env.JUPITER_TEST_COMPUTER_FOLDER
+  const computer = new ComputerHost({
+    logger: logger.child({ component: 'computer-host' }),
+    platform: process.platform,
+    saveFolder:
+      environment.resolution.environment === 'test' && testFolder
+        ? testFolder
+        : app.getPath('desktop'),
+    evidenceFolder: join(environment.userDataDir, 'computer-evidence')
+  })
   const hostCapabilities = new HostCapabilities({
     logger,
+    computer,
     logsDirectory: environment.logsDir,
     vault,
     openPath: (path) => shell.openPath(path),
@@ -360,6 +373,7 @@ async function start(environment: MainEnvironment, mainLogging: MainLogging): Pr
     fileSink,
     core,
     vault,
+    computer,
     takeAutomaticRestart: () => {
       const pending = automaticRestartPending
       automaticRestartPending = false

@@ -2282,3 +2282,13 @@ kbd {
 .permission-target {
   overflow-wrap: anywhere;
 }
+
+/* Computer Agent (SET 8) */
+.computer-actions {
+  margin: var(--jp-space-xs) 0 0;
+  padding-left: var(--jp-space-md);
+  display: flex;
+  flex-direction: column;
+  gap: var(--jp-space-xs);
+  overflow-wrap: anywhere;
+}

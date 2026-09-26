@@ -14,6 +14,7 @@ import { SqliteAuditStore } from './repositories/audit'
 import { SqliteChatStore } from './repositories/chat'
 import { SqliteMissionStore } from './repositories/missions'
 import { SqliteSkillStore } from './repositories/skills'
+import { SqliteComputerTaskStore } from './repositories/computer'
 import { SqlitePermissionStore } from './repositories/permissions'
 import { SqliteEventStore } from './repositories/events'
 import { SqliteProviderStore } from './repositories/providers'
@@ -65,6 +66,7 @@ export class JupiterDatabase implements DatabasePort {
   readonly missions: SqliteMissionStore
   readonly skills: SqliteSkillStore
   readonly permissions: SqlitePermissionStore
+  readonly computer: SqliteComputerTaskStore
   private integrity = 'not checked'
   private closed = false
 
@@ -95,6 +97,7 @@ export class JupiterDatabase implements DatabasePort {
     this.missions = new SqliteMissionStore(db)
     this.skills = new SqliteSkillStore(db)
     this.permissions = new SqlitePermissionStore(db)
+    this.computer = new SqliteComputerTaskStore(db)
   }
 
   static async open(input: OpenDatabaseOptions): Promise<OpenedDatabase> {

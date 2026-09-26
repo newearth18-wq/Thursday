@@ -21,6 +21,7 @@ import {
   UserMessageText
 } from './chat'
 import { AuditEvent } from './audit'
+import { ComputerStatus, ComputerTask, ComputerTaskRequest } from './computer'
 import {
   MissionDetail,
   MissionId,
@@ -553,6 +554,25 @@ export const Capabilities = {
     kind: 'query',
     input: z.object({ limit: z.number().int().min(1).max(500) }).strict(),
     output: z.object({ entries: z.array(PermissionAuditEntry).max(500) }).strict()
+  },
+  // ---- Windows Computer Agent (SET 8) ----
+  /** Whether the agent can act on this computer, and why not when it cannot. */
+  'computer.status': { kind: 'query', input: Empty, output: ComputerStatus },
+  /**
+   * Run a task of typed actions. Every action is checked by the Permission
+   * Engine; missing permissions are asked for all at once, before anything runs.
+   */
+  'computer.run': { kind: 'command', input: ComputerTaskRequest, output: ComputerTask },
+  /** Stop a running task at the next safe boundary; queued actions do not run. */
+  'computer.cancel': {
+    kind: 'command',
+    input: z.object({ taskId: Uuidv7 }).strict(),
+    output: z.object({ cancelled: z.boolean() }).strict()
+  },
+  'computer.tasks': {
+    kind: 'query',
+    input: z.object({ limit: z.number().int().min(1).max(100) }).strict(),
+    output: z.object({ tasks: z.array(ComputerTask).max(100) }).strict()
   }
 } as const satisfies Record<string, { kind: RequestKind; input: z.ZodType; output: z.ZodType }>
 

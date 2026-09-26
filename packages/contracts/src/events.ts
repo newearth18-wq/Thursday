@@ -10,6 +10,7 @@ import { ServiceStatus } from './service-health'
 import { SkillExecutionStatus, SkillHealthStatus, SkillVersion } from './skills'
 import { PermissionName, SkillId } from './plans'
 import { PermissionDecision } from './permissions'
+import { ComputerActionType, ComputerTaskStatus, InteractionMethod } from './computer'
 
 /**
  * Versioned domain events (contract version 1).
@@ -33,7 +34,8 @@ export const StreamKind = z.enum([
   'ai',
   'conversation',
   'skill',
-  'permission'
+  'permission',
+  'computer'
 ])
 export type StreamKind = z.infer<typeof StreamKind>
 
@@ -290,6 +292,27 @@ export const EventPayloads = {
       status: SkillExecutionStatus,
       errorCode: z.string().max(64).nullable()
     })
+    .strict(),
+  // The Windows Computer Agent (SET 8), on the stream `computer/<taskId>`.
+  'computer.task_started': z
+    .object({ taskId: Uuidv7, actions: z.number().int().min(1).max(50) })
+    .strict(),
+  'computer.action_completed': z
+    .object({
+      taskId: Uuidv7,
+      index: z.number().int().min(0).max(49),
+      action: ComputerActionType,
+      success: z.boolean(),
+      method: InteractionMethod,
+      errorCode: z.string().max(64).nullable()
+    })
+    .strict(),
+  'computer.task_finished': z
+    .object({
+      taskId: Uuidv7,
+      status: ComputerTaskStatus,
+      errorCode: z.string().max(64).nullable()
+    })
     .strict()
 } as const satisfies Record<string, z.ZodType>
 
@@ -358,7 +381,10 @@ export const DomainEvent = z
     variant('skill.execution_finished'),
     variant('permission.requested'),
     variant('permission.decided'),
-    variant('permission.grant_ended')
+    variant('permission.grant_ended'),
+    variant('computer.task_started'),
+    variant('computer.action_completed'),
+    variant('computer.task_finished')
   ])
   .refine(
     (event) =>

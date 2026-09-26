@@ -37,6 +37,7 @@ export type {
   AuditStore,
   BackupOptions,
   ChatStore,
+  ComputerTaskStore,
   ExecutionRecord,
   MissionChanges,
   MissionRecord,
