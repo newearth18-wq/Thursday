@@ -344,7 +344,9 @@ describe('SET 2 — navigation, persistence and language (real app)', () => {
         return tabbable.map((element) => element.dataset.kbd ?? '')
       })
       const seen = new Set<string>()
-      for (let press = 0; press < expected.length + 5; press++) {
+      // Tab starts where focus was (the screen's heading, inside the page) and wraps
+      // around the window, and Windows adds a stop or two at the wrap: go round twice.
+      for (let press = 0; press < expected.length * 2 + 10; press++) {
         await page.keyboard.press('Tab')
         const id = await page.evaluate(
           () => (document.activeElement as HTMLElement | null)?.dataset.kbd ?? ''

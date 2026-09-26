@@ -99,10 +99,13 @@ describe('providers and models', () => {
       credentialFingerprint: '3f9a1c02',
       checkState: 'not-checked'
     })
-    const columns = raw(join(dir, 'jupiter.db'))
+    const connection = raw(join(dir, 'jupiter.db'))
+    const columns = connection
       .prepare('PRAGMA table_info(ai_providers)')
       .all()
       .map((column) => String(column.name))
+    // Windows keeps an open file locked: close it so the folder can be removed.
+    connection.close()
     expect(columns.filter((name) => /secret|key_value|api_key|token/.test(name))).toEqual([])
 
     database.providers.mergeDiscovered(
