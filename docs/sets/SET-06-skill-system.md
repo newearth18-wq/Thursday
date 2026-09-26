@@ -1,8 +1,8 @@
 # SET 6 — Skill System
 
-- Status: **all 10 acceptance tests pass** locally on Linux with
-  `npm run verify` (13/13 steps). See §7. CI evidence is recorded in §7 once
-  the pushed commit has run.
+- Status: **all 10 acceptance tests pass**, locally on Linux with
+  `npm run verify` (13/13 steps) and in CI on Linux and Windows (`63e539e`,
+  run 36229785047). See §7. Tagged `jupiter-set-06-skill-system`.
 - SET 5 was re-checked first: green in CI on Linux and Windows (`8d21447`,
   run 36226415156) and tagged `jupiter-set-05-planner-and-workflow-engine`.
   Its suites pass again on the SET 6 code (§12).
@@ -164,9 +164,13 @@ The first full run failed on two SET 1 guard tests, and both were real:
   pattern. It only reads run history, and the test now names it with that
   reason.
 
-### CI evidence
+### CI evidence (commit `63e539e`, run 36229785047)
 
-Recorded after the push (see the PR's checks).
+| Job                                                                                                                                  | Result  |
+| ------------------------------------------------------------------------------------------------------------------------------------ | ------- |
+| Linux — format, lint, typecheck, unit, build, integration + E2E (incl. the SET 6 E2E tests), secret scan, dev smoke, packages        | success |
+| Windows — unit, integration and E2E (incl. the SET 6 sandbox, in-process and E2E suites), NSIS installer, package validation, launch | success |
+| Legacy Thursday — build and acceptance checks                                                                                        | success |
 
 ## 8. Manual tests
 
