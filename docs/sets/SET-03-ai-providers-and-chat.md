@@ -1,8 +1,10 @@
 # SET 3 — AI providers, Model Router and Chat
 
-- Status: **all 10 acceptance tests pass locally on Linux**, after a clean
-  `npm ci` and `npm run verify` (13/13 steps). CI on Linux and Windows is
-  recorded in §7 once it has run on the pushed commit.
+- Status: **all 10 acceptance tests pass** locally on Linux, after a clean
+  `npm ci` and `npm run verify` (13/13 steps), and in CI on Linux and Windows
+  (commit `abb94f8`, run 36208820322). See §7.
+- Checkpoint tag: `jupiter-set-03-ai-providers-and-chat` on `abb94f8` (created
+  in the development environment, which can push branches only).
 - SET 2 re-checked before SET 3 started: `85dfae5` green in CI.
 - Environment of the recorded run: Node.js 22.22.2, npm 10.9.7, Electron 44.4.5,
   Xvfb 4096×2304, GNOME Keyring 46.1 (private, throwaway D-Bus session).
@@ -112,8 +114,19 @@ node scripts/with-display.mjs npx vitest run --project integration apps/desktop/
 | Secret scan (sources + build output)        | **328 files**, 0 findings                                                   |
 | Windows / Linux package validation          | **6/6** / **5/5**                                                           |
 
-CI (Linux and Windows) on the pushed commit: see the pull request; this
-section is updated with the run once it completes.
+### CI evidence (commit `abb94f8`, run 36208820322)
+
+| Job                                                                                                                                    | Result  |
+| -------------------------------------------------------------------------------------------------------------------------------------- | ------- |
+| Linux — format, lint, typecheck, unit, build, integration + E2E with a throwaway GNOME Keyring, secret scan, dev smoke, packages       | success |
+| Windows — unit, integration and E2E (including all 14 SET 3 E2E tests with DPAPI), NSIS installer, package validation, packaged launch | success |
+| Legacy Thursday — build and acceptance checks                                                                                          | success |
+
+The first run (`e02573b`, run 36208304010) failed on Windows in two tests,
+both defects in the tests: a raw SQLite connection in `ai-chat` was not
+closed (Windows locks open files: `EBUSY` on cleanup), and the SET 2 keyboard
+test's Tab budget did not allow for focus starting inside the page and
+wrapping, which the longer AI Models screen exposed. Fixed in `abb94f8`.
 
 ## 8. Manual tests
 
