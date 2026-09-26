@@ -47,7 +47,8 @@ function genericOwns(processNames: readonly string[]) {
 /** Notepad's Save As dialog: the file name box and the Save button of the common file dialog. */
 const FILE_NAME_BOX: ElementQuery = { automationId: '1001' }
 const FILE_NAME_FALLBACK: ElementQuery = { controlType: 'Edit', name: 'File name:' }
-const SAVE_BUTTON: ElementQuery = { automationId: '1', controlType: 'Button' }
+// The Save button is a Win32 Button: found by class, since UI Automation may report it as a Pane.
+const SAVE_BUTTON: ElementQuery = { automationId: '1', className: 'Button' }
 
 const notepad: AppAdapter = {
   app: 'notepad',

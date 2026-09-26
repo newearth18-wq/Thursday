@@ -320,7 +320,8 @@ describe.runIf(onWindows)('SET 8 — Windows Computer Agent on the real desktop'
         { type: 'MANAGE_WINDOW', window: notepad, operation: 'resize', width: 520, height: 400 },
         ...writeHello('after-resolution-change.txt', 'Resolution changed').slice(1)
       ])
-      // On failure, also say which windows the runtime sees now (process, title, bounds).
+      // On failure, also say which windows the runtime sees now, whether Notepad still runs,
+      // and what the Application event log recorded about it.
       const seen =
         task.status === 'SUCCEEDED'
           ? ''
@@ -330,6 +331,16 @@ describe.runIf(onWindows)('SET 8 — Windows Computer Agent on the real desktop'
                   windows: { processName: string; title: string; bounds: unknown }[]
                 }
               ).windows.map((window) => [window.processName, window.title, window.bounds])
+            ) +
+            '\n' +
+            execFileSync(
+              'powershell.exe',
+              [
+                '-NoProfile',
+                '-Command',
+                "Get-Process notepad -ErrorAction SilentlyContinue | Format-Table Id, MainWindowHandle, MainWindowTitle, Responding | Out-String -Width 200; Get-WinEvent -FilterHashtable @{LogName='Application'; StartTime=(Get-Date).AddMinutes(-5)} -MaxEvents 30 -ErrorAction SilentlyContinue | Where-Object { $_.Message -match 'notepad' } | Format-List TimeCreated, Id, ProviderName, Message | Out-String -Width 300"
+              ],
+              { encoding: 'utf8' }
             )
       expect(task.status, `${explain(task)}\n${attempts.join('; ')}\n${seen}`).toBe('SUCCEEDED')
       expect(

@@ -197,6 +197,16 @@ describe('SET 8 — Windows Computer Agent, in the real application', () => {
               : 'closed'
           )
           .not.toBe(answered)
+          .catch(async (error: unknown) => {
+            // Say what the dialog shows and what Core still has pending.
+            const shown = await prompt.textContent().catch(() => null)
+            const open = await query(page, 'permissions.requests', { status: 'PENDING', limit: 50 })
+            throw new Error(
+              `${String(error)}\nDialog: ${String(shown)}\nPending: ${JSON.stringify(
+                open.requests.map((item) => [item.requestId, item.capability, item.target])
+              )}`
+            )
+          })
       }
 
       // 2–8. The Mission completes only when the file on disk is verified.

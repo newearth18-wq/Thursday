@@ -31,6 +31,10 @@ public static class JupiterNative {
   [DllImport("user32.dll", CharSet = CharSet.Unicode)] static extern IntPtr SendMessage(IntPtr h, uint msg, IntPtr w, StringBuilder l);
   [DllImport("user32.dll", CharSet = CharSet.Unicode)] static extern IntPtr SendMessage(IntPtr h, uint msg, IntPtr w, string l);
   [DllImport("user32.dll")] static extern IntPtr SendMessage(IntPtr h, uint msg, IntPtr w, IntPtr l);
+  [DllImport("user32.dll")] static extern bool PostMessage(IntPtr h, uint msg, IntPtr w, IntPtr l);
+  // Clicks a standard Win32 button through its own message (BM_CLICK), without waiting for
+  // what the click opens (a question would otherwise block the runtime).
+  public static bool ClickButton(IntPtr h) { return PostMessage(h, 0x00F5, IntPtr.Zero, IntPtr.Zero); }
   [DllImport("user32.dll")] static extern bool AttachThreadInput(uint from, uint to, bool attach);
   [DllImport("user32.dll")] static extern IntPtr SetFocus(IntPtr h);
   [DllImport("user32.dll")] static extern IntPtr GetFocus();
@@ -352,7 +356,14 @@ function Op-Invoke($p) {
     else {
       $expand = Get-Pattern $element ([System.Windows.Automation.ExpandCollapsePattern]::Pattern)
       if ($null -ne $expand) { $expand.Expand() }
-      else { Fail 'ELEMENT_NOT_INVOKABLE' "The control ($(Describe-Query $p.query)) cannot be clicked semantically." }
+      else {
+        # A classic Win32 button without UI Automation patterns is clicked through its own message.
+        $native = [long]$element.Current.NativeWindowHandle
+        if ($native -eq 0 -or [JupiterNative]::ClassOf([IntPtr]$native) -ne 'Button' -or
+            -not [JupiterNative]::ClickButton([IntPtr]$native)) {
+          Fail 'ELEMENT_NOT_INVOKABLE' "The control ($(Describe-Query $p.query)) cannot be clicked semantically."
+        }
+      }
     }
   }
   $info = $null

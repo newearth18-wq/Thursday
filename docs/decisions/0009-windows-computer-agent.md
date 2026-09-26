@@ -95,7 +95,8 @@ It uses the common Save As dialog by automation ids `1001` (file name) and
 **Classic Win32 controls.** The runtime registers UI Automation's client-side
 providers, which some Windows editions do not load by themselves. When a
 classic Win32 edit box still has no Value pattern, the runtime reads and sets
-its text through the control's own messages (`WM_GETTEXT`, `WM_SETTEXT`):
+its text through the control's own messages (`WM_GETTEXT`, `WM_SETTEXT`),
+gives it focus with Win32 focus, and clicks a classic button with `BM_CLICK`:
 still the control's semantic content, never a screen position. Windows are
 listed from the window manager (`EnumWindows`), so a window that UI
 Automation misses for a moment is not reported as closed.
