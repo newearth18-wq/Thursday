@@ -1,7 +1,8 @@
 # SET 7 — Permission and Security Engine
 
-- Status: **all 10 acceptance tests pass locally** on Linux with `npm run verify`
-  (§7). CI evidence is recorded in §7 once the pushed commit has run.
+- Status: **all 10 acceptance tests pass**, locally on Linux with
+  `npm run verify` (13/13 steps) and in CI on Linux and Windows (`f6ec992`,
+  run 36231978700). See §7. Tagged `jupiter-set-07-permission-and-security-engine`.
 - SET 6 was re-checked first: green in CI on Linux and Windows (`63e539e`,
   run 36229785047) and tagged `jupiter-set-06-skill-system`. Its suites pass
   again on the SET 7 code; the changes are listed in §12.
@@ -281,9 +282,13 @@ The SET 7 suites within that run:
 - **Lint.** It found non-null assertions in the new tests; they were
   replaced with a checked helper.
 
-### CI evidence
+### CI evidence (commit `f6ec992`, run 36231978700)
 
-Recorded after the push (see the PR's checks).
+| Job                                                                                                                         | Result  |
+| --------------------------------------------------------------------------------------------------------------------------- | ------- |
+| Linux — format, lint, typecheck, unit, build, integration + E2E (incl. the SET 7 suites), secret scan, dev smoke, packages  | success |
+| Windows — unit, integration and E2E (incl. the SET 7 in-process and E2E suites), NSIS installer, package validation, launch | success |
+| Legacy Thursday — build and acceptance checks                                                                               | success |
 
 ## 8. Manual tests
 
