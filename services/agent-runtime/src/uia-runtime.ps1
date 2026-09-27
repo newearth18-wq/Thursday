@@ -17,8 +17,61 @@ Add-Type -AssemblyName System.Windows.Forms
 Add-Type -AssemblyName System.Drawing
 Add-Type -TypeDefinition @'
 using System;
+using System.Collections.Generic;
 using System.Runtime.InteropServices;
+using System.Text;
 public static class JupiterNative {
+  public delegate bool EnumProc(IntPtr h, IntPtr state);
+  [DllImport("user32.dll")] static extern bool EnumWindows(EnumProc callback, IntPtr state);
+  [DllImport("user32.dll", CharSet = CharSet.Unicode)] static extern int GetWindowText(IntPtr h, StringBuilder text, int max);
+  [DllImport("user32.dll", CharSet = CharSet.Unicode)] static extern int GetClassName(IntPtr h, StringBuilder text, int max);
+  [DllImport("user32.dll")] public static extern uint GetWindowThreadProcessId(IntPtr h, out uint processId);
+  [StructLayout(LayoutKind.Sequential)] public struct RECT { public int Left; public int Top; public int Right; public int Bottom; }
+  [DllImport("user32.dll")] public static extern bool GetWindowRect(IntPtr h, out RECT rect);
+  [DllImport("user32.dll")] static extern bool SetWindowPos(IntPtr h, IntPtr after, int x, int y, int cx, int cy, uint flags);
+  // Moves (or resizes) a top-level window through the window manager, without activating it
+  // or changing its z-order. SWP_NOSIZE 0x1, SWP_NOMOVE 0x2, SWP_NOZORDER 0x4, SWP_NOACTIVATE 0x10.
+  public static bool MoveWindowTo(IntPtr h, int x, int y) { return SetWindowPos(h, IntPtr.Zero, x, y, 0, 0, 0x1 | 0x4 | 0x10); }
+  public static bool ResizeWindowTo(IntPtr h, int width, int height) { return SetWindowPos(h, IntPtr.Zero, 0, 0, width, height, 0x2 | 0x4 | 0x10); }
+  [DllImport("user32.dll", CharSet = CharSet.Unicode)] static extern IntPtr SendMessage(IntPtr h, uint msg, IntPtr w, StringBuilder l);
+  [DllImport("user32.dll", CharSet = CharSet.Unicode)] static extern IntPtr SendMessage(IntPtr h, uint msg, IntPtr w, string l);
+  [DllImport("user32.dll")] static extern IntPtr SendMessage(IntPtr h, uint msg, IntPtr w, IntPtr l);
+  [DllImport("user32.dll")] static extern bool PostMessage(IntPtr h, uint msg, IntPtr w, IntPtr l);
+  // Clicks a standard Win32 button through its own message (BM_CLICK), without waiting for
+  // what the click opens (a question would otherwise block the runtime).
+  public static bool ClickButton(IntPtr h) { return PostMessage(h, 0x00F5, IntPtr.Zero, IntPtr.Zero); }
+  [DllImport("user32.dll")] static extern bool AttachThreadInput(uint from, uint to, bool attach);
+  [DllImport("user32.dll")] static extern IntPtr SetFocus(IntPtr h);
+  [DllImport("user32.dll")] static extern IntPtr GetFocus();
+  [DllImport("kernel32.dll")] static extern uint GetCurrentThreadId();
+  // Gives keyboard focus to a control of another process's window (its window must be in front).
+  public static bool FocusControl(IntPtr h) {
+    uint processId;
+    uint target = GetWindowThreadProcessId(h, out processId);
+    uint self = GetCurrentThreadId();
+    bool attached = target != self && AttachThreadInput(self, target, true);
+    try { SetFocus(h); return GetFocus() == h; }
+    finally { if (attached) AttachThreadInput(self, target, false); }
+  }
+  // Visible top-level windows, straight from the window manager.
+  public static long[] TopLevelWindows() {
+    var found = new List<long>();
+    EnumWindows((h, state) => { if (IsWindowVisible(h)) found.Add(h.ToInt64()); return true; }, IntPtr.Zero);
+    return found.ToArray();
+  }
+  public static string Title(IntPtr h) { var text = new StringBuilder(512); GetWindowText(h, text, text.Capacity); return text.ToString(); }
+  public static string ClassOf(IntPtr h) { var text = new StringBuilder(256); GetClassName(h, text, text.Capacity); return text.ToString(); }
+  // A standard Win32 edit control's own text (WM_GETTEXTLENGTH, WM_GETTEXT).
+  public static string ControlText(IntPtr h) {
+    int length = SendMessage(h, 0x000E, IntPtr.Zero, IntPtr.Zero).ToInt32();
+    var text = new StringBuilder(length + 1);
+    SendMessage(h, 0x000D, new IntPtr(length + 1), text);
+    return text.ToString();
+  }
+  // Sets a standard Win32 edit control's text (WM_SETTEXT); true when the control accepted it.
+  public static bool SetControlText(IntPtr h, string value) {
+    return SendMessage(h, 0x000C, IntPtr.Zero, value).ToInt32() != 0;
+  }
   [DllImport("user32.dll")] public static extern bool SetForegroundWindow(IntPtr h);
   [DllImport("user32.dll")] public static extern IntPtr GetForegroundWindow();
   [DllImport("user32.dll")] public static extern bool ShowWindow(IntPtr h, int cmd);
@@ -33,6 +86,15 @@ public static class JupiterNative {
 }
 '@
 [void][JupiterNative]::SetProcessDPIAware()
+
+# UI Automation describes classic Win32 controls (Edit, Button, ComboBox) through its
+# client-side providers. Some Windows editions do not load them by themselves: register them
+# explicitly, so a Win32 edit box is an Edit/Document with a Value pattern, not a bare Pane.
+try {
+  Add-Type -AssemblyName UIAutomationClientsideProviders
+  [System.Windows.Automation.ClientSettings]::RegisterClientSideProviderAssembly(
+    [UIAutomationClientsideProviders.UIAutomationClientSideProviders].Assembly.GetName())
+} catch { }
 
 $Automation = [System.Windows.Automation.AutomationElement]
 
@@ -58,19 +120,35 @@ function Get-WindowElement($handle) {
 }
 
 function Window-Info($element) {
-  $current = $element.Current
-  $handle = [long]$current.NativeWindowHandle
+  return Handle-Info ([long]$element.Current.NativeWindowHandle)
+}
+
+# A top-level window as the window manager reports it (no UI Automation involved).
+function Handle-Info([long]$handle) {
+  $ptr = [IntPtr]$handle
+  [uint32]$processId = 0
+  [void][JupiterNative]::GetWindowThreadProcessId($ptr, [ref]$processId)
   $processName = ''
-  try { $processName = (Get-Process -Id $current.ProcessId -ErrorAction Stop).ProcessName } catch { }
+  try { $processName = (Get-Process -Id $processId -ErrorAction Stop).ProcessName } catch { }
+  $rect = New-Object JupiterNative+RECT
+  [void][JupiterNative]::GetWindowRect($ptr, [ref]$rect)
   return [ordered]@{
     handle = $handle
-    processId = [int]$current.ProcessId
+    processId = [int]$processId
     processName = [string]$processName
-    title = [string]$current.Name
-    bounds = To-Bounds $current.BoundingRectangle
-    active = ([JupiterNative]::GetForegroundWindow() -eq [IntPtr]$handle)
-    minimized = [JupiterNative]::IsIconic([IntPtr]$handle)
+    title = [JupiterNative]::Title($ptr)
+    bounds = [ordered]@{ x = $rect.Left; y = $rect.Top; width = $rect.Right - $rect.Left; height = $rect.Bottom - $rect.Top }
+    active = ([JupiterNative]::GetForegroundWindow() -eq $ptr)
+    minimized = [JupiterNative]::IsIconic($ptr)
   }
+}
+
+# The native handle of a classic Win32 edit control, or 0.
+function Win32-Edit($element) {
+  $native = [long]$element.Current.NativeWindowHandle
+  if ($native -eq 0) { return 0 }
+  if ([JupiterNative]::ClassOf([IntPtr]$native) -ne 'Edit') { return 0 }
+  return $native
 }
 
 function Element-Info($element) {
@@ -201,6 +279,8 @@ function Read-Text($element) {
   if ($null -ne $value) { return [string]$value.Current.Value }
   $text = Get-Pattern $element ([System.Windows.Automation.TextPattern]::Pattern)
   if ($null -ne $text) { return [string]$text.DocumentRange.GetText(-1) }
+  $edit = Win32-Edit $element
+  if ($edit -ne 0) { return [JupiterNative]::ControlText([IntPtr]$edit) }
   return [string]$element.Current.Name
 }
 
@@ -215,14 +295,14 @@ function Op-Ping($p) {
 
 function Op-ListWindows($p) {
   $windows = @()
-  $children = $Automation::RootElement.FindAll(
-    [System.Windows.Automation.TreeScope]::Children, [System.Windows.Automation.Condition]::TrueCondition)
-  foreach ($child in $children) {
+  foreach ($handle in [JupiterNative]::TopLevelWindows()) {
     try {
-      $handle = [long]$child.Current.NativeWindowHandle
-      if ($handle -eq 0 -or -not [JupiterNative]::IsWindowVisible([IntPtr]$handle)) { continue }
-      $windows += Window-Info $child
+      $info = Handle-Info $handle
+      # Untitled, zero-size windows are helpers, not something a person works in.
+      if ($info.title -eq '' -and ($info.bounds.width -le 0 -or $info.bounds.height -le 0)) { continue }
+      $windows += $info
     } catch { }
+    if ($windows.Count -ge 200) { break }
   }
   return [ordered]@{ windows = @($windows) }
 }
@@ -256,13 +336,16 @@ function Op-WindowOp($p) {
     'maximize' { $pattern.SetWindowVisualState($state::Maximized) }
     'restore' { $pattern.SetWindowVisualState($state::Normal) }
     { $_ -eq 'move' -or $_ -eq 'resize' } {
-      $transform = Get-Pattern $window ([System.Windows.Automation.TransformPattern]::Pattern)
-      if ($null -eq $transform) { Fail 'WINDOW_OP_UNSUPPORTED' 'The window cannot be moved or resized.' }
-      if ($p.operation -eq 'move') { $transform.Move([double]$p.x, [double]$p.y) }
-      else { $transform.Resize([double]$p.width, [double]$p.height) }
+      $ptr = [IntPtr][long]$p.handle
+      if ($p.operation -eq 'move') { $done = [JupiterNative]::MoveWindowTo($ptr, [int]$p.x, [int]$p.y) }
+      else { $done = [JupiterNative]::ResizeWindowTo($ptr, [int]$p.width, [int]$p.height) }
+      if (-not $done) { Fail 'WINDOW_OP_UNSUPPORTED' "Windows did not $($p.operation) the window." }
     }
   }
   Start-Sleep -Milliseconds 150
+  if ($p.operation -ne 'minimize' -and -not [JupiterNative]::IsWindowVisible([IntPtr][long]$p.handle)) {
+    Fail 'WINDOW_STATE_NOT_APPLIED' "The window is no longer visible after $($p.operation)."
+  }
   return [ordered]@{ window = Window-Info (Get-WindowElement $p.handle) }
 }
 
@@ -281,7 +364,14 @@ function Op-Invoke($p) {
     else {
       $expand = Get-Pattern $element ([System.Windows.Automation.ExpandCollapsePattern]::Pattern)
       if ($null -ne $expand) { $expand.Expand() }
-      else { Fail 'ELEMENT_NOT_INVOKABLE' "The control ($(Describe-Query $p.query)) cannot be clicked semantically." }
+      else {
+        # A classic Win32 button without UI Automation patterns is clicked through its own message.
+        $native = [long]$element.Current.NativeWindowHandle
+        if ($native -eq 0 -or [JupiterNative]::ClassOf([IntPtr]$native) -ne 'Button' -or
+            -not [JupiterNative]::ClickButton([IntPtr]$native)) {
+          Fail 'ELEMENT_NOT_INVOKABLE' "The control ($(Describe-Query $p.query)) cannot be clicked semantically."
+        }
+      }
     }
   }
   $info = $null
@@ -293,19 +383,37 @@ function Op-Invoke($p) {
 function Op-SetValue($p) {
   $element = Find-Element $p.handle $p.query $p.waitMs
   $value = Get-Pattern $element ([System.Windows.Automation.ValuePattern]::Pattern)
-  if ($null -eq $value) { Fail 'ELEMENT_NOT_EDITABLE' "The control ($(Describe-Query $p.query)) has no editable value." }
-  if ($value.Current.IsReadOnly) { Fail 'ELEMENT_READ_ONLY' "The control ($(Describe-Query $p.query)) is read-only." }
-  $value.SetValue([string]$p.text)
+  if ($null -ne $value) {
+    if ($value.Current.IsReadOnly) { Fail 'ELEMENT_READ_ONLY' "The control ($(Describe-Query $p.query)) is read-only." }
+    $value.SetValue([string]$p.text)
+    return [ordered]@{ element = Element-Info $element }
+  }
+  # A classic Win32 edit box without a Value pattern takes its text through its own message.
+  $edit = Win32-Edit $element
+  if ($edit -eq 0) { Fail 'ELEMENT_NOT_EDITABLE' "The control ($(Describe-Query $p.query)) has no editable value." }
+  if (-not [JupiterNative]::SetControlText([IntPtr]$edit, [string]$p.text)) {
+    Fail 'ELEMENT_NOT_EDITABLE' "The control ($(Describe-Query $p.query)) did not accept the text."
+  }
   return [ordered]@{ element = Element-Info $element }
 }
 
 function Op-TypeText($p) {
   $element = Find-Element $p.handle $p.query $p.waitMs
-  if (-not $element.Current.IsKeyboardFocusable) {
+  if (-not $element.Current.IsKeyboardFocusable -and (Win32-Edit $element) -eq 0) {
     Fail 'ELEMENT_NOT_EDITABLE' "The control ($(Describe-Query $p.query)) does not take keyboard input."
   }
   Focus-Window $p.handle
-  $element.SetFocus()
+  $edit = Win32-Edit $element
+  if ($edit -ne 0) {
+    # A classic Win32 edit box that UI Automation cannot focus takes focus the Win32 way.
+    $focused = $false
+    try { $element.SetFocus(); $focused = $true } catch { }
+    if (-not $focused -and -not [JupiterNative]::FocusControl([IntPtr]$edit)) {
+      Fail 'FOCUS_FAILED' "The control ($(Describe-Query $p.query)) could not be given keyboard focus."
+    }
+  } else {
+    $element.SetFocus()
+  }
   [System.Windows.Forms.SendKeys]::SendWait((Escape-SendKeys ([string]$p.text)))
   return [ordered]@{ element = Element-Info $element }
 }

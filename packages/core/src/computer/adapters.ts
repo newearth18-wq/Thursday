@@ -47,17 +47,21 @@ function genericOwns(processNames: readonly string[]) {
 /** Notepad's Save As dialog: the file name box and the Save button of the common file dialog. */
 const FILE_NAME_BOX: ElementQuery = { automationId: '1001' }
 const FILE_NAME_FALLBACK: ElementQuery = { controlType: 'Edit', name: 'File name:' }
-const SAVE_BUTTON: ElementQuery = { automationId: '1', controlType: 'Button' }
+// The Save button is a Win32 Button: found by class, since UI Automation may report it as a Pane.
+const SAVE_BUTTON: ElementQuery = { automationId: '1', className: 'Button' }
 
 const notepad: AppAdapter = {
   app: 'notepad',
   name: 'Notepad',
   owns: genericOwns(['notepad']),
-  // Classic Notepad exposes its text as an Edit control; the current Notepad as a Document.
+  // The current Notepad's text is a RichEditD2DPT Document. Classic Notepad's is its Win32
+  // Edit control (automation id 15), which UI Automation reports as an Edit, a Document or,
+  // without its client-side providers, a Pane: it is found by its class, whatever its type.
   editor: [
-    { controlType: 'Edit', className: 'Edit' },
+    { className: 'RichEditD2DPT' },
     { controlType: 'Document' },
-    { className: 'RichEditD2DPT' }
+    { automationId: '15', className: 'Edit' },
+    { className: 'Edit' }
   ],
   async save(context, window, path) {
     const { driver } = context
@@ -106,8 +110,34 @@ const notepad: AppAdapter = {
           userAction: 'Look at Notepad, answer or cancel its dialog, then try again.'
         }
       )
+    // Notepad has saved when its title names the file (it writes the file as the dialog
+    // returns). Its title shows the name with or without the extension ("hello - Notepad"),
+    // as Windows is set to show extensions or not.
+    const name = (path.split(/[\\/]/).pop() ?? path).toLowerCase()
+    const stem = name.replace(/\.[^.]*$/, '')
+    let title = ''
+    const saved = await waitFor(context, 10_000, async () => {
+      const { windows } = await driver.call('listWindows', {})
+      title = windows.find((item) => item.handle === window.handle)?.title ?? ''
+      const shown = title.toLowerCase()
+      return shown.startsWith(`${name} - `) || shown.startsWith(`${stem} - `) ? true : null
+    })
+    if (!saved) {
+      const { windows } = await driver.call('listWindows', {})
+      const others = windows
+        .filter((item) => item.processId === window.processId && item.handle !== window.handle)
+        .map((item) => `"${item.title}"`)
+      throw new JupiterError(
+        'SAVE_NOT_COMPLETED',
+        `The Save As dialog closed, but Notepad's title is "${title}", not the saved file's name${others.length > 0 ? `; Notepad also shows ${others.join(', ')}` : ''}.`,
+        {
+          category: 'dependency',
+          userAction: 'Look at Notepad, answer or cancel its dialog, then try again.'
+        }
+      )
+    }
     return {
-      observation: `Opened Save As with Ctrl+S, entered the path in the file name box (automation id 1001) and invoked Save (automation id 1); the dialog "${dialog.title}" closed.`
+      observation: `Opened Save As with Ctrl+S, entered the path in the file name box (automation id 1001) and invoked Save (automation id 1); the dialog "${dialog.title}" closed and Notepad's title is now "${title}".`
     }
   }
 }

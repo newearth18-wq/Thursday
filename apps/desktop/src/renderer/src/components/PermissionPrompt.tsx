@@ -14,15 +14,22 @@ export function PermissionPrompt({ coreSession }: { readonly coreSession: string
   const { data, refresh } = usePendingPermissions(coreSession)
   const [busy, setBusy] = useState(false)
   const [failure, setFailure] = useState<{ requestId: string; message: string } | null>(null)
-  const pending = data.state === 'ready' ? [...data.value].reverse() : []
+  // Requests Core has confirmed as answered: not shown again while the list is being re-read.
+  const [answered, setAnswered] = useState<ReadonlySet<string>>(() => new Set())
+  const pending =
+    data.state === 'ready'
+      ? [...data.value].reverse().filter((item) => !answered.has(item.requestId))
+      : []
   const current = pending[0] ?? null
 
   const answer = (decision: PermissionDecision) => {
     if (!current) return
     setBusy(true)
     setFailure(null)
-    request('permissions.decide', { requestId: current.requestId, decision }).then(
+    const requestId = current.requestId
+    request('permissions.decide', { requestId, decision }).then(
       () => {
+        setAnswered((previous) => new Set(previous).add(requestId))
         setBusy(false)
         refresh()
       },

@@ -293,6 +293,71 @@ describe('Computer Agent (logic, with a test double of the Windows host)', () =>
 })
 
 describe('Computer Agent Mission step', () => {
+  it('a Notepad step completes when the requests are answered one at a time, oldest first, as the dialog does', async () => {
+    const running = await start()
+    await withModel(running)
+    const draft: PlanDraft = {
+      goal: 'Save a greeting',
+      assumptions: [],
+      rationale: 'One Computer Agent step.',
+      steps: [
+        {
+          id: 'save',
+          title: 'Write Hello Jupiter to hello.txt',
+          description: 'Notepad',
+          skillId: 'computer.notepad_write',
+          dependencies: [],
+          input: { text: 'Hello Jupiter', fileName: 'hello.txt' },
+          condition: null,
+          timeoutMs: 120_000,
+          retryPolicy: { maxAttempts: 1, backoffMs: 0, multiplier: 1 },
+          verification: null,
+          required: true
+        }
+      ],
+      requiredSkills: ['computer.notepad_write'],
+      requiredPermissions: [
+        'computer.open_app',
+        'computer.manage_window',
+        'computer.type',
+        'files.write'
+      ],
+      expectedArtifacts: [],
+      verificationPlan: { checks: [{ step: 'save', check: 'non-empty', description: 'Saved' }] }
+    }
+    server.enqueue({ chunks: [JSON.stringify(draft)] })
+    const missionId = (
+      await call(running, 'missions.create', {
+        request: 'Open Notepad, type Hello Jupiter, save it to Desktop',
+        planner: 'model'
+      })
+    ).mission.missionId
+    await settled(running, missionId, 'WAITING_APPROVAL')
+    const answered: string[] = []
+    for (let round = 0; round < 12; round++) {
+      const oldest = [...(await pending(running))].reverse()[0]
+      if (!oldest) {
+        const status = (await call(running, 'missions.get', { missionId })).mission.status
+        if (status === 'COMPLETED' || status === 'FAILED') break
+        await new Promise((resolve) => setTimeout(resolve, 50))
+        continue
+      }
+      await call(running, 'permissions.decide', {
+        requestId: oldest.requestId,
+        decision: 'ALLOW_ONCE'
+      })
+      answered.push(`${oldest.capability} ${oldest.target}`)
+      // The dialog then shows the next waiting request, or closes.
+      await expect
+        .poll(async () => [...(await pending(running))].reverse()[0]?.requestId ?? 'none', {
+          message: answered.join(' | ')
+        })
+        .not.toBe(oldest.requestId)
+    }
+    await settled(running, missionId, 'COMPLETED')
+    expect(running.desktop.files.get(`${FAKE_DESKTOP_FOLDER}\\hello.txt`)).toBe('Hello Jupiter')
+  })
+
   it('a Notepad step waits for the permissions, then saves and verifies the file', async () => {
     const running = await start()
     await withModel(running)

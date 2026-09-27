@@ -225,7 +225,8 @@ describe('SET 2 — navigation, persistence and language (real app)', () => {
     expect(await page.getByTestId('settings-save-status').textContent()).toBe('บันทึกแล้ว')
     expect(await page.title()).toBe('การตั้งค่า — Jupiter')
     await open(page, 'home')
-    expect(await page.getByTestId('stage-status').textContent()).toBe('ว่าง')
+    // The stage shows the real runtime state: on Windows the agent runtime may still be starting.
+    await expect.poll(() => page.getByTestId('stage-status').textContent()).toBe('ว่าง')
 
     await setPreference(page, 'general', 'setting-language', 'en')
     expect(await page.getByTestId('nav-home').textContent()).toBe('Home')

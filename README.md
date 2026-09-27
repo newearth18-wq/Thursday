@@ -63,13 +63,13 @@ Running as root in a container? Chromium's sandbox cannot start as root, so use
 ```text
 apps/desktop/            Jupiter desktop app: host (Electron main + gateway), Core utility process, preload, React renderer
 packages/contracts/      Versioned zod schemas for every trust boundary
-packages/core/           Core kernel: capability dispatcher, event bus, service supervisor, logger, IDs; model router, chat, adapter port; Mission Manager, planner and workflow engine; Skill Registry and sandbox
+packages/core/           Core kernel: capability dispatcher, event bus, service supervisor, logger, IDs; model router, chat, adapter port; Mission Manager, planner and workflow engine; Skill Registry and sandbox; Permission Engine; Computer Agent
 packages/providers/      Provider adapters (OpenAI-compatible, Anthropic), reached only through Core's guarded transport
 packages/database/       SQLite (node:sqlite): migrations, transactions, backups, repositories
 packages/security/       Secret patterns and redaction
 packages/ui/             Visual Design Lock v1: design tokens, fonts, icons, the Jupiter mark
 packages/testing/        Launch the real app with Playwright; credential-shaped test values; provider protocol test servers
-services/agent-runtime/  Coming later (SET 8)
+services/agent-runtime/  Windows UI Automation runtime (PowerShell) behind a validated JSON-lines RPC; its Node client
 services/browser-runtime/ Coming later (SET 9)
 services/plugin-runtime/ Coming later (SET 15)
 plugins/                 Coming later (SET 15)
