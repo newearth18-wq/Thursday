@@ -82,7 +82,9 @@ const CAPABILITY_NAMES: Record<ModelCapability, string> = {
   vision: 'images (vision)',
   embeddings: 'embeddings',
   tools: 'tool calling',
-  'structured-output': 'structured output'
+  'structured-output': 'structured output',
+  transcription: 'speech-to-text',
+  speech: 'text-to-speech'
 }
 
 export function allowedByMode(mode: RoutingMode, locality: Locality): boolean {

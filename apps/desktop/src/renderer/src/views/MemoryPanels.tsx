@@ -87,10 +87,10 @@ const percent = (value: number) => `${String(Math.round(value * 100))}%`
 // ---- Memories -----------------------------------------------------------------------------------
 
 export function MemoriesPanel({
-  version,
+  reloadKey,
   formatTime
 }: {
-  readonly version: number
+  readonly reloadKey: string | null
   readonly formatTime: FormatTime
 }) {
   const { t } = useI18n()
@@ -125,11 +125,14 @@ export function MemoriesPanel({
     [text, type, includeForgotten]
   )
 
-  // Reload the list whenever a memory changes (not while a keyword search is shown).
+  // Load the list once Jupiter Core can answer, and again whenever a memory changes or Core
+  // reconnects (not while a keyword search is shown). A load that failed before Core was ready
+  // is repeated then, instead of leaving the list empty.
   useEffect(() => {
-    if (mode === 'metadata') void search({ mode: 'metadata', relatedTo: null })
+    if (reloadKey !== null && mode === 'metadata')
+      void search({ mode: 'metadata', relatedTo: null })
     // eslint-disable-next-line react-hooks/exhaustive-deps -- reload on change only
-  }, [version, includeForgotten, type])
+  }, [reloadKey, includeForgotten, type])
 
   return (
     <div className="memory-panel" data-testid="memory-memories">

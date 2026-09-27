@@ -7,7 +7,7 @@ import {
   readdirSync,
   writeFileSync
 } from 'node:fs'
-import { join } from 'node:path'
+import { join, relative } from 'node:path'
 import { createTempDir, launchJupiter, removeDir, type LaunchedJupiter } from '@jupiter/testing'
 import { checkMarkdown } from '@jupiter/testing/documents'
 import { fakeCredentials } from '@jupiter/testing/fake-credentials'
@@ -33,6 +33,11 @@ import { appDirectory, assertBuilt, query, waitForGateway } from './helpers'
 
 const EVIDENCE = join(appDirectory, '..', '..', 'test-results', 'set-11')
 const CARD = '4111 1111 1111 1111'
+/**
+ * The card number in every form it could be kept in. (Its first four digits alone are not
+ * searched for: "4111" also occurs by chance in binary files, identifiers and timings.)
+ */
+const CARD_FORMS = [CARD, CARD.replaceAll(' ', ''), CARD.replaceAll(' ', '-'), '1111 1111 1111']
 const KEY = fakeCredentials()[1]?.value ?? ''
 
 let local: ProtocolServer
@@ -133,6 +138,46 @@ async function answerDialog(first?: string, timeout = 15_000): Promise<string[]>
 }
 
 /**
+ * Answers Allow once to every permission dialog until `result` returns an answer. For work
+ * that asks several times in turn: however long the gap between two requests, no dialog is
+ * left open and nothing is waited for once the work has finished.
+ */
+async function answerUntil(
+  result: () => Promise<string | null>,
+  first: string,
+  timeout = 60_000
+): Promise<{ asked: string[]; result: string }> {
+  const prompt = page.getByTestId('permission-dialog')
+  const asked: string[] = []
+  const deadline = Date.now() + timeout
+  while (Date.now() < deadline) {
+    if (await prompt.isVisible()) {
+      if (asked.length === 0) await evidence(first)
+      const id = await prompt.getByTestId('permission-facts').getAttribute('data-request-id')
+      asked.push((await prompt.getByTestId('permission-capability').textContent()) ?? '')
+      await prompt.getByTestId('permission-allow-once').click()
+      await expect
+        .poll(() =>
+          page.evaluate(
+            () =>
+              document
+                .querySelector('[data-testid="permission-dialog"] [data-testid="permission-facts"]')
+                ?.getAttribute('data-request-id') ?? 'closed'
+          )
+        )
+        .not.toBe(id)
+      continue
+    }
+    const done = await result()
+    if (done !== null) return { asked, result: done }
+    await page.waitForTimeout(100)
+  }
+  throw new Error(
+    `Still waiting after ${String(timeout)} ms; permissions answered: ${asked.join(', ')}`
+  )
+}
+
+/**
  * What Jupiter itself writes in the profile, which must always be readable here: the database
  * and its WAL, logs, backups, credentials, the vault state and note backups. (`jupiter.db-shm`
  * is SQLite's shared-memory index, which holds no content.)
@@ -140,9 +185,9 @@ async function answerDialog(first?: string, timeout = 15_000): Promise<string[]>
 const JUPITER_OWNED =
   /^(jupiter\.db(-wal)?|logs|backups|credentials|notes-vault\.json|notes-backups|window-state\.json)$/
 
-/** Every byte Jupiter keeps for this profile: database, WAL, logs, settings, vault state. */
-function everythingStored(): string {
-  const parts: string[] = []
+/** Every file kept for this profile (database, WAL, logs, settings, vault state), as text. */
+function storedFiles(): { path: string; text: string }[] {
+  const files: { path: string; text: string }[] = []
   const walk = (dir: string, owned: boolean) => {
     for (const name of readdirSync(dir)) {
       const path = join(dir, name)
@@ -165,14 +210,38 @@ function everythingStored(): string {
           if (!mine && (code === 'EBUSY' || code === 'EPERM')) continue
           throw error
         }
-        parts.push(bytes.toString('latin1'), bytes.toString('utf8'))
+        files.push({ path, text: `${bytes.toString('latin1')}\n${bytes.toString('utf8')}` })
       }
     }
   }
   walk(userDataDir, false)
   // The files that matter were read: the database is there.
   expect(existsSync(join(userDataDir, 'jupiter.db'))).toBe(true)
-  return parts.join('\n')
+  return files
+}
+
+/** Every byte Jupiter keeps for this profile, as one text. */
+function everythingStored(): string {
+  return storedFiles()
+    .map((file) => file.text)
+    .join('\n')
+}
+
+/**
+ * The files (and the text around each match) that hold any of these strings, so a failure says
+ * where the data was found.
+ */
+function whereStored(needles: readonly string[]): string[] {
+  const found: string[] = []
+  for (const file of storedFiles())
+    for (const needle of needles) {
+      const at = file.text.indexOf(needle)
+      if (at >= 0)
+        found.push(
+          `${relative(userDataDir, file.path)}: …${file.text.slice(Math.max(0, at - 40), at + needle.length + 40)}…`
+        )
+    }
+  return found
 }
 
 async function openMemory(tab: 'memories' | 'add' | 'waiting' | 'policy' | 'obsidian') {
@@ -281,7 +350,7 @@ describe('SET 11 — Memory System and Obsidian, in the real application', () =>
     expect(await propose(`My credit card number is ${CARD}.`)).toBe('ASK_USER')
     expect(await reasons()).toContain('financial')
     // Waiting: not in the database, the logs or anywhere else on disk.
-    expect(everythingStored().includes('4111')).toBe(false)
+    expect(whereStored(CARD_FORMS)).toEqual([])
     expect(await page.getByTestId('memory-count-long-term').textContent()).toBe('1')
     await openMemory('waiting')
     const candidate = page.getByTestId('memory-candidate')
@@ -295,7 +364,7 @@ describe('SET 11 — Memory System and Obsidian, in the real application', () =>
     await page.getByTestId('memory-candidates-empty').waitFor()
     await expect.poll(() => page.getByTestId('memory-count-sensitive').textContent()).toBe('1')
     // AT10: kept sealed by the operating system's secure storage — not in any file, log or event.
-    expect(everythingStored().includes('4111')).toBe(false)
+    expect(whereStored(CARD_FORMS)).toEqual([])
     const events = await query(page, 'events.list', {
       afterSequence: null,
       limit: 200,
@@ -306,7 +375,7 @@ describe('SET 11 — Memory System and Obsidian, in the real application', () =>
       }
     })
     expect(events.events.length).toBeGreaterThan(0)
-    expect(JSON.stringify(events).includes('4111')).toBe(false)
+    for (const form of CARD_FORMS) expect(JSON.stringify(events)).not.toContain(form)
     // Hidden in the list until the person reveals it.
     await openMemory('memories')
     const sealed = page.locator('[data-testid="memory-item"][data-sensitivity="sensitive"]')
@@ -399,15 +468,18 @@ describe('SET 11 — Memory System and Obsidian, in the real application', () =>
     await page.getByTestId('notes-create-tags').fill('storm')
     await page.getByTestId('notes-create-links').fill('Jupiter, Saturn')
     await page.getByTestId('notes-create-submit').click()
-    const asked = await answerDialog('14-at7-write-permission')
-    expect(asked.every((capability) => capability === 'notes.write')).toBe(true)
-    await expect
-      .poll(async () =>
-        (await page.getByTestId('notes-create-error').count())
-          ? await page.getByTestId('notes-create-error').textContent()
-          : await page.getByTestId('notes-create-status').textContent()
-      )
-      .toBe('Created Space/Great Red Spot.md.')
+    // The note and each linked note ask for notes.write in turn; answer until it is created.
+    const created = await answerUntil(async () => {
+      if (await page.getByTestId('notes-create-error').count())
+        return page.getByTestId('notes-create-error').textContent()
+      const status = page.getByTestId('notes-create-status')
+      if (!(await status.count())) return null
+      const text = await status.textContent()
+      return text?.startsWith('Created') ? text : null
+    }, '14-at7-write-permission')
+    expect(created.asked.length).toBeGreaterThan(0)
+    expect(created.asked.every((capability) => capability === 'notes.write')).toBe(true)
+    expect(created.result).toBe('Created Space/Great Red Spot.md.')
     const backlinks = await page
       .getByTestId('notes-backlinks')
       .locator('li')
@@ -507,7 +579,8 @@ describe('SET 11 — Memory System and Obsidian, in the real application', () =>
     const embedded = local.requests.filter((request) => request.path === '/v1/embeddings')
     expect(embedded.length).toBeGreaterThan(0)
     // Sensitive memories never go to any model.
-    expect(JSON.stringify(embedded.map((request) => request.body))).not.toContain('4111')
+    for (const form of CARD_FORMS)
+      expect(JSON.stringify(embedded.map((request) => request.body))).not.toContain(form)
     await evidence('17-at9-local-semantic')
   })
 

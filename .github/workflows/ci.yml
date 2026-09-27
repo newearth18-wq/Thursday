@@ -40,7 +40,7 @@ jobs:
       - name: Install the system libraries Electron needs, xvfb and a secret service
         run: |
           npx playwright install-deps chromium
-          sudo apt-get install -y --no-install-recommends xvfb dbus gnome-keyring libsecret-1-0
+          sudo apt-get install -y --no-install-recommends xvfb dbus gnome-keyring libsecret-1-0 espeak-ng
 
       # Independent parsers that open the DOCX, PPTX and XLSX files (SET 10) and the Markdown
       # notes with YAML frontmatter (SET 11) that Jupiter writes.

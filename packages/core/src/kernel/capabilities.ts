@@ -114,6 +114,20 @@ const MEMORY_READ: Policy = {
 }
 const MEMORY_WRITE: Policy = { ...MEMORY_READ, risk: 'MEDIUM', audit: 'always', timeoutMs: 60_000 }
 const MEMORY_DELETE: Policy = { ...MEMORY_WRITE, risk: 'HIGH' }
+/**
+ * Voice (SET 12): only the person's interface drives the microphone. Starting to listen,
+ * and speaking, are audited; the audio stream itself is not (no audio is ever recorded).
+ */
+const VOICE_READ: Policy = { ...UI_READ, requires: ['database', 'voice'], timeoutMs: 30_000 }
+const VOICE_STREAM: Policy = { ...VOICE_READ, timeoutMs: 10_000 }
+const VOICE_WRITE: Policy = {
+  ...VOICE_READ,
+  requires: ['database', 'permission-engine', 'voice'],
+  risk: 'HIGH',
+  audit: 'always',
+  timeoutMs: 30_000
+}
+const VOICE_SPEAK: Policy = { ...VOICE_READ, risk: 'LOW', audit: 'always', timeoutMs: 120_000 }
 const NOTES_WRITE: Policy = { ...MEMORY_READ, risk: 'MEDIUM', audit: 'always', timeoutMs: 180_000 }
 /** Commands that plan or run a workflow (SET 5) also need the workflow engine. */
 const WORKFLOW_WRITE: Policy = {
@@ -777,6 +791,39 @@ export function coreCapabilities(kernel: CoreKernel): CapabilityDefinition<never
       (input) => `note:${input.from}`
     ),
 
+    define('voice.status', VOICE_READ, () => kernel.voice.status()),
+    define('voice.voices', VOICE_READ, () => kernel.voice.voices()),
+    define('voice.devices.reveal', VOICE_WRITE, (_input, context) =>
+      kernel.voice.revealDevices(voiceContext(context))
+    ),
+    define(
+      'voice.listen.start',
+      VOICE_WRITE,
+      (input, context) => kernel.voice.start(input.mode, voiceContext(context)),
+      () => 'device:microphone'
+    ),
+    define('voice.audio', VOICE_STREAM, (input, context) =>
+      kernel.voice.audio(input, voiceContext(context))
+    ),
+    define('voice.listen.stop', VOICE_SPEAK, (input, context) =>
+      kernel.voice.stop(input, voiceContext(context))
+    ),
+    define('voice.utterance', VOICE_READ, (input) => kernel.voice.utteranceFor(input.utteranceId)),
+    define('voice.playback', VOICE_STREAM, (input, context) =>
+      kernel.voice.playback(input, voiceContext(context))
+    ),
+    define('voice.interrupt', VOICE_STREAM, (_input, context) => {
+      kernel.voice.interrupt(voiceContext(context))
+      return kernel.voice.status()
+    }),
+    define('voice.speak', VOICE_SPEAK, (input, context) =>
+      kernel.voice.speak(input.text, input.language, voiceContext(context))
+    ),
+    define('voice.recover', VOICE_STREAM, (_input, context) => {
+      kernel.voice.recover(voiceContext(context))
+      return kernel.voice.status()
+    }),
+
     define('permissions.catalogue', PERMISSION_READ, () => ({
       capabilities: kernel.permissions.catalogue()
     })),
@@ -823,6 +870,14 @@ export function coreCapabilities(kernel: CoreKernel): CapabilityDefinition<never
 }
 
 /** Who asked, for a memory or notes operation (SET 11). */
+/** Who asked, for the voice pipeline (SET 12). The pipeline outlives one request, so no signal. */
+function voiceContext(context: CapabilityContext) {
+  return {
+    actor: context.request.actor.type,
+    correlationId: context.request.correlationId
+  }
+}
+
 function memoryContext(context: CapabilityContext, missionId: string | null) {
   return {
     actor: context.request.actor.type,

@@ -31,6 +31,15 @@ export function MemoryView() {
   const { status: runtime } = useRuntimeContext()
   const coreSession = coreSessionOf(runtime)
   const memory = useMemory(coreSession)
+  // The list loads again when the Memory service's state changes (for example once it is running
+  // after Jupiter starts), not only when a memory changes.
+  const memoryService =
+    runtime.state === 'ready'
+      ? (runtime.value.runtime.services.find((service) => service.serviceId === 'memory')?.status ??
+        null)
+      : null
+  const listKey =
+    memory.reloadKey === null ? null : `${memory.reloadKey}|${memoryService ?? 'unknown'}`
   const [tab, setTab] = useState<MemoryTab>('memories')
   const locale = intlLocale(language)
   const formatTime = (iso: string | null) =>
@@ -57,7 +66,7 @@ export function MemoryView() {
           {
             id: 'memories',
             label: t('memory.tab.memories'),
-            panel: <MemoriesPanel version={memory.version} formatTime={formatTime} />
+            panel: <MemoriesPanel reloadKey={listKey} formatTime={formatTime} />
           },
           { id: 'add', label: t('memory.tab.add'), panel: <AddMemoryPanel /> },
           {

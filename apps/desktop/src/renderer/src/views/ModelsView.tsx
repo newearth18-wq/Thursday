@@ -1060,7 +1060,9 @@ const PREFERRED_MODEL_SETTINGS = [
   ['ai.preferredChatModel', 'chat'],
   ['ai.preferredReasoningModel', 'reasoning'],
   ['ai.preferredVisionModel', 'vision'],
-  ['ai.preferredEmbeddingModel', 'embeddings']
+  ['ai.preferredEmbeddingModel', 'embeddings'],
+  ['ai.preferredTranscriptionModel', 'transcription'],
+  ['ai.preferredSpeechModel', 'speech']
 ] as const satisfies readonly (readonly [AiSettingKey, ModelCapability])[]
 
 function RoutingCard({
@@ -1123,9 +1125,11 @@ function RoutingCard({
         <h2 id="routing-title">{t('models.routing')}</h2>
       </div>
       <div className="route-previews" data-testid="route-previews">
-        {(['chat', 'reasoning', 'vision', 'embeddings'] as const).map((capability) => (
-          <RoutePreviewRow key={capability} capability={capability} coreSession={coreSession} />
-        ))}
+        {(['chat', 'reasoning', 'vision', 'embeddings', 'transcription', 'speech'] as const).map(
+          (capability) => (
+            <RoutePreviewRow key={capability} capability={capability} coreSession={coreSession} />
+          )
+        )}
       </div>
       {settings.state === 'loading' ? <p>{t('load.loading')}</p> : null}
       {settings.state === 'error' ? (

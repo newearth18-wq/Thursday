@@ -868,6 +868,17 @@ describe('SET 11 — privacy', () => {
 
   it('AT10: sensitive memory is never silently persisted or logged; without secure storage it is not kept at all', async () => {
     const card = '4111 1111 1111 1111'
+    // The card number in every form it could be kept in. (Its first four digits alone are not
+    // searched for: "4111" also occurs by chance in the database's identifiers and binary pages.)
+    const forms = [card, card.replaceAll(' ', ''), card.replaceAll(' ', '-'), '1111 1111 1111']
+    const nowhere = () => {
+      const stored = persisted(running)
+      for (const form of forms) {
+        expect(stored.includes(form), form).toBe(false)
+        expect(inLogs(running, form), form).toBe(false)
+        expect(inEvents(running, form), form).toBe(false)
+      }
+    }
     const running = await startCore(standard())
     const asked = await call(
       running,
@@ -879,21 +890,17 @@ describe('SET 11 — privacy', () => {
       candidate: { sensitiveKinds: ['financial'] }
     })
     // Waiting: in no file, log or event.
-    expect(persisted(running).includes('4111')).toBe(false)
-    expect(inLogs(running, '4111')).toBe(false)
-    expect(inEvents(running, '4111')).toBe(false)
+    nowhere()
     const saved = await call(running, 'memory.decide', {
       candidateId: asked.candidate?.candidateId,
       decision: 'SAVE'
     })
     expect(saved.memory).toMatchObject({ sensitivity: 'sensitive', content: null })
     // Kept, sealed: still in no file, log or event in readable form.
-    expect(persisted(running).includes('4111')).toBe(false)
-    expect(inLogs(running, '4111')).toBe(false)
-    expect(inEvents(running, '4111')).toBe(false)
+    nowhere()
     // Not in a search result, nor in an export.
     const found = await call(running, 'memory.search', query({ mode: 'metadata' }))
-    expect(JSON.stringify(found)).not.toContain('4111')
+    for (const form of forms) expect(JSON.stringify(found)).not.toContain(form)
     await stopCore(running)
 
     // A computer without OS-backed secure storage: the person's "keep it" cannot be honoured, and says so.

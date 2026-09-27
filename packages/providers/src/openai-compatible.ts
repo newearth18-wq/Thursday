@@ -12,9 +12,22 @@ import {
   type DiscoveredModel,
   type EmbeddingRequest,
   type EmbeddingResult,
-  type ProviderAdapter
+  type ProviderAdapter,
+  type SpeechRequest,
+  type SpeechResult,
+  type TranscriptionRequest,
+  type TranscriptionResult
 } from '@jupiter/core'
-import { endpoint, interrupted, isEventStream, readJson, send } from './http'
+import {
+  endpoint,
+  interrupted,
+  isEventStream,
+  multipart,
+  readBytes,
+  readJson,
+  send,
+  sendBytes
+} from './http'
 import { readSse } from './sse'
 
 /**
@@ -33,13 +46,15 @@ export const OPENAI_COMPATIBLE_INFO: AdapterInfo = {
   adapterId: 'openai-compatible',
   displayName: 'OpenAI-compatible API',
   description:
-    'Any endpoint that speaks the OpenAI chat-completions protocol: a server on this computer (for example Ollama, LM Studio or llama.cpp) or a cloud service that offers the same API.',
+    'Any endpoint that speaks the OpenAI chat-completions protocol: a server on this computer (for example Ollama, LM Studio or llama.cpp) or a cloud service that offers the same API. Speech uses its /audio/transcriptions and /audio/speech endpoints (for example a local whisper.cpp or Speaches server).',
   operations: [
     'chat',
     'streaming',
     'reasoning',
     'vision',
     'embeddings',
+    'transcription',
+    'speech',
     'tool-calling',
     'structured-output',
     'cancellation',
@@ -364,6 +379,67 @@ export function openAiCompatibleAdapter(): ProviderAdapter {
         .sort((a, b) => a.index - b.index)
         .map((item) => item.embedding)
       return { vectors, usage: usageOf(parsed.data.usage) }
+    },
+
+    async transcribe(
+      context: AdapterContext,
+      request: TranscriptionRequest
+    ): Promise<TranscriptionResult> {
+      const upload = multipart(
+        {
+          model: request.model,
+          response_format: 'json',
+          ...(request.language ? { language: request.language } : {})
+        },
+        { name: 'file', filename: 'speech.wav', type: 'audio/wav', bytes: request.audio }
+      )
+      const response = await sendBytes(context, {
+        url: endpoint(context.baseUrl, 'audio/transcriptions'),
+        headers: headers(context),
+        contentType: upload.contentType,
+        body: upload.body,
+        providerName: context.providerName
+      })
+      const parsed = Transcription.safeParse(
+        await readJson(response, context.providerName, context.signal)
+      )
+      if (!parsed.success)
+        throw invalidResponse(context.providerName, 'the transcript has an unexpected shape')
+      return { text: parsed.data.text.trim(), language: parsed.data.language ?? null }
+    },
+
+    async synthesize(context: AdapterContext, request: SpeechRequest): Promise<SpeechResult> {
+      const response = await send(context, {
+        method: 'POST',
+        url: endpoint(context.baseUrl, 'audio/speech'),
+        headers: headers(context),
+        providerName: context.providerName,
+        accept: 'audio/wav, audio/mpeg',
+        body: {
+          model: request.model,
+          input: request.text,
+          // The protocol requires a voice; `alloy` is its documented default.
+          voice: request.voice ?? 'alloy',
+          speed: request.speed,
+          response_format: 'wav'
+        }
+      })
+      const type = (response.headers.get('content-type') ?? '').toLowerCase()
+      const audio = await readBytes(response, context.providerName, context.signal)
+      const mediaType = type.includes('mpeg') || type.includes('mp3') ? 'audio/mpeg' : 'audio/wav'
+      if (mediaType === 'audio/wav' && !isWav(audio))
+        throw invalidResponse(context.providerName, 'the speech is not a WAV file')
+      return { audio, mediaType }
     }
   }
+}
+
+const Transcription = z.looseObject({
+  text: z.string().max(20_000),
+  language: z.string().max(40).optional()
+})
+
+function isWav(bytes: Uint8Array): boolean {
+  const tag = (offset: number) => String.fromCharCode(...bytes.subarray(offset, offset + 4))
+  return bytes.byteLength > 44 && tag(0) === 'RIFF' && tag(8) === 'WAVE'
 }

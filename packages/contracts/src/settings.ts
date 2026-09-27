@@ -2,6 +2,13 @@ import { z } from 'zod'
 import { Actor } from './actor'
 import { CostLatencyPreference, FallbackPolicy, ModelRef, ProviderId, RoutingMode } from './ai'
 import { UtcTimestamp } from './primitives'
+import {
+  AudioDeviceId,
+  InterruptionSensitivity,
+  SpeechSource,
+  VoiceLanguage,
+  VoiceName
+} from './voice'
 
 /**
  * Known settings. A setting that is not listed here cannot be stored: the
@@ -43,6 +50,8 @@ export const SettingDefinitions = {
   'ai.preferredReasoningModel': ModelRef.nullable(),
   'ai.preferredVisionModel': ModelRef.nullable(),
   'ai.preferredEmbeddingModel': ModelRef.nullable(),
+  'ai.preferredTranscriptionModel': ModelRef.nullable(),
+  'ai.preferredSpeechModel': ModelRef.nullable(),
   /**
    * Browser sessions may use Jupiter's persistent browser profile (cookies
    * and sign-ins kept between sessions). Off: every session is a temporary
@@ -55,7 +64,33 @@ export const SettingDefinitions = {
    * is chosen by the router and obeys `ai.routingMode` — with `LOCAL_ONLY`,
    * never a cloud model. Sensitive memories are never sent to any model.
    */
-  'memory.semanticSearch': z.boolean()
+  'memory.semanticSearch': z.boolean(),
+  /**
+   * Voice (SET 12). Off: the microphone is never used, and the host refuses
+   * it. On: listening still starts only when the person presses Push-to-Talk
+   * or turns on the wake word, and asks for `microphone.listen` first.
+   */
+  'voice.enabled': z.boolean(),
+  /** `null`: the system's default device. */
+  'voice.inputDevice': AudioDeviceId.nullable(),
+  'voice.outputDevice': AudioDeviceId.nullable(),
+  /** Listening for the wake word needs a speech-to-text engine on this computer. */
+  'voice.wakeWordEnabled': z.boolean(),
+  'voice.wakeWord': z
+    .string()
+    .trim()
+    .min(2)
+    .max(40)
+    .regex(/^[\p{L}\p{M}][\p{L}\p{M} '-]*$/u, 'A word or two, letters only'),
+  /** Where spoken answers come from: the operating system's voice or a speech model. */
+  'voice.speechSource': SpeechSource,
+  /** A voice of the chosen source; `null`: its default for the language. */
+  'voice.voice': VoiceName.nullable(),
+  'voice.language': VoiceLanguage,
+  /** 0.5–2 times normal speed. */
+  'voice.speakingRate': z.number().min(0.5).max(2).multipleOf(0.25),
+  /** How loud and long speech must be to interrupt Jupiter while it speaks. */
+  'voice.interruptionSensitivity': InterruptionSensitivity
 } as const satisfies Record<string, z.ZodType>
 
 export type SettingKey = keyof typeof SettingDefinitions
@@ -80,8 +115,20 @@ export const SettingDefaults: { readonly [K in SettingKey]: SettingValue<K> } = 
   'ai.preferredReasoningModel': null,
   'ai.preferredVisionModel': null,
   'ai.preferredEmbeddingModel': null,
+  'ai.preferredTranscriptionModel': null,
+  'ai.preferredSpeechModel': null,
   'browser.persistentProfile': false,
-  'memory.semanticSearch': false
+  'memory.semanticSearch': false,
+  'voice.enabled': false,
+  'voice.inputDevice': null,
+  'voice.outputDevice': null,
+  'voice.wakeWordEnabled': false,
+  'voice.wakeWord': 'Jupiter',
+  'voice.speechSource': 'system',
+  'voice.voice': null,
+  'voice.language': 'auto',
+  'voice.speakingRate': 1,
+  'voice.interruptionSensitivity': 'medium'
 }
 
 export const SettingRecord = z

@@ -87,6 +87,19 @@ import { UtcTimestamp, Uuidv7 } from './primitives'
 import { CapabilityId, RequestKind } from './request'
 import { ServiceHealth } from './service-health'
 import { SettingDefinitions, SettingRecord } from './settings'
+import {
+  AudioChunkInput,
+  ListenSession,
+  ListenStartInput,
+  ListenStopInput,
+  PlaybackInput,
+  SpokenLanguage,
+  SystemVoices,
+  Utterance,
+  VoiceOption,
+  VoiceState,
+  VoiceStatus
+} from './voice'
 
 /**
  * The capability catalogue: every command and query Jupiter Core accepts,
@@ -206,7 +219,19 @@ export const SettingUpdate = z.discriminatedUnion('key', [
   settingUpdate('ai.preferredVisionModel'),
   settingUpdate('ai.preferredEmbeddingModel'),
   settingUpdate('browser.persistentProfile'),
-  settingUpdate('memory.semanticSearch')
+  settingUpdate('memory.semanticSearch'),
+  settingUpdate('ai.preferredTranscriptionModel'),
+  settingUpdate('ai.preferredSpeechModel'),
+  settingUpdate('voice.enabled'),
+  settingUpdate('voice.inputDevice'),
+  settingUpdate('voice.outputDevice'),
+  settingUpdate('voice.wakeWordEnabled'),
+  settingUpdate('voice.wakeWord'),
+  settingUpdate('voice.speechSource'),
+  settingUpdate('voice.voice'),
+  settingUpdate('voice.language'),
+  settingUpdate('voice.speakingRate'),
+  settingUpdate('voice.interruptionSensitivity')
 ])
 export type SettingUpdate = z.infer<typeof SettingUpdate>
 
@@ -926,7 +951,55 @@ export const Capabilities = {
     kind: 'command',
     input: z.object({ from: NotePath, to: NoteTitle, missionId: Uuidv7.nullable() }).strict(),
     output: NoteWriteResult
-  }
+  },
+  // ---- Voice (SET 12) ----
+  /** State, the microphone, each engine and where it runs, the last exchange (memory only). */
+  'voice.status': { kind: 'query', input: Empty, output: VoiceStatus },
+  /** Voices of the operating system and of the speech model the router would use. */
+  'voice.voices': {
+    kind: 'query',
+    input: Empty,
+    output: z.object({ voices: z.array(VoiceOption).max(250), system: SystemVoices }).strict()
+  },
+  /**
+   * Lets the interface name the audio devices for a few seconds (the host
+   * opens its microphone gate for that only). Asks for `microphone.listen`.
+   */
+  'voice.devices.reveal': {
+    kind: 'command',
+    input: Empty,
+    output: z.object({ until: UtcTimestamp }).strict()
+  },
+  /** Starts listening (Push-to-Talk, or the wake word). Asks for `microphone.listen` first. */
+  'voice.listen.start': { kind: 'command', input: ListenStartInput, output: ListenSession },
+  /** Audio of the listening session, in order; kept in memory only. */
+  'voice.audio': {
+    kind: 'command',
+    input: AudioChunkInput,
+    output: z.object({ state: VoiceState, accepted: z.boolean() }).strict()
+  },
+  /** Ends the session: `released` transcribes what was said; the microphone gate closes. */
+  'voice.listen.stop': { kind: 'command', input: ListenStopInput, output: VoiceStatus },
+  /** Speech to play, once; it is dropped when played, interrupted or replaced. */
+  'voice.utterance': {
+    kind: 'query',
+    input: z.object({ utteranceId: Uuidv7 }).strict(),
+    output: Utterance
+  },
+  /** The interface reports what really happened to the audio it plays. */
+  'voice.playback': { kind: 'command', input: PlaybackInput, output: VoiceStatus },
+  /** Stops speaking (barge-in) and whatever the voice pipeline was doing. */
+  'voice.interrupt': { kind: 'command', input: Empty, output: VoiceStatus },
+  /** Speaks a text (for example to test the voice). */
+  'voice.speak': {
+    kind: 'command',
+    input: z
+      .object({ text: z.string().trim().min(1).max(2_000), language: SpokenLanguage.nullable() })
+      .strict(),
+    output: z.object({ utteranceId: Uuidv7 }).strict()
+  },
+  /** Leaves ERROR once the person has seen it. */
+  'voice.recover': { kind: 'command', input: Empty, output: VoiceStatus }
 } as const satisfies Record<string, { kind: RequestKind; input: z.ZodType; output: z.ZodType }>
 
 export type CapabilityName = keyof typeof Capabilities

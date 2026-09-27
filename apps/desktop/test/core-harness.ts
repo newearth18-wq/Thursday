@@ -8,6 +8,7 @@ import type {
   MissionStatus,
   ResultEnvelope
 } from '@jupiter/contracts'
+import { HostOperations } from '@jupiter/contracts'
 import {
   CoreKernel,
   JupiterError,
@@ -26,6 +27,7 @@ import { createTempDir, removeDir } from '@jupiter/testing'
 import { startOpenAiCompatibleServer, type ProtocolServer } from '@jupiter/testing/protocol-servers'
 import { afterAll, afterEach, beforeAll, beforeEach, expect } from 'vitest'
 import { envelope } from './helpers'
+import type { MicrophoneGate, SpeechHost } from '../src/main/speech-host'
 
 /**
  * Jupiter Core assembled in-process as the Core entry assembles it — real
@@ -94,6 +96,11 @@ export async function startCore(
   knowledge: {
     notes?: (input: unknown) => Promise<unknown>
     secureStorage?: boolean
+    /**
+     * SET 12: the real system voice (espeak-ng or Windows SAPI; `null`: none) and the real
+     * microphone gate, serving host.speech.* and host.microphone.gate.
+     */
+    voice?: { speech: SpeechHost | null; gate: MicrophoneGate }
   } = {}
 ): Promise<Running> {
   const sessionId = uuidv7()
@@ -155,6 +162,28 @@ export async function startCore(
               : { text: unsealForTest(value.sealed ?? '') }
           )
         }
+        case 'host.speech.voices':
+          if (knowledge.voice?.speech) return knowledge.voice.speech.voices()
+          return Promise.resolve({
+            available: false,
+            reason: 'No system voice (test).',
+            engine: null,
+            voices: []
+          })
+        case 'host.speech.synthesize':
+          if (knowledge.voice?.speech)
+            return knowledge.voice.speech.synthesize(
+              HostOperations['host.speech.synthesize'].input.parse(input)
+            )
+          return Promise.reject(new Error('unexpected host call host.speech.synthesize'))
+        case 'host.microphone.gate':
+          if (knowledge.voice)
+            return Promise.resolve({
+              open: knowledge.voice.gate.set(
+                HostOperations['host.microphone.gate'].input.parse(input)
+              )
+            })
+          return Promise.reject(new Error('unexpected host call host.microphone.gate'))
         default:
           return Promise.reject(new Error(`unexpected host call ${capability}`))
       }
@@ -181,7 +210,10 @@ export async function startCore(
         'host.vault.status',
         'host.vault.seal',
         'host.vault.unseal',
-        ...(knowledge.notes ? ['host.notes.call'] : [])
+        ...(knowledge.notes ? ['host.notes.call'] : []),
+        ...(knowledge.voice
+          ? ['host.speech.voices', 'host.speech.synthesize', 'host.microphone.gate']
+          : [])
       ]
     },
     logger,

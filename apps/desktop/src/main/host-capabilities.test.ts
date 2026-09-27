@@ -21,6 +21,7 @@ import { NotesHost } from './notes-host'
 import { ComputerHost } from './computer-host'
 import { CredentialVault, type SafeStorageLike } from './credential-vault'
 import { HostCapabilities, type HostCall } from './host-capabilities'
+import { MicrophoneGate, SpeechHost, wavDurationMs } from './speech-host'
 
 /** Stands in for Electron's safeStorage: reversible, and never stores the plaintext. */
 function fakeSafeStorage(state: { available: boolean; backend?: string }): SafeStorageLike {
@@ -51,8 +52,12 @@ function setup(
   const logs = new MemorySink()
   const logger = Logger.create({ sessionId: uuidv7(), level: 'debug', sinks: [logs] })
   const credentialsDirectory = join(root, 'credentials')
+  const microphone = new MicrophoneGate(() => now)
   const capabilities = new HostCapabilities({
     logger,
+    // No system voice here (an empty PATH), so nothing depends on the machine's engines.
+    speech: new SpeechHost({ logger, platform: 'linux', env: { PATH: '' } }),
+    microphone,
     computer: new ComputerHost({
       logger,
       platform,
@@ -104,6 +109,7 @@ function setup(
   })
   return {
     capabilities,
+    microphone,
     credentialsDirectory,
     logs,
     logsDirectory,
@@ -429,5 +435,89 @@ describe('sealing sensitive memories (SET 11)', () => {
       ok: false,
       error: { code: 'SECURE_STORAGE_UNAVAILABLE' }
     })
+  })
+})
+
+describe('voice host operations (SET 12)', () => {
+  const core = { type: 'core' as const, id: 'core' }
+  const session = '01a0d82f-22b6-762b-b369-29675d971201'
+
+  it('opens the microphone gate only for Jupiter Core, and it closes by itself', async () => {
+    const { capabilities, microphone, advance } = setup(() => Promise.resolve(''))
+    expect(microphone.mayCapture()).toBe(false)
+    const until = new Date(1_000_000 + 5_000).toISOString()
+    for (const actor of [undefined, { type: 'user-interface' as const, id: 'ui' }])
+      expect(
+        await capabilities.execute(
+          call(
+            'host.microphone.gate',
+            { sessionId: session, purpose: 'listen', open: true, until },
+            actor
+          )
+        )
+      ).toMatchObject({ ok: false, error: { code: 'PERMISSION_DENIED' } })
+    expect(microphone.mayCapture()).toBe(false)
+    expect(
+      await capabilities.execute(
+        call(
+          'host.microphone.gate',
+          { sessionId: session, purpose: 'listen', open: true, until },
+          core
+        )
+      )
+    ).toEqual({ ok: true, data: { open: true } })
+    expect(microphone.mayCapture()).toBe(true)
+    advance(5_001)
+    expect(microphone.mayCapture()).toBe(false)
+  })
+
+  it('opens for naming devices without allowing a capture, and closes on request', async () => {
+    const { capabilities, microphone } = setup(() => Promise.resolve(''))
+    await capabilities.execute(
+      call(
+        'host.microphone.gate',
+        { sessionId: session, purpose: 'devices', open: true, until: null },
+        core
+      )
+    )
+    expect(microphone.isOpen()).toBe(true)
+    expect(microphone.mayCapture()).toBe(false)
+    await capabilities.execute(
+      call(
+        'host.microphone.gate',
+        { sessionId: session, purpose: 'devices', open: false, until: null },
+        core
+      )
+    )
+    expect(microphone.isOpen()).toBe(false)
+  })
+
+  it('says truthfully when there is no system voice', async () => {
+    const { capabilities } = setup(() => Promise.resolve(''))
+    expect(await capabilities.execute(call('host.speech.voices', {}, core))).toMatchObject({
+      ok: true,
+      data: { available: false, voices: [] }
+    })
+    expect(
+      await capabilities.execute(
+        call(
+          'host.speech.synthesize',
+          { text: 'Hello', language: 'en', voice: null, rate: 1 },
+          core
+        )
+      )
+    ).toMatchObject({ ok: false, error: { code: 'SYSTEM_VOICE_UNAVAILABLE' } })
+  })
+
+  it('reads the length of a WAV file from its header', () => {
+    const header = Buffer.alloc(44)
+    header.write('RIFF', 0)
+    header.write('WAVE', 8)
+    header.write('fmt ', 12)
+    header.writeUInt32LE(16, 16)
+    header.writeUInt32LE(32_000, 28)
+    header.write('data', 36)
+    header.writeUInt32LE(16_000, 40)
+    expect(wavDurationMs(Buffer.concat([header, Buffer.alloc(16_000)]))).toBe(500)
   })
 })

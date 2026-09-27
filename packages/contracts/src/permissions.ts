@@ -258,9 +258,11 @@ export const PERMISSION_CATALOGUE = {
   'microphone.listen': {
     risk: 'HIGH',
     summary: 'Use the microphone',
-    consequence: 'Sound from the microphone becomes part of the result.',
+    consequence:
+      'While listening, Jupiter hears what the microphone picks up; the indicator stays on and audio is never saved.',
     reversible: true,
-    dataLeavesDevice: null
+    dataLeavesDevice:
+      'With a cloud speech-to-text engine, what you say after Push-to-Talk or the wake word goes to it.'
   },
   'email.send': {
     risk: 'HIGH',
