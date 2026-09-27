@@ -333,13 +333,14 @@ Pending: run 36294813038 on commit `e1103e6` (Linux, Windows and Legacy jobs). L
 
 ### Found and fixed during the SET
 
-| Found                                                                                                                                   | Fix                                                                                                               |
-| --------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------- |
-| E2E: with _Allow once_, a Mission's `browser.read_page` failed with PERMISSION_REQUIRED on its screenshot; the read had used the answer | A single-use answer covers the rest of its own task, for the same LOW/MEDIUM capability and target; test added    |
-| E2E screenshot: the Mission's Agent field said "Coming later — Agents arrive in SET 8", Permissions "None needed", "Attempt 3 of 1"     | Agents and permissions shown from the plan and the person's answers; permission waits no longer count as attempts |
-| A popup's first navigation (`request.frame()` throws) slipped past the popup block                                                      | Counted and aborted; the observation says the page tried to open a tab                                            |
-| The runtime's call deadline equalled the navigation timeout                                                                             | The host adds 15 s to each deadline                                                                               |
-| The E2E dialog helper could wait 30 s when the dialog closed between two reads                                                          | The helper reads without waiting                                                                                  |
+| Found                                                                                                                                          | Fix                                                                                                                                                                                                                        |
+| ---------------------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| E2E: with _Allow once_, a Mission's `browser.read_page` failed with PERMISSION_REQUIRED on its screenshot; the read had used the answer        | A single-use answer covers the rest of its own task, for the same LOW/MEDIUM capability and target; test added                                                                                                             |
+| E2E screenshot: the Mission's Agent field said "Coming later — Agents arrive in SET 8", Permissions "None needed", "Attempt 3 of 1"            | Agents and permissions shown from the plan and the person's answers; permission waits no longer count as attempts                                                                                                          |
+| A popup's first navigation (`request.frame()` throws) slipped past the popup block                                                             | Counted and aborted; the observation says the page tried to open a tab                                                                                                                                                     |
+| The runtime's call deadline equalled the navigation timeout                                                                                    | The host adds 15 s to each deadline                                                                                                                                                                                        |
+| The E2E dialog helper could wait 30 s when the dialog closed between two reads                                                                 | The helper reads without waiting                                                                                                                                                                                           |
+| CI (run 38, Linux): SET 5 AT6 failed — after 18 s a 5 s step was still RUNNING, its request never aborted (also seen once on Windows in SET 8) | A step's attempt now ends when its signal aborts even if the executor does not settle; its late result is discarded. New test: an adapter that ignores the abort reproduces the failure without the fix and passes with it |
 
 ## 8. Manual tests
 
@@ -430,3 +431,4 @@ only where SET 9 changed facts:
 - **SET 5:** the step-type list includes `browser.read_page`, which is
   unavailable where the agent is.
 - **SET 8 Missions view:** the Agent row no longer says "Coming later".
+- **SET 5 AT6:** a new companion test proves the time limit ends a step whose executor ignores the stop (see §7).

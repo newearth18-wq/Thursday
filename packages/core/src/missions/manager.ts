@@ -1290,12 +1290,11 @@ export class MissionManager {
         attemptController.abort()
       }, definition.timeoutMs)
       try {
-        const output = await this.execute(
-          run,
-          initial,
-          definition,
-          attemptController.signal,
-          attempt
+        // The attempt ends when its signal aborts (time limit or cancel), even if the executor
+        // has not settled yet; a late result is discarded (outputs are written only on completion).
+        const output = await untilAborted(
+          this.execute(run, initial, definition, attemptController.signal, attempt),
+          attemptController.signal
         )
         if (definition.verification && output.text !== null) {
           const result = checkOutput(output.text, definition.verification)
@@ -2347,6 +2346,27 @@ function sleep(ms: number, signal: AbortSignal): Promise<boolean> {
       resolve(false)
     }
     signal.addEventListener('abort', stop, { once: true })
+  })
+}
+
+/** Settles like `work`, or rejects as soon as `signal` aborts; `work`'s late outcome is dropped. */
+function untilAborted<T>(work: Promise<T>, signal: AbortSignal): Promise<T> {
+  const listener: { stop: (() => void) | null } = { stop: null }
+  const aborted = new Promise<never>((_, reject) => {
+    const stop = () => {
+      reject(
+        new JupiterError('CANCELLED', 'The step was stopped.', {
+          category: 'cancellation',
+          userAction: null
+        })
+      )
+    }
+    listener.stop = stop
+    if (signal.aborted) stop()
+    else signal.addEventListener('abort', stop, { once: true })
+  })
+  return Promise.race([work, aborted]).finally(() => {
+    if (listener.stop) signal.removeEventListener('abort', listener.stop)
   })
 }
 
