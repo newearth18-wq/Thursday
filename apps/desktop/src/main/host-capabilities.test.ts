@@ -504,7 +504,8 @@ describe('voice host operations (SET 12)', () => {
     expect(camera.mayCapture()).toBe(true)
     advance(5_001)
     expect(camera.mayCapture()).toBe(false)
-    // Without a screen or engines, the host says so rather than pretending.
+    // Without a screen or Tesseract, the host says so rather than pretending; QR codes are
+    // read in this process and need nothing installed.
     expect(
       await capabilities.execute(
         call('host.vision.capture', { source: 'desktop', region: null, handle: null }, core)
@@ -513,7 +514,7 @@ describe('voice host operations (SET 12)', () => {
     const engines = await capabilities.execute(call('host.vision.engines', {}, core))
     expect(engines).toMatchObject({
       ok: true,
-      data: { capture: { available: false }, ocr: { available: false }, qr: { available: false } }
+      data: { capture: { available: false }, ocr: { available: false }, qr: { available: true } }
     })
   })
 
