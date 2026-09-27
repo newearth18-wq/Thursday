@@ -1,4 +1,11 @@
-import { existsSync, mkdirSync, readFileSync, readdirSync, writeFileSync } from 'node:fs'
+import {
+  existsSync,
+  mkdirSync,
+  readFileSync,
+  readdirSync,
+  realpathSync,
+  writeFileSync
+} from 'node:fs'
 import { join } from 'node:path'
 import type { MemoryCandidateInput, MemoryQuery, PlanDraft } from '@jupiter/contracts'
 import { Logger, MemorySink, uuidv7 } from '@jupiter/core'
@@ -452,7 +459,8 @@ describe('SET 11 — Obsidian notes', () => {
   const notes = () => (input: unknown) => host.call(input)
 
   beforeEach(async () => {
-    vault = await createTempDir('jupiter-vault')
+    // The real long path: Windows may hand out a short (8.3) temporary path.
+    vault = realpathSync.native(await createTempDir('jupiter-vault'))
     mkdirSync(join(vault, '.obsidian'))
     mkdirSync(join(vault, 'Space'))
     // An existing note with CRLF line endings, a byte order mark and its own frontmatter.

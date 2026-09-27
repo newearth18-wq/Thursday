@@ -1,4 +1,11 @@
-import { lstatSync, mkdirSync, readFileSync, readdirSync, writeFileSync } from 'node:fs'
+import {
+  lstatSync,
+  mkdirSync,
+  realpathSync,
+  readFileSync,
+  readdirSync,
+  writeFileSync
+} from 'node:fs'
 import { join } from 'node:path'
 import { createTempDir, launchJupiter, removeDir, type LaunchedJupiter } from '@jupiter/testing'
 import { checkMarkdown } from '@jupiter/testing/documents'
@@ -61,7 +68,8 @@ beforeAll(async () => {
   local = await startOpenAiCompatibleServer()
   cloud = await startOpenAiCompatibleServer({ host: address })
   userDataDir = await createTempDir('jupiter-set11')
-  vault = await createTempDir('jupiter-set11-vault')
+  // The real long path: Windows may hand out a short (8.3) temporary path.
+  vault = realpathSync.native(await createTempDir('jupiter-set11-vault'))
   // An existing Obsidian vault: its settings folder, a note with a BOM, CRLF line endings and
   // frontmatter, and a plain note.
   mkdirSync(join(vault, '.obsidian'))
@@ -157,9 +165,11 @@ async function propose(content: string, type = 'facts'): Promise<string | null> 
   await openMemory('add')
   await page.getByTestId('memory-add-content').fill(content)
   await page.getByTestId('memory-add-type').selectOption(type)
-  await page.getByTestId('memory-add-submit').click()
   const decision = page.getByTestId('memory-decision')
-  await decision.waitFor()
+  // Wait for the answer to this request, not the one still on screen from the last.
+  const before = (await decision.count()) ? Number(await decision.getAttribute('data-sequence')) : 0
+  await page.getByTestId('memory-add-submit').click()
+  await expect.poll(() => decision.getAttribute('data-sequence')).toBe(String(before + 1))
   return decision.getAttribute('data-decision')
 }
 

@@ -545,6 +545,8 @@ export function AddMemoryPanel() {
   const [tags, setTags] = useState('')
   const [retention, setRetention] = useState<'long-term' | 'session'>('long-term')
   const [result, setResult] = useState<MemoryProposalResult | null>(null)
+  // Counts the answers shown, so each decision on screen is the one for the latest request.
+  const [answered, setAnswered] = useState(0)
   const action = useAction()
   return (
     <div className="memory-panel" data-testid="memory-add">
@@ -553,6 +555,7 @@ export function AddMemoryPanel() {
         className="dialog-form"
         onSubmit={(event) => {
           event.preventDefault()
+          setResult(null)
           void action.run(
             () =>
               request('memory.propose', {
@@ -572,6 +575,7 @@ export function AddMemoryPanel() {
               }),
             (proposal) => {
               setResult(proposal)
+              setAnswered((count) => count + 1)
               // Whatever was decided, the text leaves the form: Core has it (or refused it,
               // as for a key, which must not stay in the interface after its request).
               setContent('')
@@ -635,14 +639,20 @@ export function AddMemoryPanel() {
         </div>
       </form>
       <ActionStatus action={action} testId="memory-add" />
-      {result ? <DecisionView result={result} /> : null}
+      {result ? <DecisionView result={result} sequence={answered} /> : null}
     </div>
   )
 }
 
 const DECISION_TONE = { SAVE: 'success', DO_NOT_SAVE: 'muted', ASK_USER: 'warning' } as const
 
-function DecisionView({ result }: { readonly result: MemoryProposalResult }) {
+function DecisionView({
+  result,
+  sequence
+}: {
+  readonly result: MemoryProposalResult
+  readonly sequence: number
+}) {
   const { t } = useI18n()
   return (
     <div
@@ -650,6 +660,7 @@ function DecisionView({ result }: { readonly result: MemoryProposalResult }) {
       role="status"
       data-testid="memory-decision"
       data-decision={result.decision}
+      data-sequence={sequence}
     >
       <p>
         <span className={`badge badge-${DECISION_TONE[result.decision]}`}>

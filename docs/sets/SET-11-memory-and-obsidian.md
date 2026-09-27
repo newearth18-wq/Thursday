@@ -255,7 +255,22 @@ The SET 11 suites:
 
 ### CI
 
-Filled in from the pull request's run.
+Filled in from the pull request's green run.
+
+Earlier run on this PR:
+
+- **Run 36316889775** (`eb3554a`): Linux and Legacy green. Windows failed
+  five SET 11 tests, for two reasons:
+  - Windows handed the tests a short (8.3) temporary path
+    (`C:\Users\RUNNER~1\…`), while the host records the vault's real long
+    path (`runneradmin`). The permission target and the vault path shown
+    were right, but the tests compared them with the short form. The tests
+    now use the real path (`realpathSync.native`).
+  - The E2E helper read the decision still shown from the previous request
+    before the new answer arrived; the next two tests failed after it. The
+    _Add_ tab now clears the previous decision when a new request starts
+    and numbers each answer (`data-sequence`), and the helper waits for the
+    next number.
 
 ## 8. Manual tests
 
