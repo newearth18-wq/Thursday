@@ -2,6 +2,7 @@ import { z } from 'zod'
 import { ApiKeyInput } from './ai'
 import { BrowserCall } from './browser'
 import { AutomationCall } from './computer'
+import { FileCall } from './files'
 import { Uuidv7 } from './primitives'
 
 /**
@@ -45,7 +46,12 @@ export const HostOperations = {
    * The Browser Agent's calls (SET 9). The result is checked by Core
    * against the operation's own result schema (`BrowserOps`).
    */
-  'host.browser.call': { input: BrowserCall, output: z.unknown() }
+  'host.browser.call': { input: BrowserCall, output: z.unknown() },
+  /**
+   * The File Agent's and Artifact Manager's calls (SET 10). The result is
+   * checked by Core against the operation's own result schema (`FileOps`).
+   */
+  'host.files.call': { input: FileCall, output: z.unknown() }
 } as const satisfies Record<string, { input: z.ZodType; output: z.ZodType }>
 
 export type HostOperationName = keyof typeof HostOperations

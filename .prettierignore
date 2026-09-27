@@ -5,3 +5,5 @@ coverage/
 package-lock.json
 # The legacy Thursday Browser keeps its original formatting; it is preserved, not maintained here.
 legacy/
+# Document fixtures are test data made by other programs; kept byte for byte.
+packages/testing/fixtures/

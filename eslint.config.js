@@ -22,6 +22,7 @@ const TS_PROJECTS = [
   './packages/ui/tsconfig.json',
   './services/agent-runtime/tsconfig.json',
   './services/browser-runtime/tsconfig.json',
+  './services/document-runtime/tsconfig.json',
   './apps/desktop/tsconfig.node.json',
   './apps/desktop/tsconfig.web.json',
   './apps/desktop/tsconfig.test.json'

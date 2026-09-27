@@ -26,9 +26,22 @@ import {
   BrowserSession,
   BrowserStatus,
   BrowserTask,
-  BrowserTaskRequest
+  BrowserTaskRequest,
+  SuspiciousContent
 } from './browser'
 import { ComputerStatus, ComputerTask, ComputerTaskRequest } from './computer'
+import {
+  Artifact,
+  DocumentContent,
+  DocumentSpec,
+  FileEntry,
+  FileLocation,
+  FileListing,
+  FileName,
+  FileQuery,
+  FilesStatus,
+  UserRoot
+} from './files'
 import {
   MissionDetail,
   MissionId,
@@ -627,6 +640,145 @@ export const Capabilities = {
       })
       .strict(),
     output: z.object({ tasks: z.array(BrowserTask).max(100) }).strict()
+  },
+  // ---- The File Agent and the Artifact Manager (SET 10) ----
+  /** The approved folders, the document runtime and the formats it reads and writes. */
+  'files.status': { kind: 'query', input: Empty, output: FilesStatus },
+  /**
+   * Find files in an approved folder (optionally its sub-folders), filtered
+   * by format or name and sorted by the file's real modified time, name or
+   * size. Needs `files.list` for the folder.
+   */
+  'files.find': {
+    kind: 'command',
+    input: z.object({ query: FileQuery, missionId: Uuidv7.nullable() }).strict(),
+    output: FileListing
+  },
+  /**
+   * Read a document in the document runtime. Its text is untrusted data:
+   * text that tries to direct Jupiter is labelled, never followed. Needs
+   * `files.read` for the exact file.
+   */
+  'files.read': {
+    kind: 'command',
+    input: z
+      .object({
+        location: FileLocation,
+        maxChars: z.number().int().min(100).max(200_000),
+        missionId: Uuidv7.nullable()
+      })
+      .strict(),
+    output: z
+      .object({
+        file: FileEntry,
+        content: DocumentContent,
+        suspicious: z.array(SuspiciousContent).max(7)
+      })
+      .strict()
+  },
+  /** Copy a file to a name that does not exist yet (never replaces one). Needs `files.write` for the new file. */
+  'files.copy': {
+    kind: 'command',
+    input: z
+      .object({ from: FileLocation, to: FileLocation, missionId: Uuidv7.nullable() })
+      .strict(),
+    output: FileEntry
+  },
+  /** Move or rename a file or folder. Needs `files.write` for both the old and the new place. */
+  'files.move': {
+    kind: 'command',
+    input: z
+      .object({ from: FileLocation, to: FileLocation, missionId: Uuidv7.nullable() })
+      .strict(),
+    output: FileEntry
+  },
+  'files.mkdir': {
+    kind: 'command',
+    input: z.object({ location: FileLocation, missionId: Uuidv7.nullable() }).strict(),
+    output: FileEntry
+  },
+  /** Open a document in its usual application (never a program). Needs `files.open`. */
+  'files.open': {
+    kind: 'command',
+    input: z.object({ location: FileLocation }).strict(),
+    output: z.object({ done: z.boolean() }).strict()
+  },
+  /** Show the file in its folder. Needs `files.open`. */
+  'files.reveal': {
+    kind: 'command',
+    input: z.object({ location: FileLocation }).strict(),
+    output: z.object({ done: z.boolean() }).strict()
+  },
+  /** Move one file to the Recycle Bin. Needs `files.delete` (CRITICAL) for the exact file, every time. */
+  'files.delete': {
+    kind: 'command',
+    input: z.object({ location: FileLocation, missionId: Uuidv7.nullable() }).strict(),
+    output: z.object({ done: z.boolean() }).strict()
+  },
+  'artifacts.list': {
+    kind: 'query',
+    input: z
+      .object({
+        missionId: Uuidv7.nullable(),
+        includeDeleted: z.boolean(),
+        limit: z.number().int().min(1).max(200)
+      })
+      .strict(),
+    output: z.object({ artifacts: z.array(Artifact).max(200) }).strict()
+  },
+  /**
+   * Create a document in a Mission's workspace (or Jupiter's shared one),
+   * written atomically and checked before it is recorded. Needs
+   * `artifacts.create` for the workspace folder.
+   */
+  'artifacts.create': {
+    kind: 'command',
+    input: z.object({ missionId: Uuidv7.nullable(), name: FileName, spec: DocumentSpec }).strict(),
+    output: Artifact
+  },
+  /** Check the file again: still there, the same content, still valid. */
+  'artifacts.verify': {
+    kind: 'command',
+    input: z.object({ artifactId: Uuidv7 }).strict(),
+    output: Artifact
+  },
+  'artifacts.open': {
+    kind: 'command',
+    input: z.object({ artifactId: Uuidv7 }).strict(),
+    output: z.object({ done: z.boolean() }).strict()
+  },
+  'artifacts.reveal': {
+    kind: 'command',
+    input: z.object({ artifactId: Uuidv7 }).strict(),
+    output: z.object({ done: z.boolean() }).strict()
+  },
+  /**
+   * Share: save a copy in one of the person's folders (Downloads, Documents
+   * or Desktop) under a name that does not exist yet. The copy is a new
+   * artifact, kept. Needs `files.write` for the exact new file.
+   */
+  'artifacts.share': {
+    kind: 'command',
+    input: z.object({ artifactId: Uuidv7, root: UserRoot }).strict(),
+    output: Artifact
+  },
+  /** Keep (or stop keeping) an artifact as an output: cleanup never removes a kept one. */
+  'artifacts.keep': {
+    kind: 'command',
+    input: z.object({ artifactId: Uuidv7, kept: z.boolean() }).strict(),
+    output: Artifact
+  },
+  /** Move the artifact's file to the Recycle Bin. Needs `files.delete` for the exact file. */
+  'artifacts.delete': {
+    kind: 'command',
+    input: z.object({ artifactId: Uuidv7 }).strict(),
+    output: Artifact
+  },
+  /** Remove a finished Mission's intermediate workspace files; kept outputs stay. */
+  'artifacts.cleanup': {
+    kind: 'command',
+    input: z.object({ missionId: Uuidv7 }).strict(),
+    output: z.object({ removed: z.number().int().nonnegative() }).strict()
   }
 } as const satisfies Record<string, { kind: RequestKind; input: z.ZodType; output: z.ZodType }>
 
