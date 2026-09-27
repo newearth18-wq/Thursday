@@ -1,8 +1,9 @@
 # SET 10 — File, Document, Office and Artifact System
 
-- Status: **all 10 acceptance tests pass locally**, in-process (real host,
-  real document runtime, real Core) and in the real Electron application.
-  Evidence: §7 and §12. CI: see §7 (filled in from the pull request's run).
+- Status: **all 10 acceptance tests pass**, in-process (real host, real
+  document runtime, real Core) and in the real Electron application, locally
+  and in CI on Linux and Windows (PR #7, `59e2c77`, run 36309148629: Linux,
+  Windows and Legacy green). Evidence: §7 and §12.
 - SET 9 was checked first: green in CI on Linux, Windows and Legacy
   (`7765c4c`, run 36295800015) and merged (PR #6). Its suites pass again on
   the SET 10 code; the changes to earlier tests are listed in §12.
@@ -230,12 +231,29 @@ The SET 10 suites:
 
 ### CI
 
-To be filled in from the pull request's CI run.
+Evidence: commit `59e2c77`, run 36309148629. All three jobs succeeded.
+
+| Job                                                                                                                                  | Result  | Notes                                                                                                                       |
+| ------------------------------------------------------------------------------------------------------------------------------------ | ------- | --------------------------------------------------------------------------------------------------------------------------- |
+| Linux — format, lint, typecheck, unit, build, integration + E2E, secret scan, dev smoke, Windows and Linux packages, packaged launch | success | Python 3.12 with python-docx, python-pptx and openpyxl installed; every step green                                          |
+| Windows — typecheck, unit, build, integration + E2E, NSIS installer, package validation, packaged launch                             | success | The SET 10 suites ran on Windows (junction test included); packaged launch 5/5, including the SET 10 document runtime check |
+| Legacy Thursday — build and acceptance suite                                                                                         | success |                                                                                                                             |
+
+Earlier run on this PR:
+
+- **Run 36308360749** (`de4b005`): Linux and Legacy green. Windows failed
+  one test, SET 10 AT2: `notes.txt` was 53 bytes, not 51. On Windows, git
+  checked the fixture out with CRLF line endings. Fixed in `59e2c77`:
+  `.gitattributes` marks `packages/testing/fixtures/**` as `-text`, so
+  fixtures stay byte-exact. A local clone with `core.autocrlf=true`
+  reproduced the failure (53 bytes) before the fix, and gives 51 bytes
+  after it.
 
 ### Found and fixed during the SET
 
 | Found                                                                                                                                      | Fix                                                                                                             |
 | ------------------------------------------------------------------------------------------------------------------------------------------ | --------------------------------------------------------------------------------------------------------------- |
+| CI (Windows): AT2 saw `notes.txt` as 53 bytes, not 51 — git converted the fixture to CRLF on checkout                                      | `.gitattributes`: fixtures are `-text`; reproduced with `core.autocrlf=true` before (53) and after (51)         |
 | PPTX slides read as missing: `<p:sldId id="256" r:id="rId2"/>` has both `id` and `r:id`; the plain one won                                 | `relId()` prefers the relationship id                                                                           |
 | E2E: reading a file that does not exist first asked the person for permission to read it                                                   | A missing file fails at once with `FILE_NOT_FOUND`; both the in-process and E2E tests assert no request is made |
 | Build-output test: Core's bundle gained an unused `node:module` import (a method named `require(` triggered electron-vite's CommonJS shim) | The method was renamed; Core's imports are unchanged from SET 9                                                 |
@@ -295,7 +313,8 @@ npx vitest run --project integration apps/desktop/test/files-core.integration.te
 
 - `docs/sets/set-10/*.png`: the E2E screenshots (also written to
   `test-results/set-10/` on each run)
-- CI: see §7
+- CI run 36309148629 (commit `59e2c77`): Linux job 108591588935, Windows job 108591588884, Legacy job 108591588787; artifacts `jupiter-linux-evidence` and `jupiter-windows-installer` (E2E screenshots under `test-results/set-10/`)
+- CI run 36308360749 (commit `de4b005`): the Windows line-ending failure fixed in `59e2c77`
 
 ## 12. Acceptance tests
 
