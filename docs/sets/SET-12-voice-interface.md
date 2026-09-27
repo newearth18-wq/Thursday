@@ -333,6 +333,16 @@ only where SET 12 changed facts:
 - **SET 1/2 app test:** the `voice` Core service is listed as running.
 - **SET 3:** _AI Models_ also lists preferred speech-to-text and
   text-to-speech models; the chat routing tests are unchanged.
+- **SET 11 Memory screen and E2E test** (found on Windows CI, run
+  36327483372): after a relaunch that reopens on the Memory screen, the
+  Memories list could load before Jupiter Core's `memory` service was ready
+  and then never loaded again (it reloaded only when a memory changed). It
+  now also reloads when Core reconnects and when the `memory` service's state
+  changes, as the preferences already do for the database. The privacy scan
+  looked for the four digits `4111` in every file, which can occur by chance
+  in binary files, identifiers and timings; it now looks for the card number
+  in every form it could be kept in (and its last twelve digits), still in
+  every file, and names the file if it finds one.
 - **SET 1 gateway test:** none of the new capabilities matches its file,
   credential or shell pattern; after a reload five live-event subscriptions
   are active, not four (the voice controller).

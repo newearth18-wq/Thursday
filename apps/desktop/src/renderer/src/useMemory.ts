@@ -32,6 +32,11 @@ export interface MemoryData {
   readonly notes: Loadable<NotesStatus>
   /** Changes every time something relevant happens, for views that reload their own results. */
   readonly version: number
+  /**
+   * Changes whenever views that load their own results should load again: a memory changed, or
+   * Jupiter Core (re)connected. Null while there is no Core session to ask.
+   */
+  readonly reloadKey: string | null
   readonly reload: () => void
 }
 
@@ -52,5 +57,13 @@ export function useMemory(coreSession: string | null): MemoryData {
   const [candidates] = useQuery(keyOf(coreSession, 'candidates', opened, version), loadCandidates)
   const [decisions] = useQuery(keyOf(coreSession, 'decisions', opened, version), loadDecisions)
   const [notes] = useQuery(keyOf(coreSession, 'notes-status', opened, version), loadNotes)
-  return { status, candidates, decisions, notes, version, reload: bump }
+  return {
+    status,
+    candidates,
+    decisions,
+    notes,
+    version,
+    reloadKey: keyOf(coreSession, 'memories', opened, version),
+    reload: bump
+  }
 }
