@@ -183,7 +183,46 @@ npm run verify
 
 ## 7. Automated test results
 
-RESULTS_PLACEHOLDER
+### Local run
+
+`npm run verify` on Linux (Node.js 22, Xvfb, a throwaway GNOME Keyring,
+Tesseract 5.3.4 with English and Thai, zbar 0.23.93): **13/13 steps PASS**,
+exit 0.
+
+- unit tests: 31 files, 288 tests
+- integration and Electron E2E: 47 files passed and 2 skipped; 356 tests
+  passed and 16 skipped (the Windows-only SET 8 suites and the Windows
+  installer check)
+- packaged-app launch: 5 tests
+
+The SET 13 suites:
+
+| Suite                                               | Tests | What it runs                                                                                                                               |
+| --------------------------------------------------- | ----- | ------------------------------------------------------------------------------------------------------------------------------------------ |
+| `packages/core/src/vision/vision.test.ts`           | 6     | The image store (time and number limits, parts), secret lines, finding text, the confidence rule, the strict model answer                  |
+| `apps/desktop/src/main/png.test.ts`                 | 5     | The PNG codec on real pixels (crop, black out, compare), Tesseract TSV and zbar XML parsing                                                |
+| `apps/desktop/test/vision-host.integration.test.ts` | 6     | The real Tesseract and zbar on the fixture images: engines, text with confidences, QR codes, region, black-out, comparison, Not configured |
+| `apps/desktop/test/vision-core.integration.test.ts` | 8     | Real Core, SQLite, Permission Engine and vision host: AT1–AT10, including the camera closing by itself                                     |
+| `apps/desktop/test/vision.integration.test.ts`      | 7     | The real Electron app (real screen capture under Xvfb, Chromium's fake camera): AT1–AT10 through the interface, with screenshots           |
+| `apps/desktop/src/main/host-capabilities.test.ts`   | 1 new | The camera gate and the vision host operations are for Jupiter Core only                                                                   |
+| `packages/contracts/src/contracts.test.ts`          | 1 new | Diagnostics can list every capability and host operation                                                                                   |
+
+### Found and fixed during the SET
+
+| Found                                                                                                                             | Fix                                                                                        |
+| --------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------ |
+| With 131 capabilities, `diagnostics.snapshot` broke its own contract (at most 128), so Diagnostics and seven earlier tests failed | The limit is 256, and a contract test checks that every capability and host operation fits |
+| The camera preview and a capture could grab frames at the same time, and a capture came back empty                                | Frames are grabbed one at a time                                                           |
+| After a capture, the Vision screen did not show the new image until something else changed                                        | It reloads after each capture, and when a model is added or changed                        |
+| Windows OCR reports no confidence                                                                                                 | Tesseract on every platform (ADR 0014, decision 2)                                         |
+| The Local only test counted connections, which keep-alive can hide                                                                | It checks the requests the cloud server received                                           |
+| A Thai credential label was missed (`\b` does not work for Thai)                                                                  | Thai labels are matched separately                                                         |
+| E2E: after a new upload, the test read the previous image's card                                                                  | Each card names its image (`data-image-id`) and the test uses the newest one               |
+| The native file chooser did not follow the design                                                                                 | Drawn like the other buttons with the design tokens                                        |
+
+### CI
+
+CI_RESULTS_PLACEHOLDER
 
 ## 8. Manual tests
 
@@ -264,4 +303,14 @@ npm ci && npm run dev
 
 ### SET 0–12 re-check (on the SET 13 code)
 
-RECHECK_PLACEHOLDER
+All earlier suites pass in the same `npm run verify` run. They were updated
+only where SET 13 changed facts:
+
+- **SET 12 voice E2E (AT6):** the camera is no longer a _Coming later_ card;
+  the test now checks that no camera indicator is shown while voice is off.
+- **SET 1/2 app test:** the `vision` Core service is listed as running.
+- **SET 1 gateway test:** after a reload six live-event subscriptions are
+  active, not five (the camera controller, which keeps the indicator right
+  on every screen).
+- **Diagnostics (SET 1) and every test that reads it:** the capability limit
+  above.
