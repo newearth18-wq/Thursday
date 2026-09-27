@@ -1,5 +1,6 @@
 import { resolve } from 'node:path'
 import { bundleBrowserRuntime } from '@jupiter/browser-runtime/build'
+import { bundleDocumentRuntime } from '@jupiter/document-runtime/build'
 import react from '@vitejs/plugin-react'
 import { defineConfig } from 'electron-vite'
 import type { BuildOptions, Plugin } from 'vite'
@@ -36,6 +37,17 @@ function browserRuntime(): Plugin {
   }
 }
 
+/** The document runtime (SET 10), bundled into one ES module next to the main process. */
+function documentRuntime(): Plugin {
+  return {
+    name: 'jupiter-document-runtime',
+    apply: 'build',
+    async closeBundle() {
+      await bundleDocumentRuntime(resolve(__dirname, 'out/main/document-runtime.mjs'))
+    }
+  }
+}
+
 /** zod ships comments Rollup cannot place; the warning is noise, not a defect. */
 const onwarn: NonNullable<NonNullable<BuildOptions['rollupOptions']>['onwarn']> = (
   warning,
@@ -51,7 +63,7 @@ export default defineConfig(({ command }) => {
   return {
     main: {
       define: { __JUPITER_BUILD_METADATA__: JSON.stringify(metadata) },
-      plugins: [browserRuntime()],
+      plugins: [browserRuntime(), documentRuntime()],
       build: {
         // Everything is bundled: the packaged app ships no node_modules.
         externalizeDeps: false,

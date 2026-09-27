@@ -23,6 +23,12 @@ import {
   type PlanSource,
   BrowserTaskRequest,
   ComputerTaskRequest,
+  DocumentFormat,
+  FileName,
+  FileRoot,
+  RelativePath,
+  formatOfName,
+  type FileLocation,
   type PermissionRequest,
   type PlanStep,
   type RouteDecision,
@@ -38,6 +44,8 @@ import type { Logger } from '../logging/logger'
 import type { DatabasePort, ExecutionRecord, MissionRecord } from '../ports'
 import type { BrowserAgent } from '../browser/agent'
 import type { ComputerAgent } from '../computer/agent'
+import type { FileAgent } from '../files/agent'
+import { CREATE_FORMATS, fencedDocument, specOf } from '../files/steps'
 import type { SkillRegistry } from '../skills/registry'
 import {
   catalogueWith,
@@ -94,6 +102,10 @@ export interface MissionManagerOptions {
   readonly browser?: BrowserAgent
   /** Whether the host can run the Browser Agent. */
   readonly browserAvailable?: () => boolean
+  /** The File Agent and the Artifact Manager (SET 10), for `document.*` steps and the Mission's files. */
+  readonly files?: FileAgent
+  /** Whether the host offers the document runtime. */
+  readonly filesAvailable?: () => boolean
 }
 
 const CORE_ACTOR: Actor = { type: 'core', id: 'core' }
@@ -177,6 +189,7 @@ export class MissionManager {
       currentStepId: current?.stepId ?? null,
       nextStepId: next?.stepId ?? null,
       permissions: this.permissionsOf(plan, missionId, database),
+      files: database.artifacts.forMission(missionId).slice(0, 200),
       artifacts: store.artifacts(missionId),
       errors: store.errors(missionId),
       verificationResults: store.verifications(missionId),
@@ -1510,6 +1523,8 @@ export class MissionManager {
           return this.runComputer(run, step, definition, outputs, signal)
         if (type?.runner === 'browser' && this.options.browser)
           return this.runBrowser(run, step, definition, outputs, signal)
+        if (type?.runner === 'files' && this.options.files)
+          return this.runFiles(run, step, definition, outputs, signal)
         throw new JupiterError('STEP_UNKNOWN', `Jupiter cannot run “${step.kind}” steps.`, {
           category: 'unsupported',
           userAction: 'Re-plan the Mission.'
@@ -1739,6 +1754,141 @@ export class MissionManager {
     }
   }
 
+  /**
+   * A File Agent step (SET 10). Reading: the newest file of a format in an
+   * approved folder, or a named one, read in the document runtime; the
+   * output is its text, fenced and labelled as untrusted data with its
+   * source. Creating: a document made of the step's text, written in the
+   * Mission's workspace, checked, and recorded as one of its files.
+   */
+  private async runFiles(
+    run: Run,
+    step: MissionStep,
+    definition: PlanStep,
+    outputs: ReadonlyMap<string, string>,
+    signal: AbortSignal
+  ): Promise<StepOutput> {
+    const agent = this.options.files
+    if (!agent)
+      throw new JupiterError('STEP_UNKNOWN', `Jupiter cannot run “${step.kind}” steps.`, {
+        category: 'unsupported',
+        userAction: 'Re-plan the Mission.'
+      })
+    const context = {
+      actor: 'core' as const,
+      correlationId: run.correlationId,
+      missionId: run.missionId,
+      missionTitle: this.options.database().missions.mission(run.missionId)?.title ?? null,
+      stepId: step.stepId,
+      stepTitle: step.title,
+      signal
+    }
+    const input = (name: string) => substitute(definition.input[name] ?? '', outputs).trim()
+    const invalid = (message: string) =>
+      new JupiterError('STEP_INPUT_INVALID', `“${step.title}”: ${message}`, {
+        category: 'validation',
+        userAction: 'Re-plan the Mission.'
+      })
+    try {
+      if (step.kind === 'document.read_newest' || step.kind === 'document.read') {
+        const root = FileRoot.safeParse(input('root'))
+        if (!root.success) throw invalid(`"${input('root')}" is not an approved folder.`)
+        let location: FileLocation
+        let identity = ''
+        if (step.kind === 'document.read_newest') {
+          const format = DocumentFormat.safeParse(input('format'))
+          if (!format.success) throw invalid(`"${input('format')}" is not a document format.`)
+          const listing = await agent.find(
+            {
+              root: root.data,
+              folder: '',
+              recursive: false,
+              formats: [format.data],
+              nameContains: input('nameContains') || null,
+              sortBy: 'modified',
+              order: 'desc',
+              limit: 5
+            },
+            context
+          )
+          const newest = listing.entries[0]
+          if (!newest)
+            throw new JupiterError(
+              'NO_MATCHING_FILE',
+              `There is no ${format.data.toUpperCase()} file in ${root.data}${input('nameContains') ? ` whose name contains "${input('nameContains')}"` : ''}.`,
+              { category: 'validation', userAction: 'Put the file there, then retry the Mission.' }
+            )
+          location = { root: newest.root, path: newest.path }
+          identity = `Newest ${format.data.toUpperCase()} in ${root.data} (of ${String(listing.entries.length)} checked by modified time): "${newest.name}", modified ${newest.modifiedAt}.`
+        } else {
+          const path = RelativePath.safeParse(input('path'))
+          if (!path.success)
+            throw invalid(path.error.issues[0]?.message ?? 'The path is not allowed.')
+          location = { root: root.data, path: path.data }
+        }
+        const read = await agent.read(location, 100_000, context)
+        const full = `${location.root}/${location.path}`
+        const text = [identity, fencedDocument(read.file, full, read.content, read.suspicious)]
+          .filter(Boolean)
+          .join('\n')
+        return {
+          text: text.slice(0, 200_000),
+          route: null,
+          detail:
+            `${identity || `Read "${read.file.name}".`} ${read.content.format.toUpperCase()}, ${String(read.content.characters)} characters${read.suspicious.length ? `; ${String(read.suspicious.length)} attempt(s) to direct Jupiter labelled` : ''}.`.trim()
+        }
+      }
+      if (step.kind === 'document.create') {
+        const parsedFormat = DocumentFormat.safeParse(input('format'))
+        if (
+          !parsedFormat.success ||
+          !(CREATE_FORMATS as readonly string[]).includes(parsedFormat.data)
+        )
+          throw invalid(`"${input('format')}" is not a format Jupiter creates.`)
+        const format = parsedFormat.data
+        const name = input('name')
+        if (!FileName.safeParse(name).success || formatOfName(name) !== format)
+          throw invalid(`"${name}" is not a plain file name ending in .${format}.`)
+        const title = name.replace(/\.[^.]+$/, '')
+        const artifact = await agent.createArtifact(
+          {
+            missionId: run.missionId,
+            name,
+            spec: specOf(format, title, input('content')),
+            stepId: step.stepId,
+            source: {
+              kind: 'generated',
+              transformation: `Created a ${format.toUpperCase()} document in step “${step.title.slice(0, 200)}”`,
+              fromArtifactId: null,
+              fromFile: null
+            }
+          },
+          context
+        )
+        const passed = artifact.verificationDetails.filter((check) => check.passed).length
+        return {
+          text: `Created "${artifact.name}" (${artifact.type.toUpperCase()}, ${String(artifact.size)} bytes, version ${String(artifact.version)}, SHA-256 ${artifact.hash}) at ${artifact.path}. Verification: ${artifact.verificationStatus} (${String(passed)} of ${String(artifact.verificationDetails.length)} checks passed).`,
+          route: null,
+          detail: `The Artifact Manager created and verified ${artifact.path}.`
+        }
+      }
+    } catch (error) {
+      // A permission the person has not given yet: the step waits for the answer.
+      const requestId = error instanceof JupiterError ? error.details?.requestId : undefined
+      if (
+        error instanceof JupiterError &&
+        error.code === 'PERMISSION_REQUIRED' &&
+        typeof requestId === 'string'
+      )
+        throw new PermissionWait(requestId, error.message)
+      throw error
+    }
+    throw new JupiterError('STEP_UNKNOWN', `Jupiter cannot run “${step.kind}” steps.`, {
+      category: 'unsupported',
+      userAction: 'Re-plan the Mission.'
+    })
+  }
+
   /** Built-in step types and the registered Skills, as they are now. */
   /**
    * The permissions the plan needs (its own list and those of its step types),
@@ -1785,10 +1935,13 @@ export class MissionManager {
     }
     const computer = this.options.computerAvailable?.() ?? false
     const browser = this.options.browserAvailable?.() ?? false
+    const files = this.options.filesAvailable?.() ?? false
     const { types } = catalogueWith(skills())
     // Agent steps can run only where the host offers the agent (Windows; an installed browser).
     const adjusted = types.map((type) =>
-      (type.runner === 'computer' && !computer) || (type.runner === 'browser' && !browser)
+      (type.runner === 'computer' && !computer) ||
+      (type.runner === 'browser' && !browser) ||
+      (type.runner === 'files' && !files)
         ? {
             ...type,
             available: false,

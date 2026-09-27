@@ -83,7 +83,9 @@ export async function startCore(
   /** Serves host.computer.call (SET 8): a test double of the Windows host, or the real host on Windows. */
   computer: ((input: unknown) => Promise<unknown>) | null = null,
   /** Serves host.browser.call (SET 9): the real browser host with a real browser, in tests. */
-  browser: ((input: unknown) => Promise<unknown>) | null = null
+  browser: ((input: unknown) => Promise<unknown>) | null = null,
+  /** Serves host.files.call (SET 10): the real file host with the real document runtime, in tests. */
+  files: ((input: unknown) => Promise<unknown>) | null = null
 ): Promise<Running> {
   const sessionId = uuidv7()
   const logs = new MemorySink(20_000)
@@ -116,6 +118,9 @@ export async function startCore(
         case 'host.browser.call':
           if (browser) return browser(input)
           return Promise.reject(new Error('unexpected host call host.browser.call'))
+        case 'host.files.call':
+          if (files) return files(input)
+          return Promise.reject(new Error('unexpected host call host.files.call'))
         default:
           return Promise.reject(new Error(`unexpected host call ${capability}`))
       }
@@ -137,7 +142,8 @@ export async function startCore(
         'host.credentials.read',
         'host.credentials.delete',
         ...(computer ? ['host.computer.call'] : []),
-        ...(browser ? ['host.browser.call'] : [])
+        ...(browser ? ['host.browser.call'] : []),
+        ...(files ? ['host.files.call'] : [])
       ]
     },
     logger,
@@ -167,6 +173,7 @@ export async function startCore(
   // As the Core entry does once Core is running (SET 8).
   if (computer) await core.refreshComputerAvailability().catch(() => undefined)
   if (browser) await core.refreshBrowserAvailability().catch(() => undefined)
+  if (files) await core.refreshFilesAvailability().catch(() => undefined)
   const events: DomainEvent[] = []
   core.subscribe(
     {

@@ -7,6 +7,7 @@ import {
   type BackupInfo,
   type CapabilityOutput,
   type BrowserStatus,
+  type FilesStatus,
   type ComputerStatus,
   type CoreConfig,
   type DiagnosticsSnapshot,
@@ -41,6 +42,8 @@ import type { ProviderAdapter } from '../ai/adapter'
 import { ChatService } from '../ai/chat'
 import { BrowserAgent } from '../browser/agent'
 import { checkedBrowserDriver } from '../browser/driver'
+import { FileAgent } from '../files/agent'
+import { checkedFileDriver } from '../files/driver'
 import { ComputerAgent } from '../computer/agent'
 import { checkedDriver } from '../computer/driver'
 import { MissionManager } from '../missions/manager'
@@ -140,6 +143,7 @@ export class CoreKernel {
   readonly permissions: PermissionEngine
   readonly computer: ComputerAgent
   readonly browser: BrowserAgent
+  readonly files: FileAgent
   private readonly supervisor: ServiceSupervisor
   private readonly logger: Logger
   private readonly now: () => Date
@@ -149,6 +153,8 @@ export class CoreKernel {
   private computerAvailable = false
   /** Whether the host can run the Browser Agent (known once Core is running). */
   private browserAvailable = false
+  /** Whether the host offers the document runtime (known once Core is running). */
+  private filesAvailable = false
   private readonly auditBuffer: AuditEvent[] = []
   private droppedAudit = 0
   private readonly lastStatus = new Map<string, ServiceHealth>()
@@ -302,6 +308,17 @@ export class CoreKernel {
           this.database?.settings.get('browser.persistentProfile')?.value
         )
     })
+    // SET 10: the File Agent and the Artifact Manager decide and check permissions here; the host acts.
+    this.files = new FileAgent({
+      database: () => this.requireDatabase(),
+      bus: this.bus,
+      logger: this.logger.child({ component: 'artifact-manager' }),
+      now: this.now,
+      permissions: this.permissions,
+      driver: checkedFileDriver((op, params, signal) =>
+        this.hostOperation('host.files.call', { op, params }, uuidv7(), signal)
+      )
+    })
     this.missions = new MissionManager({
       database: () => this.requireDatabase(),
       providers: this.providers,
@@ -312,7 +329,9 @@ export class CoreKernel {
       computer: this.computer,
       computerAvailable: () => this.computerAvailable,
       browser: this.browser,
-      browserAvailable: () => this.browserAvailable
+      browserAvailable: () => this.browserAvailable,
+      files: this.files,
+      filesAvailable: () => this.filesAvailable
     })
     // A Mission step that waited for a permission continues (or fails) once the person answers.
     this.permissions.onDecided((request) => {
@@ -353,6 +372,22 @@ export class CoreKernel {
       return status
     } catch (error) {
       this.browserAvailable = false
+      throw error
+    }
+  }
+
+  /**
+   * Asks the host whether it offers the document runtime (SET 10) and
+   * remembers the answer for the workflow catalogue. Called once Core is
+   * running, and again by every `files.status` query.
+   */
+  async refreshFilesAvailability(): Promise<FilesStatus> {
+    try {
+      const status = await this.files.status()
+      this.filesAvailable = status.available
+      return status
+    } catch (error) {
+      this.filesAvailable = false
       throw error
     }
   }
@@ -419,6 +454,7 @@ export class CoreKernel {
         // Quick services first, so none is left FAILED while the Skill health checks run.
         await this.supervisor.retry('computer-agent')
         await this.supervisor.retry('browser-agent')
+        await this.supervisor.retry('artifact-manager')
         await this.supervisor.retry('skill-registry')
       }
       return null
@@ -626,6 +662,12 @@ export class CoreKernel {
           'This host does not offer the Windows Computer Agent.',
           { category: 'unsupported', userAction: null }
         )
+      if (operation === 'host.files.call')
+        throw new JupiterError(
+          'FILES_UNAVAILABLE',
+          'This host does not offer the File Agent (Unavailable).',
+          { category: 'unsupported', userAction: null }
+        )
       if (operation === 'host.browser.call')
         throw new JupiterError(
           'BROWSER_UNAVAILABLE',
@@ -643,7 +685,9 @@ export class CoreKernel {
     }
     // A browser operation may wait for a slow page, a download or a control (up to two minutes).
     const deadlineMs =
-      operation === 'host.browser.call' ? BROWSER_OPERATION_TIMEOUT_MS : HOST_OPERATION_TIMEOUT_MS
+      operation === 'host.browser.call' || operation === 'host.files.call'
+        ? BROWSER_OPERATION_TIMEOUT_MS
+        : HOST_OPERATION_TIMEOUT_MS
     const controller = new AbortController()
     const timer = setTimeout(() => {
       controller.abort()
@@ -956,6 +1000,28 @@ export class CoreKernel {
             }
           )
         this.browser.start()
+        return undefined
+      }
+    })
+
+    // SET 10: the Artifact Manager (with the File Agent). Its records live in the database.
+    this.supervisor.register({
+      id: 'artifact-manager',
+      version: null,
+      capabilities: ['artifacts.manage', 'files.agent'],
+      critical: false,
+      retryable: true,
+      start: () => {
+        if (!this.database)
+          throw new JupiterError(
+            'DEPENDENCY_UNAVAILABLE',
+            'The Artifact Manager needs the database, which is not available.',
+            {
+              category: 'dependency',
+              userAction: 'Fix the Database service, then press Retry on it.',
+              retryable: true
+            }
+          )
         return undefined
       }
     })

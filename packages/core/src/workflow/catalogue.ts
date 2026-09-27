@@ -16,9 +16,10 @@ export interface StepTypeDefinition extends StepTypeInfo {
   readonly checkpoint: 'approval' | 'identity' | null
   /**
    * `skill`: run through the Skill Registry (SET 6). `computer`: the Computer
-   * Agent (SET 8). `browser`: the Browser Agent (SET 9).
+   * Agent (SET 8). `browser`: the Browser Agent (SET 9). `files`: the File
+   * Agent and the Artifact Manager (SET 10).
    */
-  readonly runner: 'builtin' | 'skill' | 'computer' | 'browser'
+  readonly runner: 'builtin' | 'skill' | 'computer' | 'browser' | 'files'
 }
 
 /** Finds a step type by id: the built-in ones and, since SET 6, registered Skills. */
@@ -121,6 +122,81 @@ export const STEP_TYPES: readonly StepTypeDefinition[] = [
     minTimeoutMs: 30_000,
     checkpoint: null,
     runner: 'browser'
+  },
+  {
+    skillId: 'document.read_newest',
+    name: 'Read the newest document in a folder',
+    description:
+      'Finds the most recently modified file of a format in an approved folder (Downloads, Documents, Desktop or the Mission’s workspace) by its real modified time, reports which file it is, and reads it in the document runtime. The text is the output, labelled as untrusted data with its source.',
+    inputs: [
+      { name: 'root', required: true, description: 'downloads, documents, desktop or workspace.' },
+      {
+        name: 'format',
+        required: true,
+        description: 'The file format: txt, md, csv, json, pdf, docx, pptx or xlsx.'
+      },
+      {
+        name: 'nameContains',
+        required: false,
+        description: 'Only files whose name contains this text.'
+      }
+    ],
+    producesOutput: true,
+    permissions: ['files.list', 'files.read'],
+    available: true,
+    minTimeoutMs: 30_000,
+    checkpoint: null,
+    runner: 'files'
+  },
+  {
+    skillId: 'document.read',
+    name: 'Read a document',
+    description:
+      'Reads one file (TXT, Markdown, CSV, JSON, PDF, DOCX, PPTX or XLSX) in an approved folder, in the document runtime. The text is the output, labelled as untrusted data with its source.',
+    inputs: [
+      { name: 'root', required: true, description: 'downloads, documents, desktop or workspace.' },
+      {
+        name: 'path',
+        required: true,
+        description: 'The file’s path inside that folder, e.g. reports/q3.pdf.'
+      }
+    ],
+    producesOutput: true,
+    permissions: ['files.read'],
+    available: true,
+    minTimeoutMs: 30_000,
+    checkpoint: null,
+    runner: 'files'
+  },
+  {
+    skillId: 'document.create',
+    name: 'Create a document',
+    description:
+      'Creates a new file in the Mission’s workspace from text: DOCX or PDF (# headings, - bullets, paragraphs), PPTX (a title slide, then a slide per ## section), XLSX or CSV (CSV text; never formulas), JSON, TXT or Markdown. It is checked before it is kept and appears among the Mission’s files with its verification.',
+    inputs: [
+      {
+        name: 'format',
+        required: true,
+        description: 'docx, pptx, xlsx, pdf, csv, json, txt or md.'
+      },
+      {
+        name: 'name',
+        required: true,
+        description: 'The file name, ending in the format, e.g. summary.docx.'
+      },
+      {
+        name: 'content',
+        required: true,
+        description:
+          'The text to put in it. May include the output of earlier steps as {{step-id}}.'
+      }
+    ],
+    producesOutput: true,
+    permissions: ['artifacts.create'],
+    available: true,
+    minTimeoutMs: 30_000,
+    checkpoint: null,
+    runner: 'files'
   },
   {
     skillId: 'checkpoint.identity',

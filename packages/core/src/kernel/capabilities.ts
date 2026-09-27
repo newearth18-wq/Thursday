@@ -96,6 +96,16 @@ const BROWSER_SESSION: Policy = {
   audit: 'always',
   timeoutMs: 120_000
 }
+/** The File Agent and the Artifact Manager (SET 10): every change is audited; reading a large document takes time. */
+const FILES_READ: Policy = { ...UI_READ, requires: ['database', 'artifact-manager'] }
+const FILES_WRITE: Policy = {
+  ...FILES_READ,
+  requires: ['database', 'permission-engine', 'artifact-manager'],
+  risk: 'MEDIUM',
+  audit: 'always',
+  timeoutMs: 180_000
+}
+const FILES_DELETE: Policy = { ...FILES_WRITE, risk: 'CRITICAL' }
 /** Commands that plan or run a workflow (SET 5) also need the workflow engine. */
 const WORKFLOW_WRITE: Policy = {
   ...MISSION_WRITE,
@@ -514,6 +524,120 @@ export function coreCapabilities(kernel: CoreKernel): CapabilityDefinition<never
       tasks: kernel.browser.tasks(input.limit, input.missionId)
     })),
 
+    define('files.status', { ...FILES_READ, timeoutMs: 60_000 }, () =>
+      kernel.refreshFilesAvailability()
+    ),
+    define(
+      'files.find',
+      FILES_WRITE,
+      (input, context) => kernel.files.find(input.query, fileContext(context, input.missionId)),
+      (input) => `files:${input.query.root}/${input.query.folder}`
+    ),
+    define(
+      'files.read',
+      FILES_WRITE,
+      (input, context) =>
+        kernel.files.read(input.location, input.maxChars, fileContext(context, input.missionId)),
+      (input) => `files:${input.location.root}/${input.location.path}`
+    ),
+    define(
+      'files.copy',
+      FILES_WRITE,
+      (input, context) =>
+        kernel.files.copy(input.from, input.to, fileContext(context, input.missionId)),
+      (input) => `files:${input.to.root}/${input.to.path}`
+    ),
+    define(
+      'files.move',
+      FILES_WRITE,
+      (input, context) =>
+        kernel.files.move(input.from, input.to, fileContext(context, input.missionId)),
+      (input) => `files:${input.from.root}/${input.from.path}`
+    ),
+    define(
+      'files.mkdir',
+      FILES_WRITE,
+      (input, context) => kernel.files.mkdir(input.location, fileContext(context, input.missionId)),
+      (input) => `files:${input.location.root}/${input.location.path}`
+    ),
+    define(
+      'files.open',
+      FILES_WRITE,
+      (input, context) => kernel.files.open(input.location, fileContext(context, null)),
+      (input) => `files:${input.location.root}/${input.location.path}`
+    ),
+    define(
+      'files.reveal',
+      FILES_WRITE,
+      (input, context) => kernel.files.reveal(input.location, fileContext(context, null)),
+      (input) => `files:${input.location.root}/${input.location.path}`
+    ),
+    define(
+      'files.delete',
+      FILES_DELETE,
+      (input, context) =>
+        kernel.files.delete(input.location, fileContext(context, input.missionId)),
+      (input) => `files:${input.location.root}/${input.location.path}`
+    ),
+    define('artifacts.list', FILES_READ, (input) => ({
+      artifacts: kernel.files.artifacts(input)
+    })),
+    define(
+      'artifacts.create',
+      FILES_WRITE,
+      (input, context) =>
+        kernel.files.createArtifact(
+          { missionId: input.missionId, name: input.name, spec: input.spec },
+          fileContext(context, input.missionId)
+        ),
+      (input) => `artifact:${input.name}`
+    ),
+    define(
+      'artifacts.verify',
+      FILES_WRITE,
+      (input, context) => kernel.files.verifyArtifact(input.artifactId, fileContext(context, null)),
+      (input) => `artifact:${input.artifactId}`
+    ),
+    define(
+      'artifacts.open',
+      FILES_WRITE,
+      (input, context) => kernel.files.openArtifact(input.artifactId, fileContext(context, null)),
+      (input) => `artifact:${input.artifactId}`
+    ),
+    define(
+      'artifacts.reveal',
+      FILES_WRITE,
+      (input, context) => kernel.files.revealArtifact(input.artifactId, fileContext(context, null)),
+      (input) => `artifact:${input.artifactId}`
+    ),
+    define(
+      'artifacts.share',
+      FILES_WRITE,
+      (input, context) =>
+        kernel.files.shareArtifact(input.artifactId, input.root, fileContext(context, null)),
+      (input) => `artifact:${input.artifactId}`
+    ),
+    define(
+      'artifacts.keep',
+      { ...FILES_READ, audit: 'always' },
+      (input, context) =>
+        kernel.files.keepArtifact(input.artifactId, input.kept, fileContext(context, null)),
+      (input) => `artifact:${input.artifactId}`
+    ),
+    define(
+      'artifacts.delete',
+      FILES_DELETE,
+      (input, context) => kernel.files.deleteArtifact(input.artifactId, fileContext(context, null)),
+      (input) => `artifact:${input.artifactId}`
+    ),
+    define(
+      'artifacts.cleanup',
+      FILES_DELETE,
+      (input, context) =>
+        kernel.files.cleanup(input.missionId, fileContext(context, input.missionId)),
+      (input) => `mission:${input.missionId}`
+    ),
+
     define('permissions.catalogue', PERMISSION_READ, () => ({
       capabilities: kernel.permissions.catalogue()
     })),
@@ -557,4 +681,14 @@ export function coreCapabilities(kernel: CoreKernel): CapabilityDefinition<never
     }
   }
   return capabilities as unknown as CapabilityDefinition<never, unknown>[]
+}
+
+/** Who asked, for a file operation (SET 10). */
+function fileContext(context: CapabilityContext, missionId: string | null) {
+  return {
+    actor: context.request.actor.type,
+    correlationId: context.request.correlationId,
+    missionId,
+    signal: context.signal
+  }
 }

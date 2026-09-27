@@ -548,5 +548,43 @@ export const JUPITER_MIGRATIONS: readonly Migration[] = [
       CREATE INDEX browser_tasks_by_time ON browser_tasks (created_at);
       CREATE INDEX browser_tasks_by_mission ON browser_tasks (mission_id, created_at);
     `
+  },
+  {
+    version: 10,
+    name: '0010_artifacts',
+    sql: `
+      -- The Artifact Manager (SET 10). One row per file Jupiter produced:
+      -- where it is, what it came from (lineage), its version, size and
+      -- SHA-256, and how it was verified. A file that is removed is marked
+      -- deleted; its record stays (rows are never deleted).
+      CREATE TABLE artifacts (
+        artifact_id          TEXT PRIMARY KEY NOT NULL,
+        mission_id           TEXT,
+        step_id              TEXT,
+        name                 TEXT NOT NULL,
+        type                 TEXT NOT NULL
+                               CHECK (type IN ('txt', 'md', 'csv', 'json', 'pdf', 'docx', 'pptx', 'xlsx')),
+        root                 TEXT NOT NULL
+                               CHECK (root IN ('downloads', 'documents', 'desktop', 'workspace')),
+        rel_path             TEXT NOT NULL,
+        version              INTEGER NOT NULL CHECK (version >= 1),
+        size                 INTEGER NOT NULL CHECK (size >= 0),
+        hash                 TEXT NOT NULL CHECK (length(hash) = 64),
+        verification_status  TEXT NOT NULL CHECK (verification_status IN ('VERIFIED', 'FAILED', 'MISSING')),
+        kept                 INTEGER NOT NULL CHECK (kept IN (0, 1)),
+        artifact_json        TEXT NOT NULL CHECK (json_valid(artifact_json)),
+        created_at           TEXT NOT NULL,
+        deleted_at           TEXT
+      ) STRICT;
+
+      CREATE INDEX artifacts_by_mission ON artifacts (mission_id, created_at);
+      CREATE INDEX artifacts_by_time ON artifacts (created_at);
+      CREATE INDEX artifacts_by_name ON artifacts (mission_id, name, version);
+
+      CREATE TRIGGER artifacts_never_deleted BEFORE DELETE ON artifacts
+      BEGIN
+        SELECT RAISE(ABORT, 'artifacts are never deleted; a removed file is marked deleted');
+      END;
+    `
   }
 ]

@@ -16,6 +16,7 @@ import { Logger, MemorySink, uuidv7 } from '@jupiter/core'
 import { fakeCredentials } from '@jupiter/testing/fake-credentials'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { BrowserHost } from './browser-host'
+import { FileHost } from './file-host'
 import { ComputerHost } from './computer-host'
 import { CredentialVault, type SafeStorageLike } from './credential-vault'
 import { HostCapabilities, type HostCall } from './host-capabilities'
@@ -69,6 +70,21 @@ function setup(
       },
       runtimeEntry: null,
       command: process.execPath
+    }),
+    files: new FileHost({
+      logger,
+      roots: {
+        downloads: join(root, 'downloads'),
+        documents: join(root, 'documents'),
+        desktop: join(root, 'desktop'),
+        workspace: join(root, 'workspace')
+      },
+      runtimeEntry: null,
+      command: process.execPath,
+      printPdf: null,
+      openPath: open,
+      showItemInFolder: () => undefined,
+      trash: () => Promise.resolve()
     }),
     vault: new CredentialVault(credentialsDirectory, fakeSafeStorage(storage), platform, logger),
     logsDirectory,

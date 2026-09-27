@@ -154,6 +154,12 @@ async function initialise(config: CoreConfig): Promise<void> {
       `The host did not report the Browser Agent's status: ${describeError(error)}`
     )
   })
+  created.refreshFilesAvailability().catch((error: unknown) => {
+    log.warn(
+      'artifact-manager.unavailable',
+      `The host did not report the File Agent's status: ${describeError(error)}`
+    )
+  })
 }
 
 async function handle(raw: unknown): Promise<void> {

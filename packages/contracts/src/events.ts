@@ -362,7 +362,7 @@ export const EventPayloads = {
   // The File Agent (SET 10), on the stream `files/<root>`: what was done to which file.
   'file.operation': z
     .object({
-      op: z.enum(['find', 'read', 'copy', 'move', 'mkdir', 'open', 'reveal', 'delete']),
+      op: z.enum(['find', 'read', 'copy', 'move', 'mkdir', 'open', 'reveal', 'delete', 'create', 'cleanup']),
       root: FileRoot,
       path: z.string().max(1000),
       outcome: z.enum(['done', 'failed', 'refused']),

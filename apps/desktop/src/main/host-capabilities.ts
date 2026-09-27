@@ -8,6 +8,7 @@ import {
 } from '@jupiter/contracts'
 import { JupiterError, createErrorEnvelope, describeError, type Logger } from '@jupiter/core'
 import type { BrowserHost } from './browser-host'
+import type { FileHost } from './file-host'
 import type { ComputerHost } from './computer-host'
 import type { CredentialVault } from './credential-vault'
 
@@ -47,6 +48,8 @@ export interface HostCapabilityDependencies {
   readonly computer: ComputerHost
   /** The Browser Agent's host side (SET 9). */
   readonly browser: BrowserHost
+  /** The File Agent's and Artifact Manager's host side (SET 10). */
+  readonly files: FileHost
   readonly now?: () => number
 }
 
@@ -59,7 +62,8 @@ export const HOST_CAPABILITIES = [
   'host.credentials.read',
   'host.credentials.delete',
   'host.computer.call',
-  'host.browser.call'
+  'host.browser.call',
+  'host.files.call'
 ] as const
 
 /** Desktop notifications the interface may show per minute. */
@@ -92,6 +96,8 @@ export class HostCapabilities {
         return this.agentOperation(call, 'host.computer.call', log)
       case 'host.browser.call':
         return this.agentOperation(call, 'host.browser.call', log)
+      case 'host.files.call':
+        return this.agentOperation(call, 'host.files.call', log)
       default:
         log.warn('host-capability.unknown', `Refused unknown host capability ${call.capability}`)
         return this.failure(
@@ -253,13 +259,13 @@ export class HostCapabilities {
   }
 
   /**
-   * Computer (SET 8) and browser (SET 9) actions are performed only for
-   * Jupiter Core, which has already checked the permissions (and, for the
-   * browser, the origins).
+   * Computer (SET 8), browser (SET 9) and file (SET 10) actions are
+   * performed only for Jupiter Core, which has already checked the
+   * permissions (and, for the browser, the origins).
    */
   private async agentOperation(
     call: HostCall,
-    operation: 'host.computer.call' | 'host.browser.call',
+    operation: 'host.computer.call' | 'host.browser.call' | 'host.files.call',
     log: Logger
   ): Promise<HostOutcome> {
     if (call.actor.type !== 'core') {
@@ -283,12 +289,14 @@ export class HostCapabilities {
       const data =
         operation === 'host.computer.call'
           ? await this.deps.computer.call(input.data)
-          : await this.deps.browser.call(input.data)
+          : operation === 'host.browser.call'
+            ? await this.deps.browser.call(input.data)
+            : await this.deps.files.call(input.data)
       return { ok: true, data }
     } catch (error) {
       if (error instanceof JupiterError) {
         log.info(
-          `host-capability.${operation === 'host.computer.call' ? 'computer' : 'browser'}.failed`,
+          `host-capability.${agentName(operation)}.failed`,
           `${input.data.op} failed: ${error.code}`
         )
         return {
@@ -305,7 +313,7 @@ export class HostCapabilities {
       return this.failure(
         'HOST_ACTION_FAILED',
         'dependency',
-        `The ${operation === 'host.computer.call' ? 'computer' : 'browser'} action failed: ${describeError(error)}`,
+        `The ${agentName(operation)} action failed: ${describeError(error)}`,
         null
       )
     }
@@ -327,4 +335,12 @@ export class HostCapabilities {
       error: createErrorEnvelope({ code, category, message, userAction, retryable: false })
     }
   }
+}
+
+function agentName(operation: 'host.computer.call' | 'host.browser.call' | 'host.files.call'): string {
+  return operation === 'host.computer.call'
+    ? 'computer'
+    : operation === 'host.browser.call'
+      ? 'browser'
+      : 'file'
 }
