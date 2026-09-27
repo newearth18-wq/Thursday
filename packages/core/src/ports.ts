@@ -1,5 +1,6 @@
 import type {
   Actor,
+  Artifact,
   AuditEvent,
   BackupInfo,
   ChatMessage,
@@ -342,6 +343,20 @@ export interface BrowserTaskStore {
   running(): BrowserTask[]
 }
 
+/** The Artifact Manager's records (SET 10): updated as files change; never deleted. */
+export interface ArtifactStore {
+  save(artifact: Artifact): void
+  artifact(artifactId: string): Artifact | null
+  /** Newest first; a Mission's only, or all when `missionId` is null. */
+  list(options: { missionId: string | null; includeDeleted: boolean; limit: number }): Artifact[]
+  /** A Mission's artifacts, oldest first (deleted ones included). */
+  forMission(missionId: string): Artifact[]
+  /** The newest version of a name in a Mission (or outside Missions), if any. */
+  latestNamed(missionId: string | null, name: string): Artifact | null
+  /** The artifacts recorded at this exact place (not deleted). */
+  atLocation(root: string, path: string): Artifact[]
+}
+
 /** Computer Agent tasks (SET 8): saved as they progress; never deleted. */
 export interface ComputerTaskStore {
   save(task: ComputerTask): void
@@ -406,6 +421,7 @@ export interface DatabasePort {
   readonly permissions: PermissionStore
   readonly computer: ComputerTaskStore
   readonly browser: BrowserTaskStore
+  readonly artifacts: ArtifactStore
   info(): DatabaseInfo
   backup(reason: BackupInfo['reason'], options?: BackupOptions): Promise<BackupInfo>
   close(): void

@@ -12,6 +12,7 @@ import { PermissionName, SkillId } from './plans'
 import { PermissionDecision } from './permissions'
 import { BrowserActionType, BrowserMethod, BrowserTaskStatus, SuspiciousContent } from './browser'
 import { ComputerActionType, ComputerTaskStatus, InteractionMethod } from './computer'
+import { ArtifactVerificationStatus, DocumentFormat, FileRoot } from './files'
 
 /**
  * Versioned domain events (contract version 1).
@@ -37,7 +38,9 @@ export const StreamKind = z.enum([
   'skill',
   'permission',
   'computer',
-  'browser'
+  'browser',
+  'files',
+  'artifact'
 ])
 export type StreamKind = z.infer<typeof StreamKind>
 
@@ -355,6 +358,47 @@ export const EventPayloads = {
       status: BrowserTaskStatus,
       errorCode: z.string().max(64).nullable()
     })
+    .strict(),
+  // The File Agent (SET 10), on the stream `files/<root>`: what was done to which file.
+  'file.operation': z
+    .object({
+      op: z.enum([
+        'find',
+        'read',
+        'copy',
+        'move',
+        'mkdir',
+        'open',
+        'reveal',
+        'delete',
+        'create',
+        'cleanup'
+      ]),
+      root: FileRoot,
+      path: z.string().max(1000),
+      outcome: z.enum(['done', 'failed', 'refused']),
+      errorCode: z.string().max(64).nullable(),
+      missionId: Uuidv7.nullable()
+    })
+    .strict(),
+  // The Artifact Manager (SET 10), on the stream `artifact/<artifactId>`.
+  'artifact.created': z
+    .object({
+      artifactId: Uuidv7,
+      missionId: Uuidv7.nullable(),
+      name: z.string().max(255),
+      type: DocumentFormat,
+      version: z.number().int().min(1),
+      verificationStatus: ArtifactVerificationStatus
+    })
+    .strict(),
+  'artifact.changed': z
+    .object({
+      artifactId: Uuidv7,
+      missionId: Uuidv7.nullable(),
+      change: z.enum(['verified', 'kept', 'released', 'shared', 'deleted', 'cleaned']),
+      verificationStatus: ArtifactVerificationStatus
+    })
     .strict()
 } as const satisfies Record<string, z.ZodType>
 
@@ -431,7 +475,10 @@ export const DomainEvent = z
     variant('browser.action_completed'),
     variant('browser.suspicious_content'),
     variant('browser.safety_stop'),
-    variant('browser.task_finished')
+    variant('browser.task_finished'),
+    variant('file.operation'),
+    variant('artifact.created'),
+    variant('artifact.changed')
   ])
   .refine(
     (event) =>

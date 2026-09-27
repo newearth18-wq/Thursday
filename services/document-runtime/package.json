@@ -1,0 +1,25 @@
+{
+  "name": "@jupiter/document-runtime",
+  "version": "0.1.0",
+  "private": true,
+  "description": "The document runtime (SET 10): reads documents (TXT, Markdown, CSV, JSON, PDF, DOCX, PPTX, XLSX) and writes Office files in its own process, behind a narrow, typed contract. Every file is untrusted input.",
+  "license": "MIT",
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts",
+    "./build": "./src/build.ts"
+  },
+  "scripts": {
+    "typecheck": "tsc -p tsconfig.json"
+  },
+  "dependencies": {
+    "@jupiter/contracts": "0.1.0",
+    "fflate": "^0.8.3",
+    "pdfjs-dist": "^6.3.289",
+    "zod": "^4.6.5"
+  },
+  "devDependencies": {
+    "@jupiter/testing": "0.1.0",
+    "esbuild": "^0.25.12"
+  }
+}

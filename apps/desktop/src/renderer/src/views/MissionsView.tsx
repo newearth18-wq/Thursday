@@ -12,6 +12,7 @@ import {
 import { Icon } from '@jupiter/ui'
 import type { ViewId } from '../../../shared/views'
 import { request } from '../api'
+import { ArtifactList } from '../components/ArtifactList'
 import { Dialog } from '../components/Dialog'
 import { Select, Switch } from '../components/FormControls'
 import { ConfirmDialog } from '../components/InfoDialogs'
@@ -256,7 +257,7 @@ function MissionDetailView({
   readonly onChanged: (detail: MissionDetail) => void
   readonly onNavigate: (view: ViewId) => void
 }) {
-  const { t } = useI18n()
+  const { t, locale } = useI18n()
   const summary = detail.mission
   const [busy, setBusy] = useState<MissionAction | null>(null)
   const [failure, setFailure] = useState<ErrorEnvelope | null>(null)
@@ -266,7 +267,7 @@ function MissionDetailView({
   const current = detail.steps.find((step) => step.stepId === detail.currentStepId) ?? null
   const next = detail.steps.find((step) => step.stepId === detail.nextStepId) ?? null
   // The agents the plan's steps run on (their step types are named after them).
-  const agents = (['computer', 'browser'] as const).filter((agent) =>
+  const agents = (['computer', 'browser', 'document'] as const).filter((agent) =>
     detail.plan?.steps.some((step) => step.skillId.startsWith(`${agent}.`))
   )
   const executionId = detail.executionHistory.at(-1)?.executionId ?? null
@@ -468,6 +469,22 @@ function MissionDetailView({
       {summary.status === 'PARTIAL_SUCCESS' ? (
         <PartialOutcome detail={detail} stepName={stepName} />
       ) : null}
+
+      <section aria-labelledby="mission-files-title" data-testid="mission-files">
+        <h3 id="mission-files-title">{t('missions.files')}</h3>
+        <ArtifactList
+          artifacts={detail.files}
+          formatTime={(iso) =>
+            iso
+              ? new Date(iso).toLocaleString(intlLocale(locale), {
+                  dateStyle: 'medium',
+                  timeStyle: 'short'
+                })
+              : '—'
+          }
+          testId="mission-file-list"
+        />
+      </section>
 
       <WorkflowView detail={detail} />
 

@@ -1,9 +1,10 @@
-import { existsSync } from 'node:fs'
-import { join } from 'node:path'
+import { existsSync, mkdirSync } from 'node:fs'
+import { rename, writeFile } from 'node:fs/promises'
+import { basename, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import {
   app,
-  type BrowserWindow,
+  BrowserWindow,
   dialog,
   ipcMain,
   Menu,
@@ -44,6 +45,7 @@ import { CoreProcessManager } from './core-process'
 import { prepareEnvironment, type MainEnvironment } from './environment'
 import { HostGateway } from './gateway'
 import { BrowserHost, findBrowser } from './browser-host'
+import { FileHost } from './file-host'
 import { ComputerHost } from './computer-host'
 import { HOST_CAPABILITIES, HostCapabilities } from './host-capabilities'
 import { CredentialVault } from './credential-vault'
@@ -173,10 +175,50 @@ async function start(environment: MainEnvironment, mainLogging: MainLogging): Pr
     command: process.execPath,
     env: { ELECTRON_RUN_AS_NODE: '1' }
   })
+  // SET 10: the File Agent reaches only these folders; tests use their own copies of them.
+  const testFiles = testing ? process.env.JUPITER_TEST_FILES_FOLDER : undefined
+  const knownFolder = (name: 'downloads' | 'documents' | 'desktop'): string | null => {
+    if (testFiles) return join(testFiles, name)
+    try {
+      return app.getPath(name)
+    } catch {
+      return null
+    }
+  }
+  const documentEntry = join(here, 'document-runtime.mjs')
+  const files = new FileHost({
+    logger: logger.child({ component: 'file-host' }),
+    roots: {
+      downloads: knownFolder('downloads'),
+      documents: knownFolder('documents'),
+      desktop: knownFolder('desktop'),
+      workspace: testFiles
+        ? join(testFiles, 'workspace')
+        : join(environment.userDataDir, 'workspace')
+    },
+    runtimeEntry: existsSync(documentEntry) ? documentEntry : null,
+    // The runtime runs on Electron's own Node.js, in a process of its own.
+    command: process.execPath,
+    env: { ELECTRON_RUN_AS_NODE: '1' },
+    printPdf: printDocumentPdf,
+    openPath: (path) => shell.openPath(path),
+    showItemInFolder: (path) => {
+      shell.showItemInFolder(path)
+    },
+    trash: testFiles
+      ? async (path) => {
+          // Tests keep their "Recycle Bin" next to their folders, never the real one.
+          const bin = join(testFiles, 'recycle-bin')
+          mkdirSync(bin, { recursive: true })
+          await rename(path, join(bin, `${uuidv7()}-${basename(path)}`))
+        }
+      : (path) => shell.trashItem(path)
+  })
   const hostCapabilities = new HostCapabilities({
     logger,
     computer,
     browser,
+    files,
     logsDirectory: environment.logsDir,
     vault,
     openPath: (path) => shell.openPath(path),
@@ -403,6 +445,7 @@ async function start(environment: MainEnvironment, mainLogging: MainLogging): Pr
     vault,
     computer,
     browser,
+    files,
     takeAutomaticRestart: () => {
       const pending = automaticRestartPending
       automaticRestartPending = false
@@ -566,4 +609,38 @@ try {
   main()
 } catch (error) {
   reportFatal('initialisation', error)
+}
+
+/**
+ * Prints a document's HTML to a PDF file (SET 10) in a hidden window that
+ * runs no script and loads nothing but the document: its own in-memory
+ * session refuses every request that is not the document itself.
+ */
+async function printDocumentPdf(html: string, path: string): Promise<void> {
+  const printSession = session.fromPartition('jupiter-print', { cache: false })
+  printSession.webRequest.onBeforeRequest((details, callback) => {
+    callback({ cancel: !details.url.startsWith('data:text/html') })
+  })
+  const window = new BrowserWindow({
+    show: false,
+    width: 794,
+    height: 1123,
+    webPreferences: {
+      session: printSession,
+      javascript: false,
+      sandbox: true,
+      contextIsolation: true,
+      nodeIntegration: false,
+      webSecurity: true
+    }
+  })
+  try {
+    await window.loadURL(
+      `data:text/html;charset=utf-8;base64,${Buffer.from(html, 'utf8').toString('base64')}`
+    )
+    const pdf = await window.webContents.printToPDF({ pageSize: 'A4', printBackground: true })
+    await writeFile(path, pdf, { flag: 'wx' })
+  } finally {
+    window.destroy()
+  }
 }

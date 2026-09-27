@@ -1,4 +1,6 @@
 import {
+  ArtifactVerificationStatus,
+  FILE_ROOTS,
   AvailabilityStatus,
   CostLatencyPreference,
   CredentialInfo,
@@ -132,6 +134,22 @@ describe('keys built at runtime', () => {
       'activity.state.': ['live', 'connecting', 'waiting-for-core', 'error'],
       'language.': ['en', 'th'],
       'coreState.': ['starting', 'running', 'stopping', 'stopped', 'crashed'],
+      'files.root.': FILE_ROOTS,
+      'artifacts.status.': ArtifactVerificationStatus.options,
+      'fileOp.': [
+        'find',
+        'read',
+        'copy',
+        'move',
+        'mkdir',
+        'open',
+        'reveal',
+        'delete',
+        'create',
+        'cleanup'
+      ],
+      'fileEvent.': ['done', 'failed', 'refused'],
+      'fileEvent.artifact.': ['verified', 'kept', 'released', 'shared', 'deleted', 'cleaned'],
       'service.': [
         'build-metadata',
         'environment',
@@ -150,6 +168,7 @@ describe('keys built at runtime', () => {
         'browser-agent',
         'agent-runtime',
         'browser-runtime',
+        'document-runtime',
         'artifact-manager',
         'identity-gateway',
         'plugin-runtime',

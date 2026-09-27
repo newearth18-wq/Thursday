@@ -3,7 +3,12 @@ import {
   PlanStepKey,
   SaveFileName,
   WebAddress,
+  DocumentFormat,
+  FileName,
+  FileRoot,
+  RelativePath,
   capabilityInfo,
+  formatOfName,
   type PlanIssue,
   type PlanStep
 } from '@jupiter/contracts'
@@ -132,6 +137,37 @@ export function validatePlan(
         add('schema', `Step "${step.id}": "${fileName}" is not a plain .txt file name.`, step.id)
     }
     // A Browser Agent step opens only an http(s) address.
+    if (type.runner === 'files') {
+      const input = step.input
+      const fixed = (value: string | undefined) => value !== undefined && !value.includes('{{')
+      if (fixed(input.root) && !FileRoot.safeParse(input.root).success)
+        add(
+          'schema',
+          `Step "${step.id}": "${String(input.root).slice(0, 40)}" is not an approved folder (downloads, documents, desktop, workspace).`,
+          step.id
+        )
+      if (fixed(input.format) && !DocumentFormat.safeParse(input.format).success)
+        add(
+          'schema',
+          `Step "${step.id}": "${String(input.format).slice(0, 40)}" is not a document format Jupiter handles.`,
+          step.id
+        )
+      if (fixed(input.path) && !RelativePath.safeParse(input.path).success)
+        add(
+          'schema',
+          `Step "${step.id}": the path is not allowed: ${RelativePath.safeParse(input.path).error?.issues[0]?.message ?? ''}`,
+          step.id
+        )
+      if (fixed(input.name)) {
+        const name = input.name ?? ''
+        if (!FileName.safeParse(name).success || formatOfName(name) !== input.format)
+          add(
+            'schema',
+            `Step "${step.id}": "${name.slice(0, 80)}" is not a plain file name ending in .${String(input.format)}.`,
+            step.id
+          )
+      }
+    }
     if (type.runner === 'browser') {
       const url = step.input.url
       if (url !== undefined && !url.includes('{{') && !WebAddress.safeParse(url).success)

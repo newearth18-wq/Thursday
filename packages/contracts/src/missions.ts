@@ -2,6 +2,7 @@ import { z } from 'zod'
 import { ActorType, RiskLevel } from './actor'
 import { RouteDecision } from './ai'
 import { ErrorEnvelope } from './errors'
+import { Artifact } from './files'
 import { Plan, PlanIssue, PlanStepKey, SkillId } from './plans'
 import { UtcTimestamp, Uuidv7 } from './primitives'
 
@@ -256,8 +257,8 @@ export const VerificationResult = z
 export type VerificationResult = z.infer<typeof VerificationResult>
 
 /**
- * Something a Mission produced. In this build only text (a model's answer
- * or summary); the Artifact Manager (SET 10) takes over files.
+ * Text a Mission produced (a model's answer or summary). Files are
+ * artifacts of the Artifact Manager (SET 10), listed in `MissionDetail.files`.
  */
 export const MissionArtifact = z
   .object({
@@ -356,6 +357,8 @@ export const MissionDetail = z
     nextStepId: StepId.nullable(),
     permissions: z.array(MissionPermission).max(50),
     artifacts: z.array(MissionArtifact).max(100),
+    /** Files the Mission produced (SET 10), with their verification. */
+    files: z.array(Artifact).max(200),
     errors: z.array(MissionErrorRecord).max(200),
     verificationResults: z.array(VerificationResult).max(200),
     /** Every execution, oldest first, each with its own steps. */

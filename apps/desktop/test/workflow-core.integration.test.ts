@@ -690,6 +690,10 @@ describe('Workflow Engine', () => {
       ['computer.notepad_write', false],
       // SET 9: nor a Browser Agent, so the page-reading step cannot run here either.
       ['browser.read_page', false],
+      // SET 10: nor a File Agent, so the document steps cannot run here.
+      ['document.read_newest', false],
+      ['document.read', false],
+      ['document.create', false],
       ['checkpoint.identity', false],
       // SET 6: registered Skills are step types too. The harness Core has no build
       // metadata, so get_app_version fails its health check and cannot be a step.

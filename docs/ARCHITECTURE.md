@@ -525,10 +525,51 @@ Decisions and alternatives: [ADR 0010](decisions/0010-browser-agent.md).
   and labelled-instruction badges, safety stops); Settings › Permissions ›
   persistent profile; permission requests in the global dialog.
 
-## Not in SET 9
+## Files, documents and artifacts (SET 10)
 
-Computer vision and drag and drop for the agents, CAPTCHA solving, filling
-payment details, attachments through the Artifact Manager (SET 10), identity
-verification (SET 14), plugins with their own runtime (SET 15), and everything
-after that. The five unfinished destinations are shown as _Coming later_ in
-the app, and none of them is presented as working.
+Decisions and alternatives: [ADR 0011](decisions/0011-file-agent-and-artifacts.md).
+
+- **Contracts** (`packages/contracts/src/files.ts`): approved roots
+  (`downloads`, `documents`, `desktop`, `workspace`), `FileLocation` (a root
+  and a relative path that cannot be absolute, contain `..` or a reserved
+  name), `FileQuery`, `DocumentContent` with metadata, `DocumentSpec` for each
+  format Jupiter creates, and `Artifact` (lineage, version, size, SHA-256,
+  verification status and checks, kept, deleted).
+- **Core** (`packages/core/src/files/`, service
+  `artifact-manager`): `FileAgent` checks `files.list`, `files.read`,
+  `files.write`, `files.open`, `files.delete` (CRITICAL) or
+  `artifacts.create` for the exact resolved file when each operation runs,
+  labels document text that tries to direct the agent, creates, versions,
+  verifies, shares, keeps and deletes artifacts, cleans up finished Missions'
+  workspaces (never kept files), stores artifacts (migration 10, never
+  deleted) and publishes `file.operation`, `artifact.created` and
+  `artifact.changed` events.
+- **Host** (`file-host.ts`, host operation `host.files.call`, Core only):
+  owns the approved folders, resolves every path segment by segment (links,
+  junctions and anything outside the root refused), lists and sorts by real
+  modified time, copies and moves without overwriting, writes atomically
+  (temporary file, validate, link to a free name), prints PDF with Electron
+  in a script-less, offline window, opens only allow-listed file types, and
+  moves deleted files to the Recycle Bin.
+- **Document runtime** (`services/document-runtime`, host service
+  `document-runtime`): readers, OOXML writers and validators bundled into
+  `document-runtime.mjs`, in its own process on Electron's Node.js, with a
+  memory limit, deadlines, size, part and zip-bomb limits, crash reporting
+  and restart.
+- **Missions**: step types `document.read_newest`, `document.read` and
+  `document.create` (runner `files`); document text reaches later steps only
+  fenced as untrusted data; a Mission's detail lists its artifacts.
+- **Interface**: the Files screen (approved folders, find and sort, read with
+  metadata and untrusted-content label, open, show in folder, delete) and
+  artifact lists in the Files screen and each Mission (verification checks,
+  hash, Open, Show in folder, Copy path, Save a copy, Check again, Keep,
+  Delete); permission requests in the global dialog.
+
+## Not in SET 10
+
+Editing documents in place, OCR of scanned PDFs, reading legacy binary
+Office formats (DOC, PPT, XLS), converting between formats through an office
+suite, attachments to email (later SETs), identity verification (SET 14),
+plugins with their own runtime (SET 15), and everything after that. The four
+unfinished destinations are shown as _Coming later_ in the app, and none of
+them is presented as working.

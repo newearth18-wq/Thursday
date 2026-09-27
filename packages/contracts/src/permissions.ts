@@ -76,6 +76,34 @@ export const PERMISSION_CATALOGUE = {
     reversible: false,
     dataLeavesDevice: null
   },
+  'files.list': {
+    risk: 'LOW',
+    summary: 'See the files in a folder',
+    consequence: 'The names, sizes and dates of the files become part of the result.',
+    reversible: true,
+    dataLeavesDevice: null
+  },
+  'files.open': {
+    risk: 'LOW',
+    summary: 'Open a file or show it in its folder',
+    consequence: 'The file opens in its usual application, or its folder opens.',
+    reversible: true,
+    dataLeavesDevice: null
+  },
+  'files.delete': {
+    risk: 'CRITICAL',
+    summary: 'Delete a file',
+    consequence: 'The file is moved to the Recycle Bin.',
+    reversible: true,
+    dataLeavesDevice: null
+  },
+  'artifacts.create': {
+    risk: 'LOW',
+    summary: "Create a file in a Mission's workspace",
+    consequence: "A new file is written in Jupiter's workspace; nothing existing is changed.",
+    reversible: true,
+    dataLeavesDevice: null
+  },
   'network.request': {
     risk: 'MEDIUM',
     summary: 'Send a request over the network',

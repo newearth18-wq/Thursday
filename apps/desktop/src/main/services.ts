@@ -5,6 +5,7 @@ import { readBuildMetadata } from './build-metadata'
 import type { CoreProcessManager } from './core-process'
 import type { BrowserHost } from './browser-host'
 import type { ComputerHost } from './computer-host'
+import type { FileHost } from './file-host'
 import type { CredentialVault } from './credential-vault'
 import type { MainEnvironment } from './environment'
 
@@ -23,18 +24,14 @@ interface ServiceDependencies {
   readonly vault: CredentialVault
   readonly computer: ComputerHost
   readonly browser: BrowserHost
+  /** The File Agent's host side and the document runtime (SET 10). */
+  readonly files: FileHost
   /** Set by the restart policy so the next Core start is counted as an automatic restart. */
   readonly takeAutomaticRestart: () => boolean
 }
 
 /** Jupiter Core modules and isolated runtimes that later SETs deliver. Never started, never shown as working. */
 export const PLANNED_SERVICES = [
-  {
-    id: 'artifact-manager',
-    availability: 'COMING_LATER',
-    plannedSet: 10,
-    capabilities: ['artifacts.manage']
-  },
   {
     id: 'identity-gateway',
     availability: 'COMING_LATER',
@@ -249,6 +246,33 @@ export function registerServices(supervisor: ServiceSupervisor, deps: ServiceDep
       availability: 'UNAVAILABLE',
       plannedSet: 9,
       capabilities: ['agent.browser']
+    })
+  }
+
+  // SET 10: the document runtime, where documents are read and written in a process of their own.
+  if (deps.files.available) {
+    supervisor.register({
+      id: 'document-runtime',
+      version: null,
+      capabilities: ['documents.read', 'documents.write'],
+      critical: false,
+      retryable: true,
+      timeoutMs: 45_000,
+      async start() {
+        // A real start: the runtime process comes up and answers, and the workspace exists.
+        await deps.files.probe()
+        return undefined
+      },
+      stop() {
+        return deps.files.stop()
+      }
+    })
+  } else {
+    supervisor.registerPlanned({
+      id: 'document-runtime',
+      availability: 'UNAVAILABLE',
+      plannedSet: 10,
+      capabilities: ['documents.read', 'documents.write']
     })
   }
 

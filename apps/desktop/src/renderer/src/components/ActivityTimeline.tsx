@@ -3,6 +3,7 @@ import { intlLocale, useI18n, type MessageKey, type Translate } from '../i18n'
 import { describeMissionEvent, isMissionEvent } from '../missionText'
 import { describeBrowserEvent, isBrowserEvent } from '../browserText'
 import { describeComputerEvent, isComputerEvent } from '../computerText'
+import { describeFileEvent, isFileEvent } from '../fileText'
 import { describePermissionEvent, isPermissionEvent } from '../permissionText'
 import { describeSkillEvent, isSkillEvent } from '../skillText'
 import { useEventLog } from '../useEventLog'
@@ -20,6 +21,7 @@ export function describeEvent(event: DomainEvent, t: Translate): Omit<TimelineEn
   if (isPermissionEvent(event)) return { ...base, ...describePermissionEvent(event, t) }
   if (isComputerEvent(event)) return { ...base, ...describeComputerEvent(event, t) }
   if (isBrowserEvent(event)) return { ...base, ...describeBrowserEvent(event, t) }
+  if (isFileEvent(event)) return { ...base, ...describeFileEvent(event, t) }
   switch (event.type) {
     case 'core.started':
       return { ...base, tone: 'success', title: t('activity.coreStarted') }

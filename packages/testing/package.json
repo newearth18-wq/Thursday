@@ -9,7 +9,8 @@
     ".": "./src/index.ts",
     "./fake-credentials": "./src/fake-credentials.ts",
     "./protocol-servers": "./src/protocol-servers.ts",
-    "./web-fixtures": "./src/web-fixtures.ts"
+    "./web-fixtures": "./src/web-fixtures.ts",
+    "./documents": "./src/documents.ts"
   },
   "scripts": {
     "typecheck": "tsc -p tsconfig.json"

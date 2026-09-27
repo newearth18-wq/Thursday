@@ -278,7 +278,7 @@ describe('SET 1 — typed gateway, authorization and persistence (real app)', ()
     expect(surface.frozen).toBe(true)
     expect(surface.unchanged).toBe(true)
 
-    for (const type of ['files.read', 'shell.exec', 'credentials.get', 'fs.write-file']) {
+    for (const type of ['files.execute', 'shell.exec', 'credentials.get', 'fs.write-file']) {
       const result = await invoke(
         page,
         envelope('diagnostics.snapshot', {}, { type, kind: 'command' })
@@ -487,7 +487,7 @@ describe('SET 1 — typed gateway, authorization and persistence (real app)', ()
     expect(served.encodedSlash.status).toBe(404)
     expect(served.otherHost.status).toBe(404)
 
-    // No capability reads files or returns credentials. SET 3 added three that store or remove
+    // No capability returns credentials, and none reads a file the renderer names. SET 3 added three that store or remove
     // an API key (input only) or say whether secure storage exists; none returns a secret (the
     // contract test checks every output schema, the SET 3 E2E suite checks the running app).
     const snapshot = await query(page, 'diagnostics.snapshot')
@@ -499,10 +499,34 @@ describe('SET 1 — typed gateway, authorization and persistence (real app)', ()
     ).toEqual([
       'ai.credentials.remove',
       'ai.credentials.set',
+      // SET 10: the File Agent. Each takes an approved folder and a relative path, which the
+      // host resolves inside that folder (no absolute path, no "..", no links), and each
+      // operation asks for its permission for the exact file first.
+      'files.copy',
+      'files.delete',
+      'files.find',
+      'files.mkdir',
+      'files.move',
+      'files.open',
+      'files.read',
+      'files.reveal',
+      'files.status',
       'host.credentials.status',
       // SET 6: reads Skill run history (shape and size only); it executes nothing.
       'skills.executions'
     ])
+    // SET 10: a file capability refuses anything outside the approved folders before it runs.
+    for (const path of ['/etc/passwd', '../../etc/passwd', 'C:\\Windows\\win.ini']) {
+      const outside = await invoke(
+        page,
+        envelope('files.read', {
+          location: { root: 'documents', path },
+          maxChars: 100,
+          missionId: null
+        })
+      )
+      expect(outside.ok, path).toBe(false)
+    }
 
     // Nothing the interface can ask for returns a secret from the environment.
     const replies = JSON.stringify([

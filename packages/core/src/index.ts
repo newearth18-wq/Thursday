@@ -37,6 +37,7 @@ export type {
   AuditStore,
   BackupOptions,
   ChatStore,
+  ArtifactStore,
   BrowserTaskStore,
   ComputerTaskStore,
   ExecutionRecord,
@@ -144,3 +145,4 @@ export {
 export { completeText, type Completion } from './ai/complete'
 export { BROWSER_AGENT } from './browser/agent'
 export { findSuspiciousInstructions } from './browser/injection'
+export { FILE_AGENT } from './files/agent'
