@@ -338,8 +338,8 @@ only where SET 12 changed facts:
   Memories list could load before Jupiter Core's `memory` service was ready
   and then never loaded again (it reloaded only when a memory changed). It
   now also reloads when Core reconnects and when the `memory` service's state
-  changes, as the preferences already do for the database. The privacy scan
-  looked for the four digits `4111` in every file, which can occur by chance
+  changes, as the preferences already do for the database. The privacy checks
+  (E2E and in-process; the in-process one also failed on Linux CI, run 36330055167) looked for the four digits `4111` in every file, which can occur by chance
   in binary files, identifiers and timings; it now looks for the card number
   in every form it could be kept in (and its last twelve digits), still in
   every file, and names the file if it finds one.
