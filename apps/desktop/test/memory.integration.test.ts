@@ -1,4 +1,5 @@
 import {
+  existsSync,
   lstatSync,
   mkdirSync,
   realpathSync,
@@ -131,10 +132,18 @@ async function answerDialog(first?: string, timeout = 15_000): Promise<string[]>
   return capabilities
 }
 
+/**
+ * What Jupiter itself writes in the profile, which must always be readable here: the database
+ * and its WAL, logs, backups, credentials, the vault state and note backups. (`jupiter.db-shm`
+ * is SQLite's shared-memory index, which holds no content.)
+ */
+const JUPITER_OWNED =
+  /^(jupiter\.db(-wal)?|logs|backups|credentials|notes-vault\.json|notes-backups|window-state\.json)$/
+
 /** Every byte Jupiter keeps for this profile: database, WAL, logs, settings, vault state. */
 function everythingStored(): string {
   const parts: string[] = []
-  const walk = (dir: string) => {
+  const walk = (dir: string, owned: boolean) => {
     for (const name of readdirSync(dir)) {
       const path = join(dir, name)
       // Chromium's lock files and sockets come and go; only real files and folders are read.
@@ -144,14 +153,25 @@ function everythingStored(): string {
       } catch {
         continue
       }
-      if (info.isDirectory()) walk(path)
+      const mine = owned || (dir === userDataDir && JUPITER_OWNED.test(name))
+      if (info.isDirectory()) walk(path, mine)
       else if (info.isFile() && info.size < 50_000_000) {
-        const bytes = readFileSync(path)
+        let bytes: Buffer
+        try {
+          bytes = readFileSync(path)
+        } catch (error) {
+          // On Windows, Chromium keeps some of its own files locked (EBUSY). Never Jupiter's.
+          const code = (error as { code?: string }).code
+          if (!mine && (code === 'EBUSY' || code === 'EPERM')) continue
+          throw error
+        }
         parts.push(bytes.toString('latin1'), bytes.toString('utf8'))
       }
     }
   }
-  walk(userDataDir)
+  walk(userDataDir, false)
+  // The files that matter were read: the database is there.
+  expect(existsSync(join(userDataDir, 'jupiter.db'))).toBe(true)
   return parts.join('\n')
 }
 

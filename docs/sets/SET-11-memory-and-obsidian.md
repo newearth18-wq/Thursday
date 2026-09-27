@@ -271,6 +271,13 @@ Earlier run on this PR:
     _Add_ tab now clears the previous decision when a new request starts
     and numbers each answer (`data-sequence`), and the helper waits for the
     next number.
+- **Run 36317827740** (`9c1c515`): Linux and Legacy green; on Windows every
+  earlier failure was fixed, but three E2E tests failed with `EBUSY`. Their
+  check that a secret is in no file of the profile tried to read files
+  Chromium keeps locked on Windows. The scan now skips a file the system
+  locks only if it is not one of Jupiter's own (database and WAL, logs,
+  backups, credentials, vault state, note backups); Jupiter's files must
+  always be read.
 
 ## 8. Manual tests
 
