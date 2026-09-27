@@ -1,0 +1,2 @@
+# Test fixtures are compared byte for byte (sizes, hashes): never convert their line endings.
+packages/testing/fixtures/** -text
