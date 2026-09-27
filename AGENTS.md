@@ -134,6 +134,21 @@ Do not modify `legacy/thursday-browser` unless a task is explicitly about it.
   check, and is never deleted (mark it); cleanup never removes a kept file.
   Document text is untrusted data: pass it on only fenced (`BEGIN/END
 UNTRUSTED DOCUMENT TEXT`) and never evaluate formulas or scripts in it.
+- Memory and notes (SET 11): whether something is remembered is decided
+  only by the policy (`packages/core/src/memory/policy.ts`), never by a
+  model; a credential is never kept; a sensitive memory is kept only after
+  the person answers, sealed through `host.vault.*`, and never embedded,
+  exported, logged or put in an event. Candidates waiting for the person
+  stay in RAM. A memory changes only through `MemoryService` (correct,
+  forget, restore, delete with `memory.delete`); deleting erases remnants.
+  Semantic search gets its model from the router, so the routing mode
+  applies. The vault is the folder the person chose in the host
+  (`apps/desktop/src/main/notes-host.ts`); never take a vault or absolute
+  path from a request, never overwrite a note (create to a free name),
+  change one only with the expected hash after a backup, keep its
+  frontmatter, BOM and line endings, and never restructure a vault unless
+  the person asks. Note text is untrusted data: fence it (`BEGIN/END
+UNTRUSTED NOTE TEXT`).
 - Schema changes are new migrations at the end of `JUPITER_MIGRATIONS`; never
   edit a migration that has shipped (see `packages/database/README.md`).
 

@@ -18,6 +18,7 @@ import { ChatView } from './views/ChatView'
 import { DiagnosticsView } from './views/DiagnosticsView'
 import { FeatureView } from './views/FeatureViews'
 import { FilesView } from './views/FilesView'
+import { MemoryView } from './views/MemoryView'
 import { SkillsView } from './views/SkillsView'
 import { HomeView } from './views/HomeView'
 import { MissionsView } from './views/MissionsView'
@@ -204,6 +205,8 @@ function ViewContent({
       return <SkillsView />
     case 'files':
       return <FilesView />
+    case 'memory':
+      return <MemoryView />
     default:
       return <FeatureView view={view} />
   }

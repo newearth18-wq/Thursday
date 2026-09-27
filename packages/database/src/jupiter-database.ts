@@ -15,6 +15,7 @@ import { SqliteChatStore } from './repositories/chat'
 import { SqliteMissionStore } from './repositories/missions'
 import { SqliteSkillStore } from './repositories/skills'
 import { SqliteArtifactStore } from './repositories/artifacts'
+import { SqliteMemoryStore } from './repositories/memories'
 import { SqliteBrowserTaskStore } from './repositories/browser'
 import { SqliteComputerTaskStore } from './repositories/computer'
 import { SqlitePermissionStore } from './repositories/permissions'
@@ -71,6 +72,7 @@ export class JupiterDatabase implements DatabasePort {
   readonly computer: SqliteComputerTaskStore
   readonly browser: SqliteBrowserTaskStore
   readonly artifacts: SqliteArtifactStore
+  readonly memories: SqliteMemoryStore
   private integrity = 'not checked'
   private closed = false
 
@@ -104,6 +106,7 @@ export class JupiterDatabase implements DatabasePort {
     this.computer = new SqliteComputerTaskStore(db)
     this.browser = new SqliteBrowserTaskStore(db)
     this.artifacts = new SqliteArtifactStore(db)
+    this.memories = new SqliteMemoryStore(db)
   }
 
   static async open(input: OpenDatabaseOptions): Promise<OpenedDatabase> {
@@ -296,6 +299,8 @@ export class JupiterDatabase implements DatabasePort {
       throw new Error(`SQLite refused WAL mode (journal_mode=${journal})`)
     }
     this.db.exec('PRAGMA synchronous = FULL')
+    // Deleted content is overwritten with zeros, not left in free pages (SET 11: "delete for good").
+    this.db.exec('PRAGMA secure_delete = ON')
     this.db.exec('PRAGMA foreign_keys = ON')
     if (this.pragma('foreign_keys') !== '1')
       throw new Error('SQLite refused to enable foreign keys')

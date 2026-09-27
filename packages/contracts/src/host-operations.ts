@@ -3,6 +3,7 @@ import { ApiKeyInput } from './ai'
 import { BrowserCall } from './browser'
 import { AutomationCall } from './computer'
 import { FileCall } from './files'
+import { NoteCall } from './notes'
 import { Uuidv7 } from './primitives'
 
 /**
@@ -51,7 +52,29 @@ export const HostOperations = {
    * The File Agent's and Artifact Manager's calls (SET 10). The result is
    * checked by Core against the operation's own result schema (`FileOps`).
    */
-  'host.files.call': { input: FileCall, output: z.unknown() }
+  'host.files.call': { input: FileCall, output: z.unknown() },
+  /**
+   * Seals text with the operating system's secure storage (SET 11), for
+   * sensitive memories the person chose to keep. The sealed form is
+   * meaningless without this user account on this computer.
+   */
+  'host.vault.status': {
+    input: z.object({}).strict(),
+    output: z.object({ available: z.boolean(), reason: z.string().max(500).nullable() }).strict()
+  },
+  'host.vault.seal': {
+    input: z.object({ text: z.string().min(1).max(8_000) }).strict(),
+    output: z.object({ sealed: z.string().min(1).max(20_000) }).strict()
+  },
+  'host.vault.unseal': {
+    input: z.object({ sealed: z.string().min(1).max(20_000) }).strict(),
+    output: z.object({ text: z.string().max(8_000) }).strict()
+  },
+  /**
+   * Obsidian notes (SET 11). The result is checked by Core against the
+   * operation's own result schema (`NoteOps`).
+   */
+  'host.notes.call': { input: NoteCall, output: z.unknown() }
 } as const satisfies Record<string, { input: z.ZodType; output: z.ZodType }>
 
 export type HostOperationName = keyof typeof HostOperations

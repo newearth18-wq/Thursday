@@ -85,7 +85,16 @@ export async function startCore(
   /** Serves host.browser.call (SET 9): the real browser host with a real browser, in tests. */
   browser: ((input: unknown) => Promise<unknown>) | null = null,
   /** Serves host.files.call (SET 10): the real file host with the real document runtime, in tests. */
-  files: ((input: unknown) => Promise<unknown>) | null = null
+  files: ((input: unknown) => Promise<unknown>) | null = null,
+  /**
+   * SET 11: `notes` serves host.notes.call (the real notes host, in tests);
+   * `secureStorage: false` makes sealing unavailable, as on a computer
+   * without OS-backed secure storage.
+   */
+  knowledge: {
+    notes?: (input: unknown) => Promise<unknown>
+    secureStorage?: boolean
+  } = {}
 ): Promise<Running> {
   const sessionId = uuidv7()
   const logs = new MemorySink(20_000)
@@ -121,6 +130,31 @@ export async function startCore(
         case 'host.files.call':
           if (files) return files(input)
           return Promise.reject(new Error('unexpected host call host.files.call'))
+        case 'host.notes.call':
+          if (knowledge.notes) return knowledge.notes(input)
+          return Promise.reject(new Error('unexpected host call host.notes.call'))
+        case 'host.vault.status':
+          return Promise.resolve(
+            knowledge.secureStorage === false
+              ? { available: false, reason: 'No secret service (test).' }
+              : { available: true, reason: null }
+          )
+        case 'host.vault.seal':
+        case 'host.vault.unseal': {
+          if (knowledge.secureStorage === false)
+            return Promise.reject(
+              new JupiterError('SECURE_STORAGE_UNAVAILABLE', 'No secure storage (test).', {
+                category: 'dependency',
+                userAction: null
+              })
+            )
+          const value = input as { text?: string; sealed?: string }
+          return Promise.resolve(
+            capability === 'host.vault.seal'
+              ? { sealed: sealForTest(value.text ?? '') }
+              : { text: unsealForTest(value.sealed ?? '') }
+          )
+        }
         default:
           return Promise.reject(new Error(`unexpected host call ${capability}`))
       }
@@ -143,7 +177,11 @@ export async function startCore(
         'host.credentials.delete',
         ...(computer ? ['host.computer.call'] : []),
         ...(browser ? ['host.browser.call'] : []),
-        ...(files ? ['host.files.call'] : [])
+        ...(files ? ['host.files.call'] : []),
+        'host.vault.status',
+        'host.vault.seal',
+        'host.vault.unseal',
+        ...(knowledge.notes ? ['host.notes.call'] : [])
       ]
     },
     logger,
@@ -190,6 +228,20 @@ export async function startCore(
 }
 
 export const standard = () => [openAiCompatibleAdapter(), anthropicAdapter()]
+
+/**
+ * The stand-in for OS-backed sealing: every byte is changed, so a sealed
+ * memory never contains its text (the real host uses Electron's safeStorage).
+ */
+function sealForTest(text: string): string {
+  return `test-sealed:${Buffer.from(Buffer.from(text, 'utf8').map((byte) => byte ^ 0x5a)).toString('base64')}`
+}
+
+function unsealForTest(sealed: string): string {
+  return Buffer.from(
+    Buffer.from(sealed.replace(/^test-sealed:/, ''), 'base64').map((byte) => byte ^ 0x5a)
+  ).toString('utf8')
+}
 
 export async function call<C extends CapabilityName>(
   running: Running,

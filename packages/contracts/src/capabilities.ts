@@ -43,6 +43,28 @@ import {
   UserRoot
 } from './files'
 import {
+  MemoryCandidate,
+  MemoryCandidateInput,
+  MemoryCorrection,
+  MemoryDecisionRecord,
+  MemoryEntry,
+  MemoryProposalResult,
+  MemoryQuery,
+  MemorySearchResult,
+  MemoryStatus
+} from './memory'
+import {
+  Note,
+  NoteCreateInput,
+  NoteEntry,
+  NoteFolder,
+  NotePath,
+  NoteSearchHit,
+  NoteTitle,
+  NoteWriteResult,
+  NotesStatus
+} from './notes'
+import {
   MissionDetail,
   MissionId,
   MissionPriority,
@@ -183,7 +205,8 @@ export const SettingUpdate = z.discriminatedUnion('key', [
   settingUpdate('ai.preferredReasoningModel'),
   settingUpdate('ai.preferredVisionModel'),
   settingUpdate('ai.preferredEmbeddingModel'),
-  settingUpdate('browser.persistentProfile')
+  settingUpdate('browser.persistentProfile'),
+  settingUpdate('memory.semanticSearch')
 ])
 export type SettingUpdate = z.infer<typeof SettingUpdate>
 
@@ -779,6 +802,130 @@ export const Capabilities = {
     kind: 'command',
     input: z.object({ missionId: Uuidv7 }).strict(),
     output: z.object({ removed: z.number().int().nonnegative() }).strict()
+  },
+
+  // ---- The Memory System (SET 11) ----
+  'memory.status': { kind: 'query', input: Empty, output: MemoryStatus },
+  /** Metadata, keyword, relationship or (when turned on) semantic search. Sensitive content stays hidden. */
+  'memory.search': { kind: 'query', input: MemoryQuery, output: MemorySearchResult },
+  /** One memory; `reveal` shows a sensitive memory's content (the person only). */
+  'memory.get': {
+    kind: 'query',
+    input: z.object({ memoryId: Uuidv7, reveal: z.boolean() }).strict(),
+    output: MemoryEntry
+  },
+  /** Something that might be remembered. The Memory Policy decides: SAVE, DO_NOT_SAVE or ASK_USER. */
+  'memory.propose': { kind: 'command', input: MemoryCandidateInput, output: MemoryProposalResult },
+  /** Candidates waiting for the person (ASK_USER). */
+  'memory.candidates': {
+    kind: 'query',
+    input: Empty,
+    output: z.object({ candidates: z.array(MemoryCandidate).max(100) }).strict()
+  },
+  /** The person's answer to a candidate. Nothing is saved without it. */
+  'memory.decide': {
+    kind: 'command',
+    input: z.object({ candidateId: Uuidv7, decision: z.enum(['SAVE', 'DO_NOT_SAVE']) }).strict(),
+    output: MemoryProposalResult
+  },
+  /** The person corrects a memory. */
+  'memory.update': { kind: 'command', input: MemoryCorrection, output: MemoryEntry },
+  /** Forget (never recalled, kept) or restore a memory. */
+  'memory.forget': {
+    kind: 'command',
+    input: z.object({ memoryId: Uuidv7, forgotten: z.boolean() }).strict(),
+    output: MemoryEntry
+  },
+  /** Erase a memory for good. Needs `memory.delete`. */
+  'memory.delete': {
+    kind: 'command',
+    input: z.object({ memoryId: Uuidv7 }).strict(),
+    output: z.object({ deleted: z.boolean() }).strict()
+  },
+  /** Export memories as a JSON artifact. Sensitive content is never exported. */
+  'memory.export': {
+    kind: 'command',
+    input: z.object({ includeForgotten: z.boolean() }).strict(),
+    output: Artifact
+  },
+  /** The policy's recent decisions (never their content). */
+  'memory.decisions': {
+    kind: 'query',
+    input: z.object({ limit: z.number().int().min(1).max(200) }).strict(),
+    output: z.object({ decisions: z.array(MemoryDecisionRecord).max(200) }).strict()
+  },
+
+  // ---- Obsidian notes (SET 11) ----
+  'notes.status': { kind: 'query', input: Empty, output: NotesStatus },
+  /** The person chooses a vault (or a folder for Jupiter Brain) in the system's folder dialog. */
+  'notes.connect': {
+    kind: 'command',
+    input: z.object({ kind: z.enum(['obsidian-vault', 'jupiter-brain']) }).strict(),
+    output: NotesStatus
+  },
+  'notes.disconnect': { kind: 'command', input: Empty, output: NotesStatus },
+  /** Adds the suggested Jupiter Brain folders that are missing; nothing is moved or renamed. */
+  'notes.structure': {
+    kind: 'command',
+    input: Empty,
+    output: z
+      .object({
+        created: z.array(z.string().max(1000)).max(20),
+        existing: z.array(z.string().max(1000)).max(20)
+      })
+      .strict()
+  },
+  'notes.list': {
+    kind: 'query',
+    input: z
+      .object({
+        folder: NoteFolder,
+        recursive: z.boolean(),
+        limit: z.number().int().min(1).max(500)
+      })
+      .strict(),
+    output: z
+      .object({ entries: z.array(NoteEntry).max(500), total: z.number().int().nonnegative() })
+      .strict()
+  },
+  'notes.search': {
+    kind: 'command',
+    input: z
+      .object({
+        text: z.string().trim().min(1).max(200),
+        limit: z.number().int().min(1).max(100),
+        missionId: Uuidv7.nullable()
+      })
+      .strict(),
+    output: z
+      .object({ hits: z.array(NoteSearchHit).max(100), scanned: z.number().int().nonnegative() })
+      .strict()
+  },
+  'notes.read': {
+    kind: 'command',
+    input: z.object({ path: NotePath, missionId: Uuidv7.nullable() }).strict(),
+    output: Note
+  },
+  /** A new note, with frontmatter, links to existing notes and a backlink in each of them. */
+  'notes.create': { kind: 'command', input: NoteCreateInput, output: NoteWriteResult },
+  /** Adds text under a heading at the end of a note; everything already in it stays. */
+  'notes.append': {
+    kind: 'command',
+    input: z
+      .object({
+        path: NotePath,
+        heading: z.string().trim().min(1).max(200).nullable(),
+        text: z.string().trim().min(1).max(50_000),
+        missionId: Uuidv7.nullable()
+      })
+      .strict(),
+    output: NoteWriteResult
+  },
+  /** Links two notes both ways, once: `[[to]]` in `from`, a backlink to `from` in `to`. */
+  'notes.link': {
+    kind: 'command',
+    input: z.object({ from: NotePath, to: NoteTitle, missionId: Uuidv7.nullable() }).strict(),
+    output: NoteWriteResult
   }
 } as const satisfies Record<string, { kind: RequestKind; input: z.ZodType; output: z.ZodType }>
 

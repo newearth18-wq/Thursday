@@ -24,7 +24,7 @@ export const DESTINATIONS: readonly Destination[] = [
   main('chat', 'nav.chat', 'chat', null, '2'),
   main('missions', 'nav.missions', 'missions', null, '3'),
   main('skills', 'nav.skills', 'skills', null, '4'),
-  main('memory', 'nav.memory', 'memory', '11', '5'),
+  main('memory', 'nav.memory', 'memory', null, '5'),
   main('files', 'nav.files', 'files', null, '6'),
   main('automations', 'nav.automations', 'automations', '18', '7'),
   main('models', 'nav.aiModels', 'models', null, '8'),

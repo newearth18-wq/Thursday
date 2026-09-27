@@ -9,6 +9,7 @@ import {
 import { JupiterError, createErrorEnvelope, describeError, type Logger } from '@jupiter/core'
 import type { BrowserHost } from './browser-host'
 import type { FileHost } from './file-host'
+import type { NotesHost } from './notes-host'
 import type { ComputerHost } from './computer-host'
 import type { CredentialVault } from './credential-vault'
 
@@ -50,6 +51,8 @@ export interface HostCapabilityDependencies {
   readonly browser: BrowserHost
   /** The File Agent's and Artifact Manager's host side (SET 10). */
   readonly files: FileHost
+  /** Obsidian notes' host side (SET 11). */
+  readonly notes: NotesHost
   readonly now?: () => number
 }
 
@@ -63,7 +66,11 @@ export const HOST_CAPABILITIES = [
   'host.credentials.delete',
   'host.computer.call',
   'host.browser.call',
-  'host.files.call'
+  'host.files.call',
+  'host.vault.status',
+  'host.vault.seal',
+  'host.vault.unseal',
+  'host.notes.call'
 ] as const
 
 /** Desktop notifications the interface may show per minute. */
@@ -98,6 +105,12 @@ export class HostCapabilities {
         return this.agentOperation(call, 'host.browser.call', log)
       case 'host.files.call':
         return this.agentOperation(call, 'host.files.call', log)
+      case 'host.notes.call':
+        return this.agentOperation(call, 'host.notes.call', log)
+      case 'host.vault.status':
+      case 'host.vault.seal':
+      case 'host.vault.unseal':
+        return this.vaultOperation(call, call.capability, log)
       default:
         log.warn('host-capability.unknown', `Refused unknown host capability ${call.capability}`)
         return this.failure(
@@ -265,7 +278,7 @@ export class HostCapabilities {
    */
   private async agentOperation(
     call: HostCall,
-    operation: 'host.computer.call' | 'host.browser.call' | 'host.files.call',
+    operation: 'host.computer.call' | 'host.browser.call' | 'host.files.call' | 'host.notes.call',
     log: Logger
   ): Promise<HostOutcome> {
     if (call.actor.type !== 'core') {
@@ -291,7 +304,9 @@ export class HostCapabilities {
           ? await this.deps.computer.call(input.data)
           : operation === 'host.browser.call'
             ? await this.deps.browser.call(input.data)
-            : await this.deps.files.call(input.data)
+            : operation === 'host.files.call'
+              ? await this.deps.files.call(input.data)
+              : await this.deps.notes.call(input.data)
       return { ok: true, data }
     } catch (error) {
       if (error instanceof JupiterError) {
@@ -319,6 +334,59 @@ export class HostCapabilities {
     }
   }
 
+  /** Sealing for sensitive memories (SET 11): Jupiter Core only; the text is never logged. */
+  private vaultOperation(
+    call: HostCall,
+    operation: 'host.vault.status' | 'host.vault.seal' | 'host.vault.unseal',
+    log: Logger
+  ): HostOutcome {
+    if (call.actor.type !== 'core') {
+      log.warn('host-capability.denied', `Refused ${operation} for ${call.actor.type}`)
+      return this.failure(
+        'PERMISSION_DENIED',
+        'permission',
+        `Only Jupiter Core may use ${operation}.`,
+        null
+      )
+    }
+    try {
+      switch (operation) {
+        case 'host.vault.status': {
+          const status = this.deps.vault.status()
+          return { ok: true, data: { available: status.available, reason: status.reason } }
+        }
+        case 'host.vault.seal': {
+          const input = HostOperations[operation].input.safeParse(call.input)
+          if (!input.success) return this.invalid(operation)
+          return { ok: true, data: { sealed: this.deps.vault.seal(input.data.text) } }
+        }
+        case 'host.vault.unseal': {
+          const input = HostOperations[operation].input.safeParse(call.input)
+          if (!input.success) return this.invalid(operation)
+          return { ok: true, data: { text: this.deps.vault.unseal(input.data.sealed) } }
+        }
+      }
+    } catch (error) {
+      if (error instanceof JupiterError)
+        return {
+          ok: false,
+          error: createErrorEnvelope({
+            code: error.code,
+            category: error.category,
+            message: error.message,
+            userAction: error.userAction,
+            retryable: error.retryable
+          })
+        }
+      return this.failure(
+        'HOST_ACTION_FAILED',
+        'dependency',
+        `Secure storage failed: ${describeError(error)}`,
+        null
+      )
+    }
+  }
+
   private invalid(operation: string): HostOutcome {
     // The reason is not included: the input may hold a key.
     return this.failure('INVALID_PAYLOAD', 'validation', `Invalid input for ${operation}.`, null)
@@ -338,11 +406,13 @@ export class HostCapabilities {
 }
 
 function agentName(
-  operation: 'host.computer.call' | 'host.browser.call' | 'host.files.call'
+  operation: 'host.computer.call' | 'host.browser.call' | 'host.files.call' | 'host.notes.call'
 ): string {
   return operation === 'host.computer.call'
     ? 'computer'
     : operation === 'host.browser.call'
       ? 'browser'
-      : 'file'
+      : operation === 'host.files.call'
+        ? 'file'
+        : 'notes'
 }

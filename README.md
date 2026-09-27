@@ -3,29 +3,36 @@
 Jupiter is a Windows desktop AI agent, built in stages (SET 0–24). This
 repository is the Jupiter monorepo.
 
-**Current stage: SET 10 — File, Document, Office and Artifact System** (on top
-of SET 9, Browser Agent; SET 8, Windows Computer Agent; SET 7, Permission and
-Security Engine; SET 6, Skill System; SET 5, Planner and Workflow Engine; SET
-4, Mission System; SET 3, AI providers, Model Router and Chat; SET 2, the
-product shell; SET 1, Core architecture; and SET 0, the repository
-foundation). The new **Files** screen finds, sorts and reads documents in the
-folders Jupiter may use (Downloads, Documents, Desktop and its own workspace):
-TXT, Markdown, CSV, JSON, PDF, Word, PowerPoint and Excel, parsed in a process
-of its own. Missions can read the newest PDF in Downloads and save what they
-produce as TXT, Markdown, CSV, JSON, DOCX, PPTX, XLSX or PDF; every file is
-written without overwriting anything, checked, and recorded as an
-**artifact** with where it came from, its version, SHA-256 and each check,
-with Open, Show in folder, Copy path, Save a copy, Keep and Delete (to the
-Recycle Bin, with a CRITICAL permission for that exact file). Paths that
-leave the approved folders, and links, are refused. The **Browser Agent**
-uses the web through an installed Edge, Chrome or Chromium in an isolated
-session, and on Windows the **Computer Agent** uses real applications through
-UI Automation. Everything a page or document says is untrusted data. Nothing
-Jupiter does with an effect happens without a **permission** that matches
-exactly what, who, which target and for how long; _Settings › Permissions_
-lists them and the audit trail. **Files**, **Skills**, **Missions** planned by
-your model, _Chat_, _AI Models_, _Settings_ and _Diagnostics_ work; the other
-four screens are labelled _Coming later_ with the SET that builds them.
+**Current stage: SET 11 — Memory System and Obsidian Knowledge Base** (on
+top of SET 10, File, Document, Office and Artifact System; SET 9, Browser
+Agent; SET 8, Windows Computer Agent; SET 7, Permission and Security Engine;
+SET 6, Skill System; SET 5, Planner and Workflow Engine; SET 4, Mission
+System; SET 3, AI providers, Model Router and Chat; SET 2, the product shell;
+SET 1, Core architecture; and SET 0, the repository foundation). The new
+**Memory** screen shows what Jupiter remembers and why. Every candidate gets
+a decision from a fixed memory policy — _Saved_, _Not saved_ or _Waiting for
+you_ — with its reasons: passwords, keys and tokens are never kept;
+financial, health, biometric, identity and other people's private details
+wait for your answer, and if you keep one it is sealed by the operating
+system's secure storage and hidden until you press _Reveal_. You can search
+by kind and tags, keywords, relationships or (if you turn it on) meaning,
+correct, forget, restore, export and delete (for good, with a HIGH
+permission). Semantic search uses an embedding model chosen by your routing
+mode; under _Local only_ no memory leaves the computer. In chat, "remember
+that…" proposes a memory. **Obsidian:** connect a vault you choose (or create
+a _Jupiter Brain_ folder), search and read notes, and create notes with valid
+frontmatter, links and backlinks; Jupiter never overwrites a note, keeps a
+copy before it changes one, keeps its frontmatter, BOM and line endings, and
+adds the suggested folders only when you ask. The **File Agent** reads and
+writes documents in the folders Jupiter may use, the **Browser Agent** uses
+the web in an isolated session, and on Windows the **Computer Agent** uses
+real applications. Everything a page, document or note says is untrusted
+data. Nothing Jupiter does with an effect happens without a **permission**
+that matches exactly what, who, which target and for how long; _Settings ›
+Permissions_ lists them and the audit trail. **Memory**, **Files**,
+**Skills**, **Missions** planned by your model, _Chat_, _AI Models_,
+_Settings_ and _Diagnostics_ work; the other three screens are labelled
+_Coming later_ with the SET that builds them.
 
 |                 |                                                                                            |
 | --------------- | ------------------------------------------------------------------------------------------ |
@@ -69,12 +76,12 @@ Running as root in a container? Chromium's sandbox cannot start as root, so use
 ```text
 apps/desktop/            Jupiter desktop app: host (Electron main + gateway), Core utility process, preload, React renderer
 packages/contracts/      Versioned zod schemas for every trust boundary
-packages/core/           Core kernel: capability dispatcher, event bus, service supervisor, logger, IDs; model router, chat, adapter port; Mission Manager, planner and workflow engine; Skill Registry and sandbox; Permission Engine; Computer Agent; Browser Agent; File Agent and Artifact Manager
+packages/core/           Core kernel: capability dispatcher, event bus, service supervisor, logger, IDs; model router, chat, adapter port; Mission Manager, planner and workflow engine; Skill Registry and sandbox; Permission Engine; Computer Agent; Browser Agent; File Agent and Artifact Manager; Memory System and Notes agent
 packages/providers/      Provider adapters (OpenAI-compatible, Anthropic), reached only through Core's guarded transport
 packages/database/       SQLite (node:sqlite): migrations, transactions, backups, repositories
 packages/security/       Secret patterns and redaction
 packages/ui/             Visual Design Lock v1: design tokens, fonts, icons, the Jupiter mark
-packages/testing/        Launch the real app with Playwright; credential-shaped test values; provider protocol test servers; test websites; document fixtures and independent Office checks
+packages/testing/        Launch the real app with Playwright; credential-shaped test values; provider protocol test servers; test websites; document fixtures and independent Office and Markdown checks
 services/agent-runtime/  Windows UI Automation runtime (PowerShell) behind a validated JSON-lines RPC; its Node client
 services/browser-runtime/ Browser runtime: playwright-core bundled into one file, in its own process; its Node client
 services/document-runtime/ Document runtime: readers, OOXML writers and validators in their own process; its Node client
@@ -120,6 +127,16 @@ Desktop under a free name. Jupiter never overwrites a file; deleting moves it
 to the Recycle Bin, and cleaning up a finished Mission never removes a file you
 chose to keep.
 
+Long-term memories are in the database (`memories`, with the policy's
+decisions in `memory_decisions`, never their content). A sensitive memory you
+keep is stored only sealed by the operating system, like an API key. Memories
+kept for this session only, and those waiting for your answer, are never
+written to disk (waiting ones are discarded after 24 hours). Deleting a memory
+erases it from the database files too. The Obsidian vault you connect is
+remembered in `<data folder>\notes-vault.json`; before Jupiter changes a note
+it keeps a copy in `<data folder>\notes-backups\`. Jupiter never deletes a
+note.
+
 ## Documentation
 
 - [AGENTS.md](AGENTS.md) — rules for anyone (human or AI) changing this repository
@@ -138,6 +155,7 @@ chose to keep.
 - [docs/sets/SET-08-windows-computer-agent.md](docs/sets/SET-08-windows-computer-agent.md) — SET 8 report and acceptance results
 - [docs/sets/SET-09-browser-agent.md](docs/sets/SET-09-browser-agent.md) — SET 9 report and acceptance results
 - [docs/sets/SET-10-file-document-office-and-artifacts.md](docs/sets/SET-10-file-document-office-and-artifacts.md) — SET 10 report and acceptance results
+- [docs/sets/SET-11-memory-and-obsidian.md](docs/sets/SET-11-memory-and-obsidian.md) — SET 11 report and acceptance results
 - [docs/decisions/](docs/decisions/) — architecture decision records
 
 ## License

@@ -151,9 +151,17 @@ describe('SET 7 — Permission Engine, in the real application', () => {
     const { requests } = await query(page, 'permissions.requests', { status: 'ALL', limit: 10 })
     expect(requests[0]).toMatchObject({ status: 'DENIED', decision: 'DENY' })
     const { grants } = await query(page, 'permissions.grants', { includeEnded: true, limit: 50 })
-    expect(grants.filter((grant) => grant.capability === 'memory.write')).toHaveLength(1)
+    expect(
+      grants.filter(
+        (grant) => grant.capability === 'memory.write' && grant.subject.id === 'fixture_note_writer'
+      )
+    ).toHaveLength(1)
     // Only the earlier single-use grant exists, and it is used.
-    expect(grants.find((grant) => grant.capability === 'memory.write')?.state).toBe('USED')
+    expect(
+      grants.find(
+        (grant) => grant.capability === 'memory.write' && grant.subject.id === 'fixture_note_writer'
+      )?.state
+    ).toBe('USED')
   })
 
   it('AT6: a critical action offers only Allow once and Deny, and asks every time', async () => {
@@ -187,7 +195,7 @@ describe('SET 7 — Permission Engine, in the real application', () => {
 
     const panel = await openPermissions()
     const row = panel.locator(
-      '[data-testid="permission-grant"][data-capability="memory.write"][data-state="ACTIVE"]'
+      '[data-testid="permission-grant"][data-capability="memory.write"][data-subject="fixture_note_writer"][data-state="ACTIVE"]'
     )
     await row.waitFor()
     expect(await row.textContent()).toContain('Always')
@@ -206,8 +214,12 @@ describe('SET 7 — Permission Engine, in the real application', () => {
     await row.waitFor({ state: 'detached' })
     const { grants } = await query(page, 'permissions.grants', { includeEnded: true, limit: 50 })
     expect(
-      grants.find((grant) => grant.capability === 'memory.write' && grant.kind === 'ALWAYS_ALLOW')
-        ?.state
+      grants.find(
+        (grant) =>
+          grant.capability === 'memory.write' &&
+          grant.subject.id === 'fixture_note_writer' &&
+          grant.kind === 'ALWAYS_ALLOW'
+      )?.state
     ).toBe('REVOKED')
     expect((await invoke('fixture_note_writer', { text: 'after' })).status).toBe('WAITING_APPROVAL')
     await (await dialog()).getByTestId('permission-deny').click()
@@ -260,7 +272,7 @@ describe('SET 7 — Permission Engine, in the real application', () => {
     await panel.getByTestId('permissions-show-ended').click()
     await panel
       .locator(
-        '[data-testid="permission-grant"][data-capability="memory.write"][data-state="EXPIRED"]'
+        '[data-testid="permission-grant"][data-capability="memory.write"][data-subject="fixture_note_writer"][data-state="EXPIRED"]'
       )
       .waitFor()
   })

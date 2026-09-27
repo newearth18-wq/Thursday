@@ -36,7 +36,14 @@ import type {
   SkillHealth,
   StepAttempt,
   StreamRef,
-  VerificationResult
+  VerificationResult,
+  MemoryDecisionRecord,
+  MemoryRelationship,
+  MemoryRetention,
+  MemorySensitivity,
+  MemorySource,
+  MemoryType,
+  SensitiveKind
 } from '@jupiter/contracts'
 
 /**
@@ -357,6 +364,58 @@ export interface ArtifactStore {
   atLocation(root: string, path: string): Artifact[]
 }
 
+/**
+ * A memory as stored (SET 11). Normal memories keep their content; a
+ * sensitive memory keeps only `sealed` (encrypted by the operating system's
+ * secure storage) and no content key, so nothing readable is on disk.
+ */
+export interface StoredMemory {
+  readonly memoryId: string
+  readonly type: MemoryType
+  readonly content: string | null
+  readonly sealed: string | null
+  /** SHA-256 of the normalised content (normal memories only), to find duplicates. */
+  readonly contentKey: string | null
+  readonly sensitivity: MemorySensitivity
+  readonly sensitiveKinds: SensitiveKind[]
+  readonly source: MemorySource
+  readonly tags: string[]
+  readonly relationships: MemoryRelationship[]
+  readonly retention: MemoryRetention
+  readonly confidence: number
+  readonly importance: number
+  readonly state: 'active' | 'forgotten'
+  readonly corrections: number
+  readonly createdAt: string
+  readonly updatedAt: string
+}
+
+/** Long-term memory (SET 11). A memory is removed only when the person deletes it or it expires. */
+export interface MemoryStore {
+  insert(memory: StoredMemory): void
+  update(memory: StoredMemory): void
+  get(memoryId: string): StoredMemory | null
+  /** Oldest first. */
+  all(includeForgotten: boolean): StoredMemory[]
+  byContentKey(contentKey: string): StoredMemory | null
+  delete(memoryId: string): boolean
+  /** Removes memories whose retention ended; returns their ids. */
+  expire(now: string): string[]
+  embedding(memoryId: string, modelKey: string): { contentKey: string; vector: number[] } | null
+  putEmbedding(
+    memoryId: string,
+    modelKey: string,
+    contentKey: string,
+    vector: readonly number[]
+  ): void
+  /** After a delete or a correction: no old copy of the content stays in the database files. */
+  eraseRemnants(): void
+  /** Policy decisions are recorded without content and never changed. */
+  recordDecision(record: MemoryDecisionRecord): void
+  /** Newest first. */
+  decisions(limit: number): MemoryDecisionRecord[]
+}
+
 /** Computer Agent tasks (SET 8): saved as they progress; never deleted. */
 export interface ComputerTaskStore {
   save(task: ComputerTask): void
@@ -422,6 +481,7 @@ export interface DatabasePort {
   readonly computer: ComputerTaskStore
   readonly browser: BrowserTaskStore
   readonly artifacts: ArtifactStore
+  readonly memories: MemoryStore
   info(): DatabaseInfo
   backup(reason: BackupInfo['reason'], options?: BackupOptions): Promise<BackupInfo>
   close(): void

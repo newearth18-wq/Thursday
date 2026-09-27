@@ -59,6 +59,11 @@ export interface ProtocolServer {
   advance(): void
   /** Answer every request with this status until cleared (an outage). */
   failAll(status: number | null): void
+  /**
+   * Embeddings by the words of each input (a 32-dimension bag of words), so
+   * texts that share words are close. Off: `[index, 0.5, 1]` for each input.
+   */
+  embedByWords(on: boolean): void
   reset(): void
   close(): Promise<void>
 }
@@ -85,8 +90,20 @@ export function startAnthropicServer(options: { host?: string } = {}): Promise<P
   return start('anthropic', options.host ?? '127.0.0.1')
 }
 
+/** A tiny deterministic "embedding": each word adds 1 to one of 32 dimensions. */
+function wordVector(text: string): number[] {
+  const vector = new Array<number>(32).fill(0)
+  for (const word of text.toLowerCase().match(/[\p{L}\p{N}]+/gu) ?? []) {
+    let hash = 0
+    for (const char of word) hash = (hash * 31 + (char.codePointAt(0) ?? 0)) >>> 0
+    vector[hash % 32] = (vector[hash % 32] ?? 0) + 1
+  }
+  return vector
+}
+
 async function start(protocol: Protocol, host: string): Promise<ProtocolServer> {
   const requests: RecordedRequest[] = []
+  let wordEmbeddings = false
   const queue: ScriptedReply[] = []
   const gates: (() => void)[] = []
   let pendingAdvances = 0
@@ -158,10 +175,10 @@ async function start(protocol: Protocol, host: string): Promise<ProtocolServer> 
         ? (body as { input: unknown[] }).input
         : []
       sendJson(response, 200, {
-        data: inputs.map((_, index) => ({
+        data: inputs.map((input, index) => ({
           object: 'embedding',
           index,
-          embedding: [index, 0.5, 1]
+          embedding: wordEmbeddings ? wordVector(String(input)) : [index, 0.5, 1]
         })),
         usage: { prompt_tokens: inputs.length }
       })
@@ -366,11 +383,15 @@ async function start(protocol: Protocol, host: string): Promise<ProtocolServer> 
     failAll: (status) => {
       outage = status
     },
+    embedByWords: (on) => {
+      wordEmbeddings = on
+    },
     reset: () => {
       requests.length = 0
       queue.length = 0
       connections = 0
       outage = null
+      wordEmbeddings = false
       // Replies still waiting from earlier requests must not consume the next test's advances.
       for (const resolveGate of gates.splice(0)) resolveGate()
       pendingAdvances = 0

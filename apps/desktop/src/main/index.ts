@@ -45,6 +45,7 @@ import { CoreProcessManager } from './core-process'
 import { prepareEnvironment, type MainEnvironment } from './environment'
 import { HostGateway } from './gateway'
 import { BrowserHost, findBrowser } from './browser-host'
+import { NotesHost } from './notes-host'
 import { FileHost } from './file-host'
 import { ComputerHost } from './computer-host'
 import { HOST_CAPABILITIES, HostCapabilities } from './host-capabilities'
@@ -214,11 +215,34 @@ async function start(environment: MainEnvironment, mainLogging: MainLogging): Pr
         }
       : (path) => shell.trashItem(path)
   })
+  // SET 11: the Obsidian vault is chosen by the person in the system's folder dialog.
+  const testVault = testing ? process.env.JUPITER_TEST_VAULT_FOLDER : undefined
+  const notes = new NotesHost({
+    logger: logger.child({ component: 'notes-host' }),
+    stateFile: join(environment.userDataDir, 'notes-vault.json'),
+    backupDirectory: join(environment.userDataDir, 'notes-backups'),
+    chooseFolder: async (kind) => {
+      if (testVault) return testVault
+      const options: Electron.OpenDialogOptions = {
+        title:
+          kind === 'obsidian-vault'
+            ? 'Choose your Obsidian vault'
+            : 'Choose where to create the Jupiter Brain folder',
+        properties: ['openDirectory', 'createDirectory']
+      }
+      const result =
+        mainWindow && !mainWindow.isDestroyed()
+          ? await dialog.showOpenDialog(mainWindow, options)
+          : await dialog.showOpenDialog(options)
+      return result.canceled ? null : (result.filePaths[0] ?? null)
+    }
+  })
   const hostCapabilities = new HostCapabilities({
     logger,
     computer,
     browser,
     files,
+    notes,
     logsDirectory: environment.logsDir,
     vault,
     openPath: (path) => shell.openPath(path),

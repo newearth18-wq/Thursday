@@ -106,6 +106,15 @@ const FILES_WRITE: Policy = {
   timeoutMs: 180_000
 }
 const FILES_DELETE: Policy = { ...FILES_WRITE, risk: 'CRITICAL' }
+/** The Memory System and Obsidian notes (SET 11): changes are audited; content never is. */
+const MEMORY_READ: Policy = {
+  ...UI_READ,
+  requires: ['database', 'permission-engine', 'memory'],
+  timeoutMs: 120_000
+}
+const MEMORY_WRITE: Policy = { ...MEMORY_READ, risk: 'MEDIUM', audit: 'always', timeoutMs: 60_000 }
+const MEMORY_DELETE: Policy = { ...MEMORY_WRITE, risk: 'HIGH' }
+const NOTES_WRITE: Policy = { ...MEMORY_READ, risk: 'MEDIUM', audit: 'always', timeoutMs: 180_000 }
 /** Commands that plan or run a workflow (SET 5) also need the workflow engine. */
 const WORKFLOW_WRITE: Policy = {
   ...MISSION_WRITE,
@@ -305,7 +314,17 @@ export function coreCapabilities(kernel: CoreKernel): CapabilityDefinition<never
     define(
       'chat.send',
       AI_WRITE,
-      (input, context) => kernel.chat.send(input, operation(context)),
+      async (input, context) => {
+        const exchange = kernel.chat.send(input, operation(context))
+        // SET 11: a message that asks Jupiter to remember something goes to the Memory Policy.
+        // Any other chat turn is never a memory candidate.
+        await kernel.memory
+          .fromChat(input.text, exchange.conversation.conversationId, memoryContext(context, null))
+          .catch((error: unknown) => {
+            kernel.logMemoryProblem(error)
+          })
+        return exchange
+      },
       (input) =>
         input.conversationId ? `conversation:${input.conversationId}` : 'conversation:new'
     ),
@@ -638,6 +657,126 @@ export function coreCapabilities(kernel: CoreKernel): CapabilityDefinition<never
       (input) => `mission:${input.missionId}`
     ),
 
+    define('memory.status', MEMORY_READ, () => kernel.memory.status()),
+    define('memory.search', MEMORY_READ, (input, context) =>
+      kernel.memory.search(input, memoryContext(context, null))
+    ),
+    define('memory.get', MEMORY_READ, (input, context) =>
+      kernel.memory.get(input.memoryId, input.reveal, memoryContext(context, null))
+    ),
+    define(
+      'memory.propose',
+      MEMORY_WRITE,
+      (input, context) => kernel.memory.propose(input, memoryContext(context, null)),
+      (input) => `memory:${input.type}`
+    ),
+    define('memory.candidates', MEMORY_READ, () => ({ candidates: kernel.memory.candidates() })),
+    define(
+      'memory.decide',
+      MEMORY_WRITE,
+      (input, context) =>
+        kernel.memory.decideCandidate(
+          input.candidateId,
+          input.decision,
+          memoryContext(context, null)
+        ),
+      (input) => `memory-candidate:${input.candidateId}`
+    ),
+    define(
+      'memory.update',
+      MEMORY_WRITE,
+      (input, context) => kernel.memory.update(input, memoryContext(context, null)),
+      (input) => `memory:${input.memoryId}`
+    ),
+    define(
+      'memory.forget',
+      MEMORY_WRITE,
+      (input, context) =>
+        kernel.memory.forget(input.memoryId, input.forgotten, memoryContext(context, null)),
+      (input) => `memory:${input.memoryId}`
+    ),
+    define(
+      'memory.delete',
+      MEMORY_DELETE,
+      (input, context) => kernel.memory.delete(input.memoryId, memoryContext(context, null)),
+      (input) => `memory:${input.memoryId}`
+    ),
+    define(
+      'memory.export',
+      {
+        ...MEMORY_WRITE,
+        requires: ['database', 'permission-engine', 'memory', 'artifact-manager'],
+        timeoutMs: 120_000
+      },
+      (input, context) =>
+        kernel.memory.export(input.includeForgotten, memoryContext(context, null)),
+      () => 'memory:export'
+    ),
+    define('memory.decisions', MEMORY_READ, (input) => ({
+      decisions: kernel.memory.decisions(input.limit)
+    })),
+
+    define('notes.status', MEMORY_READ, () => kernel.notes.status()),
+    define(
+      'notes.connect',
+      { ...NOTES_WRITE, timeoutMs: 150_000 },
+      (input, context) => kernel.notes.connect(input.kind, memoryContext(context, null)),
+      (input) => `notes:connect:${input.kind}`
+    ),
+    define(
+      'notes.disconnect',
+      NOTES_WRITE,
+      (_input, context) => kernel.notes.disconnect(memoryContext(context, null)),
+      () => 'notes:disconnect'
+    ),
+    define(
+      'notes.structure',
+      NOTES_WRITE,
+      (_input, context) => kernel.notes.structure(memoryContext(context, null)),
+      () => 'notes:structure'
+    ),
+    define('notes.list', MEMORY_READ, (input, context) =>
+      kernel.notes.list(input.folder, input.recursive, input.limit, memoryContext(context, null))
+    ),
+    define(
+      'notes.search',
+      { ...MEMORY_READ, audit: 'always' },
+      (input, context) =>
+        kernel.notes.search(input.text, input.limit, memoryContext(context, input.missionId)),
+      () => 'notes:search'
+    ),
+    define(
+      'notes.read',
+      { ...MEMORY_READ, audit: 'always' },
+      (input, context) => kernel.notes.read(input.path, memoryContext(context, input.missionId)),
+      (input) => `note:${input.path}`
+    ),
+    define(
+      'notes.create',
+      NOTES_WRITE,
+      (input, context) => kernel.notes.create(input, memoryContext(context, input.missionId)),
+      (input) => `note:${input.folder}/${input.title}`
+    ),
+    define(
+      'notes.append',
+      NOTES_WRITE,
+      (input, context) =>
+        kernel.notes.append(
+          input.path,
+          input.heading,
+          input.text,
+          memoryContext(context, input.missionId)
+        ),
+      (input) => `note:${input.path}`
+    ),
+    define(
+      'notes.link',
+      NOTES_WRITE,
+      (input, context) =>
+        kernel.notes.link(input.from, input.to, memoryContext(context, input.missionId)),
+      (input) => `note:${input.from}`
+    ),
+
     define('permissions.catalogue', PERMISSION_READ, () => ({
       capabilities: kernel.permissions.catalogue()
     })),
@@ -681,6 +820,16 @@ export function coreCapabilities(kernel: CoreKernel): CapabilityDefinition<never
     }
   }
   return capabilities as unknown as CapabilityDefinition<never, unknown>[]
+}
+
+/** Who asked, for a memory or notes operation (SET 11). */
+function memoryContext(context: CapabilityContext, missionId: string | null) {
+  return {
+    actor: context.request.actor.type,
+    correlationId: context.request.correlationId,
+    missionId,
+    signal: context.signal
+  }
 }
 
 /** Who asked, for a file operation (SET 10). */

@@ -1,6 +1,11 @@
 import {
   ArtifactVerificationStatus,
   FILE_ROOTS,
+  MEMORY_TYPES,
+  MemoryDecision,
+  MemorySearchMode,
+  POLICY_REASON_CODES,
+  RELATIONSHIP_KINDS,
   AvailabilityStatus,
   CostLatencyPreference,
   CredentialInfo,
@@ -172,13 +177,28 @@ describe('keys built at runtime', () => {
         'artifact-manager',
         'identity-gateway',
         'plugin-runtime',
-        'secure-storage'
-      ]
+        'secure-storage',
+        'memory'
+      ],
+      'memory.type.': MEMORY_TYPES,
+      'memory.layer.': ['session', 'long-term'],
+      'memory.decision.': MemoryDecision.options,
+      'memory.reason.': POLICY_REASON_CODES,
+      'memory.relation.': RELATIONSHIP_KINDS,
+      'memory.search.mode.': MemorySearchMode.options,
+      'memory.locality.': ['this-device', 'cloud'],
+      'memory.policy.by.': ['policy', 'person'],
+      'memoryEvent.': EventPayloads['memory.changed'].shape.change.options,
+      'notes.kind.': ['obsidian-vault', 'jupiter-brain'],
+      'notesEvent.': EventPayloads['notes.changed'].shape.outcome.options,
+      'notesOp.': EventPayloads['notes.changed'].shape.op.options
     }
     for (const [prefix, values] of Object.entries(families)) {
       for (const value of values) expect(has(`${prefix}${value}`), `${prefix}${value}`).toBe(true)
     }
     for (const state of STAGE_STATES) expect(has(`stage.${state}Detail`), state).toBe(true)
+    for (const decision of MemoryDecision.options)
+      expect(has(`memory.decision.${decision}.detail`), decision).toBe(true)
     for (const destination of DESTINATIONS)
       expect(has(destination.label), destination.id).toBe(true)
   })

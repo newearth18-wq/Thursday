@@ -199,7 +199,9 @@ reads files, credentials or runs commands.
   `PRAGMA foreign_key_check` before it commits); since migration 6 (SET 6)
   `skills` (definition, enabled state, last health check per version) and
   `skill_executions` (shape and size of input and output only, never content;
-  unique idempotency key per Skill).
+  unique idempotency key per Skill); later SETs add their own tables (see
+  each SET's section; migration 11, SET 11: `memories`, `memory_embeddings`,
+  `memory_decisions`).
 - **Migrations** are ordered, checksummed (sha256 of version, name and SQL) and
   each applied atomically. Opening refuses a database newer than the app, a
   modified or missing migration, and runs `quick_check` first (a corrupt file
@@ -565,11 +567,56 @@ Decisions and alternatives: [ADR 0011](decisions/0011-file-agent-and-artifacts.m
   hash, Open, Show in folder, Copy path, Save a copy, Check again, Keep,
   Delete); permission requests in the global dialog.
 
-## Not in SET 10
+## Memory System and Obsidian (SET 11)
 
-Editing documents in place, OCR of scanned PDFs, reading legacy binary
-Office formats (DOC, PPT, XLS), converting between formats through an office
-suite, attachments to email (later SETs), identity verification (SET 14),
-plugins with their own runtime (SET 15), and everything after that. The four
-unfinished destinations are shown as _Coming later_ in the app, and none of
-them is presented as working.
+Decisions and alternatives: [ADR 0012](decisions/0012-memory-system-and-obsidian.md).
+
+- **Contracts** (`packages/contracts/src/memory.ts`, `notes.ts`): the ten
+  memory types, layers, sensitivity and sensitive kinds, retention, source,
+  relationships, `MemoryEntry` (content hidden for sensitive memories until
+  revealed), the policy decision with reason codes, `MemoryQuery` and search
+  results, the policy log record; `Vault`, `NoteEntry`, `Note`, `RawNote`
+  (text, BOM, line endings, hash), `NoteWriteResult` and the host call
+  `NoteCall`.
+- **Core** (`packages/core/src/memory/`, `packages/core/src/notes/`, service
+  `memory`): the policy (`policy.ts`, deterministic, English and Thai),
+  `MemoryService` (session memory and waiting candidates in RAM, long-term
+  memory in the database, sealing through the host, metadata, keyword,
+  relationship and semantic search with the embedding model the router
+  allows, correct, forget, restore, delete, export, `memory.decided`,
+  `memory.saved`, `memory.changed` events without content) and `NotesAgent`
+  (checks `notes.read` and `notes.write` for the exact file, builds
+  frontmatter, resolves links as Obsidian does, adds backlinks once,
+  publishes `notes.changed`). Chat proposes a memory only for "remember
+  that…".
+- **Database**: migration 11 adds `memories` (a CHECK allows either content
+  or a sealed form, never both), `memory_embeddings` (normal memories only,
+  by trigger) and the append-only `memory_decisions`;
+  `PRAGMA secure_delete = ON` and a WAL checkpoint after a delete or a
+  correction.
+- **Host**: `host.vault.status/seal/unseal` (Core only) seal sensitive
+  memories with `safeStorage`; `NotesHost` (`notes-host.ts`, host operation
+  `host.notes.call`, Core only) keeps the chosen vault, resolves paths with
+  the shared `safe-path.ts`, creates notes atomically under a free name,
+  changes a note only with the expected hash after a backup, keeps BOM and
+  line endings, and creates the Jupiter Brain subfolders only on request.
+- **Missions**: step types `memory.recall` (runner `memory`) and
+  `notes.search`, `notes.read`, `notes.create` (runner `notes`); recalled
+  memories are fenced `BEGIN/END MEMORY`, note text
+  `BEGIN/END UNTRUSTED NOTE TEXT`.
+- **Interface**: the Memory screen — status (counts, secure storage, the
+  semantic search switch and the model it would use), Memories (search,
+  reveal, correct, forget, related, delete, export), Add (the decision and
+  its reasons), Waiting (keep or don't keep), Policy log and Obsidian
+  (connect, Jupiter Brain, suggested folders, search, recent notes, preview
+  with the untrusted label, new note with backlinks).
+
+## Not in SET 11
+
+Automatic extraction of memories from ordinary conversation (only an explicit
+"remember that…" is proposed), deleting or moving notes, editing a note's
+existing text, syncing a vault, email and calendar (later SETs), device
+integrations (SET 12–13), identity verification (SET 14), plugins with their
+own runtime (SET 15), and everything after that. The three unfinished
+destinations are shown as _Coming later_ in the app, and none of them is
+presented as working.

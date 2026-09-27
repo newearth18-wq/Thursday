@@ -50,7 +50,8 @@ const sleep = (ms: number) =>
 /**
  * Runs a file action. When Jupiter Core first asks the person for a
  * permission (the permission dialog shows it), this waits for the answer
- * and, if it was allowed, runs the action once more. A denial, or no answer
+ * and, if it was allowed, runs the action again (which may ask for the next
+ * file, as a note with backlinks does). A denial, or no answer
  * within ten minutes, is returned as the error it is.
  */
 export async function withPermission<T>(
@@ -70,7 +71,8 @@ export async function withPermission<T>(
         const { requests } = await request('permissions.requests', { status: 'ALL', limit: 100 })
         const asked = requests.find((item) => item.requestId === requestId)
         if (!asked || asked.status === 'PENDING') continue
-        if (asked.status === 'ALLOWED') return await run()
+        // Allowed: run again. An operation on several files may then ask for the next one.
+        if (asked.status === 'ALLOWED') return await withPermission(run, onWaiting)
         throw error
       }
       throw error

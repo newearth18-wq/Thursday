@@ -136,6 +136,47 @@ export class CredentialVault {
     }
   }
 
+  /**
+   * Seals text with the same OS-backed encryption (SET 11): sensitive
+   * memories the person chose to keep. Refused, like keys, when the system
+   * offers no real protection.
+   */
+  seal(text: string): string {
+    const status = this.status()
+    if (!status.available)
+      throw new JupiterError(
+        'SECURE_STORAGE_UNAVAILABLE',
+        `Jupiter cannot keep sensitive memories on this computer: ${status.reason ?? 'no secure storage is available'}`,
+        {
+          category: 'dependency',
+          userAction: 'Keep it as a session memory instead, or do not keep it.'
+        }
+      )
+    return this.safeStorage.encryptString(text).toString('base64')
+  }
+
+  unseal(sealed: string): string {
+    const status = this.status()
+    if (!status.available)
+      throw new JupiterError(
+        'SECURE_STORAGE_UNAVAILABLE',
+        `Jupiter cannot open sensitive memories on this computer: ${status.reason ?? 'no secure storage is available'}`,
+        { category: 'dependency', userAction: null }
+      )
+    try {
+      return this.safeStorage.decryptString(Buffer.from(sealed, 'base64'))
+    } catch (error) {
+      throw new JupiterError(
+        'MEMORY_UNREADABLE',
+        `The sealed memory could not be opened: ${describeError(error)}`,
+        {
+          category: 'configuration',
+          userAction: 'Sealed memories can only be opened by the account that saved them.'
+        }
+      )
+    }
+  }
+
   delete(credentialId: string): boolean {
     const file = this.fileFor(credentialId)
     if (!existsSync(file)) return false

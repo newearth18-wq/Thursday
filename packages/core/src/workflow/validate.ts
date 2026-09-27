@@ -7,6 +7,8 @@ import {
   FileName,
   FileRoot,
   RelativePath,
+  NotePath,
+  NoteTitle,
   capabilityInfo,
   formatOfName,
   type PlanIssue,
@@ -167,6 +169,36 @@ export function validatePlan(
             step.id
           )
       }
+    }
+    if (type.runner === 'memory') {
+      const limit = step.input.limit
+      if (limit !== undefined && limit.trim() !== '' && !limit.includes('{{')) {
+        const value = Number(limit)
+        if (!Number.isInteger(value) || value < 1 || value > 20)
+          add(
+            'schema',
+            `Step "${step.id}": the limit must be a whole number from 1 to 20.`,
+            step.id
+          )
+      }
+    }
+    if (type.runner === 'notes') {
+      const fixed = (value: string | undefined) =>
+        value !== undefined && value.trim() !== '' && !value.includes('{{')
+      if (fixed(step.input.path) && !NotePath.safeParse(step.input.path).success)
+        add(
+          'schema',
+          `Step "${step.id}": "${String(step.input.path).slice(0, 80)}" is not a note path (.md inside the vault).`,
+          step.id
+        )
+      if (fixed(step.input.title) && !NoteTitle.safeParse(step.input.title).success)
+        add(
+          'schema',
+          `Step "${step.id}": "${String(step.input.title).slice(0, 80)}" cannot be a note title.`,
+          step.id
+        )
+      if (fixed(step.input.folder) && !RelativePath.safeParse(step.input.folder).success)
+        add('schema', `Step "${step.id}": the folder is not allowed.`, step.id)
     }
     if (type.runner === 'browser') {
       const url = step.input.url

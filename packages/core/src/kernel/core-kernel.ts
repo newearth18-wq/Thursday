@@ -44,6 +44,14 @@ import { BrowserAgent } from '../browser/agent'
 import { checkedBrowserDriver } from '../browser/driver'
 import { FileAgent } from '../files/agent'
 import { checkedFileDriver } from '../files/driver'
+import {
+  MEMORY_AGENT,
+  MEMORY_TARGET,
+  MemoryService,
+  type EmbeddingPlan,
+  type MemoryContext
+} from '../memory/service'
+import { NotesAgent, checkedNoteDriver } from '../notes/agent'
 import { ComputerAgent } from '../computer/agent'
 import { checkedDriver } from '../computer/driver'
 import { MissionManager } from '../missions/manager'
@@ -144,6 +152,8 @@ export class CoreKernel {
   readonly computer: ComputerAgent
   readonly browser: BrowserAgent
   readonly files: FileAgent
+  readonly memory: MemoryService
+  readonly notes: NotesAgent
   private readonly supervisor: ServiceSupervisor
   private readonly logger: Logger
   private readonly now: () => Date
@@ -319,6 +329,58 @@ export class CoreKernel {
         this.hostOperation('host.files.call', { op, params }, uuidv7(), signal)
       )
     })
+    // SET 11: the Memory System decides here; the host seals sensitive memories.
+    this.memory = new MemoryService({
+      database: () => this.requireDatabase(),
+      bus: this.bus,
+      logger: this.logger.child({ component: 'memory' }),
+      now: this.now,
+      permissions: this.permissions,
+      files: this.files,
+      semanticSearch: () =>
+        this.validSettingValue(
+          'memory.semanticSearch',
+          this.database?.settings.get('memory.semanticSearch')?.value
+        ),
+      sealer: {
+        status: async () => {
+          if (!this.options.config.hostCapabilities.includes('host.vault.status'))
+            return { available: false, reason: 'This host offers no secure storage.' }
+          const result = (await this.hostOperation('host.vault.status', {}, uuidv7())) as {
+            available: boolean
+            reason: string | null
+          }
+          return { available: result.available, reason: result.reason }
+        },
+        seal: async (text, signal) =>
+          (
+            (await this.hostOperation('host.vault.seal', { text }, uuidv7(), signal)) as {
+              sealed: string
+            }
+          ).sealed,
+        unseal: async (sealed, signal) =>
+          (
+            (await this.hostOperation('host.vault.unseal', { sealed }, uuidv7(), signal)) as {
+              text: string
+            }
+          ).text
+      },
+      embedder: {
+        plan: () => this.embeddingPlan(),
+        embed: (plan, texts, context) => this.embed(plan, texts, context)
+      }
+    })
+    // SET 11: Obsidian notes: Core decides and checks permissions; the host owns the vault.
+    this.notes = new NotesAgent({
+      database: () => this.requireDatabase(),
+      bus: this.bus,
+      logger: this.logger.child({ component: 'notes' }),
+      now: this.now,
+      permissions: this.permissions,
+      driver: checkedNoteDriver((op, params, signal) =>
+        this.hostOperation('host.notes.call', { op, params }, uuidv7(), signal)
+      )
+    })
     this.missions = new MissionManager({
       database: () => this.requireDatabase(),
       providers: this.providers,
@@ -331,7 +393,10 @@ export class CoreKernel {
       browser: this.browser,
       browserAvailable: () => this.browserAvailable,
       files: this.files,
-      filesAvailable: () => this.filesAvailable
+      filesAvailable: () => this.filesAvailable,
+      memory: this.memory,
+      notes: this.notes,
+      notesAvailable: () => this.options.config.hostCapabilities.includes('host.notes.call')
     })
     // A Mission step that waited for a permission continues (or fails) once the person answers.
     this.permissions.onDecided((request) => {
@@ -390,6 +455,66 @@ export class CoreKernel {
       this.filesAvailable = false
       throw error
     }
+  }
+
+  /**
+   * The embedding model semantic memory search would use now (SET 11): the
+   * router's choice for `embeddings`, which obeys the privacy mode — with
+   * `LOCAL_ONLY` it can only be a model on this computer.
+   */
+  private embeddingPlan(): EmbeddingPlan {
+    if (!this.database) return { ok: false, reason: 'The database is not available.' }
+    const { result } = this.providers.route('embeddings', null)
+    if (!result.ok) return { ok: false, reason: result.error.message }
+    const { provider, model } = result.primary
+    const stored = this.database.providers.get(provider.providerId)
+    const adapter = stored ? this.providers.adapterFor(stored.adapterId) : null
+    if (!stored || !adapter?.embed)
+      return { ok: false, reason: `${provider.displayName} cannot make embeddings.` }
+    return {
+      ok: true,
+      providerId: provider.providerId,
+      providerName: provider.displayName,
+      modelId: model.modelId,
+      locality: provider.locality,
+      modelKey: `${provider.providerId}/${model.modelId}`
+    }
+  }
+
+  private async embed(
+    plan: Extract<EmbeddingPlan, { ok: true }>,
+    texts: readonly string[],
+    context: MemoryContext
+  ): Promise<number[][]> {
+    const database = this.requireDatabase()
+    const stored = database.providers.get(plan.providerId)
+    const adapter = stored ? this.providers.adapterFor(stored.adapterId) : null
+    if (!stored || !adapter?.embed)
+      throw new JupiterError(
+        'EMBEDDINGS_UNAVAILABLE',
+        `${plan.providerName} cannot make embeddings.`,
+        {
+          category: 'unsupported',
+          userAction: null
+        }
+      )
+    const signal = context.signal ?? new AbortController().signal
+    const { mode } = this.providers.route('embeddings', null)
+    const key = await this.providers.keyFor(stored.providerId, context.correlationId, signal)
+    // The transport enforces the privacy mode again for this very request.
+    const adapterContext = this.providers.adapterContext(stored, key, mode, 'embeddings', signal, {
+      correlationId: context.correlationId,
+      actor: { type: context.actor, id: context.actor }
+    })
+    const result = await adapter.embed(adapterContext, { model: plan.modelId, inputs: [...texts] })
+    return result.vectors.map((vector) => [...vector])
+  }
+
+  /** A memory proposal from chat failed; the chat itself goes on. Never logs content. */
+  logMemoryProblem(error: unknown): void {
+    this.logger.warn('memory.chat.failed', 'A remember request from chat could not be handled', {
+      code: error instanceof JupiterError ? error.code : null
+    })
   }
 
   /** Start every Core service. Never throws: failures become FAILED services. */
@@ -455,6 +580,7 @@ export class CoreKernel {
         await this.supervisor.retry('computer-agent')
         await this.supervisor.retry('browser-agent')
         await this.supervisor.retry('artifact-manager')
+        await this.supervisor.retry('memory')
         await this.supervisor.retry('skill-registry')
       }
       return null
@@ -677,15 +803,23 @@ export class CoreKernel {
             userAction: null
           }
         )
+      if (operation === 'host.notes.call')
+        throw new JupiterError(
+          'NOTES_UNAVAILABLE',
+          'This host does not offer Obsidian notes (Unavailable).',
+          { category: 'unsupported', userAction: null }
+        )
       throw new JupiterError(
         'SECURE_STORAGE_UNAVAILABLE',
-        'The host does not offer secure storage for API keys.',
+        'The host does not offer secure storage.',
         { category: 'dependency', userAction: null }
       )
     }
     // A browser operation may wait for a slow page, a download or a control (up to two minutes).
     const deadlineMs =
-      operation === 'host.browser.call' || operation === 'host.files.call'
+      operation === 'host.browser.call' ||
+      operation === 'host.files.call' ||
+      operation === 'host.notes.call'
         ? BROWSER_OPERATION_TIMEOUT_MS
         : HOST_OPERATION_TIMEOUT_MS
     const controller = new AbortController()
@@ -1004,6 +1138,28 @@ export class CoreKernel {
       }
     })
 
+    // SET 11: the Memory System (with the Obsidian knowledge base). Long-term memory lives in the database.
+    this.supervisor.register({
+      id: 'memory',
+      version: null,
+      capabilities: ['memory.policy', 'memory.search', 'notes.obsidian'],
+      critical: false,
+      retryable: true,
+      start: () => {
+        if (!this.database)
+          throw new JupiterError(
+            'DEPENDENCY_UNAVAILABLE',
+            'Memory needs the database, which is not available.',
+            {
+              category: 'dependency',
+              userAction: 'Fix the Database service, then press Retry on it.',
+              retryable: true
+            }
+          )
+        return undefined
+      }
+    })
+
     // SET 10: the Artifact Manager (with the File Agent). Its records live in the database.
     this.supervisor.register({
       id: 'artifact-manager',
@@ -1170,7 +1326,9 @@ export class CoreKernel {
     'ai.preferredVisionModel': () => undefined,
     'ai.preferredEmbeddingModel': () => undefined,
     // Read when a browser session is opened.
-    'browser.persistentProfile': () => undefined
+    'browser.persistentProfile': () => undefined,
+    // Read for every memory search.
+    'memory.semanticSearch': () => undefined
   }
 
   private applyLogLevel(level: LogLevel, correlationId: string): void {
@@ -1321,23 +1479,37 @@ const BUILTIN_TARGETS: Readonly<Record<string, string>> = {
  * Settings › Permissions and can be revoked like any other.
  */
 function defaultGrants(): DefaultGrant[] {
-  return BUILTIN_SKILLS.flatMap((skill) =>
-    skill.definition.permissions.flatMap((capability) => {
-      const target = BUILTIN_TARGETS[capability]
-      return target
-        ? [
-            {
-              capability,
-              subject: {
-                kind: 'skill' as const,
-                id: skill.definition.skillId,
-                name: skill.definition.name
-              },
-              target,
-              reason: `${skill.definition.name} is built into Jupiter and only reads ${target}.`
-            }
-          ]
-        : []
-    })
-  )
+  // SET 11: the Memory System may read and change Jupiter's own memory store.
+  // Deleting a memory (memory.delete) is asked every time.
+  const memory: DefaultGrant[] = (['memory.read', 'memory.write'] as const).map((capability) => ({
+    capability,
+    subject: MEMORY_AGENT,
+    target: MEMORY_TARGET,
+    reason:
+      capability === 'memory.read'
+        ? 'Jupiter reads its own memory to search and recall; sensitive memories stay sealed.'
+        : 'Jupiter saves what the Memory Policy allows (or what you approve), and your corrections.'
+  }))
+  return [
+    ...memory,
+    ...BUILTIN_SKILLS.flatMap((skill) =>
+      skill.definition.permissions.flatMap((capability) => {
+        const target = BUILTIN_TARGETS[capability]
+        return target
+          ? [
+              {
+                capability,
+                subject: {
+                  kind: 'skill' as const,
+                  id: skill.definition.skillId,
+                  name: skill.definition.name
+                },
+                target,
+                reason: `${skill.definition.name} is built into Jupiter and only reads ${target}.`
+              }
+            ]
+          : []
+      })
+    )
+  ]
 }

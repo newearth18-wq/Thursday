@@ -17,9 +17,10 @@ export interface StepTypeDefinition extends StepTypeInfo {
   /**
    * `skill`: run through the Skill Registry (SET 6). `computer`: the Computer
    * Agent (SET 8). `browser`: the Browser Agent (SET 9). `files`: the File
-   * Agent and the Artifact Manager (SET 10).
+   * Agent and the Artifact Manager (SET 10). `memory` and `notes`: the
+   * Memory System and the Obsidian knowledge base (SET 11).
    */
-  readonly runner: 'builtin' | 'skill' | 'computer' | 'browser' | 'files'
+  readonly runner: 'builtin' | 'skill' | 'computer' | 'browser' | 'files' | 'memory' | 'notes'
 }
 
 /** Finds a step type by id: the built-in ones and, since SET 6, registered Skills. */
@@ -197,6 +198,90 @@ export const STEP_TYPES: readonly StepTypeDefinition[] = [
     minTimeoutMs: 30_000,
     checkpoint: null,
     runner: 'files'
+  },
+  {
+    skillId: 'memory.recall',
+    name: 'Recall from memory',
+    description:
+      'Looks up what Jupiter remembers that matches the query (working memory): active, non-sensitive memories with their type, source and confidence. The output is fenced as data. Sensitive memories are never recalled.',
+    inputs: [
+      { name: 'query', required: true, description: 'What to look for, e.g. "tea preferences".' },
+      {
+        name: 'limit',
+        required: false,
+        description: 'At most this many memories (1–20; 10 if empty).'
+      }
+    ],
+    producesOutput: true,
+    permissions: ['memory.read'],
+    available: true,
+    minTimeoutMs: 10_000,
+    checkpoint: null,
+    runner: 'memory'
+  },
+  {
+    skillId: 'notes.search',
+    name: 'Search notes',
+    description:
+      'Searches the notes in the connected Obsidian vault for the words given and returns the matching notes with a short excerpt, labelled as untrusted data.',
+    inputs: [{ name: 'query', required: true, description: 'The words to look for.' }],
+    producesOutput: true,
+    permissions: ['notes.read'],
+    available: true,
+    minTimeoutMs: 20_000,
+    checkpoint: null,
+    runner: 'notes'
+  },
+  {
+    skillId: 'notes.read',
+    name: 'Read a note',
+    description:
+      'Reads one Markdown note in the connected Obsidian vault. Its text is the output, labelled as untrusted data with its path.',
+    inputs: [
+      {
+        name: 'path',
+        required: true,
+        description: 'The note’s path inside the vault, e.g. Projects/Jupiter.md.'
+      }
+    ],
+    producesOutput: true,
+    permissions: ['notes.read'],
+    available: true,
+    minTimeoutMs: 10_000,
+    checkpoint: null,
+    runner: 'notes'
+  },
+  {
+    skillId: 'notes.create',
+    name: 'Create a note',
+    description:
+      'Creates a new Markdown note in the connected Obsidian vault (never replacing one), with frontmatter, the text, links to existing notes and a backlink in each of them.',
+    inputs: [
+      { name: 'title', required: true, description: 'The note’s title (also its file name).' },
+      {
+        name: 'content',
+        required: true,
+        description: 'The note’s text (Markdown). May include earlier outputs as {{step-id}}.'
+      },
+      {
+        name: 'folder',
+        required: false,
+        description:
+          'A folder inside the vault, e.g. Projects (Jupiter Brain or the vault top if empty).'
+      },
+      { name: 'tags', required: false, description: 'Comma-separated tags.' },
+      {
+        name: 'links',
+        required: false,
+        description: 'Comma-separated titles of existing notes to link to.'
+      }
+    ],
+    producesOutput: true,
+    permissions: ['notes.write'],
+    available: true,
+    minTimeoutMs: 20_000,
+    checkpoint: null,
+    runner: 'notes'
   },
   {
     skillId: 'checkpoint.identity',

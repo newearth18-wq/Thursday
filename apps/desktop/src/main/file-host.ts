@@ -1,25 +1,13 @@
 import { createHash, randomUUID } from 'node:crypto'
 import { constants } from 'node:fs'
-import {
-  copyFile,
-  link,
-  lstat,
-  mkdir,
-  readFile,
-  readdir,
-  realpath,
-  rename,
-  stat,
-  unlink
-} from 'node:fs/promises'
-import { basename, dirname, join, resolve, sep } from 'node:path'
+import { copyFile, link, mkdir, readFile, readdir, rename, stat, unlink } from 'node:fs/promises'
+import { basename, dirname, join } from 'node:path'
 import {
   DOCUMENT_FORMATS,
   FILE_ROOTS,
   FileCall,
   FileOps,
   formatOfName,
-  relativePathIssue,
   type DocumentFormat,
   type DocumentSpec,
   type FileCheck,
@@ -34,6 +22,7 @@ import {
 } from '@jupiter/contracts'
 import { JupiterError, type Logger } from '@jupiter/core'
 import { DocumentRuntime, DocumentRuntimeError } from '@jupiter/document-runtime'
+import { errnoOf, refuse, resolveInside } from './safe-path'
 
 /**
  * The File Agent's and Artifact Manager's host side (SET 10).
@@ -74,21 +63,6 @@ const OPENABLE = new Set<string>([...DOCUMENT_FORMATS, 'png', 'jpg', 'jpeg', 'gi
 const MAX_SCAN = 5_000
 const MAX_DEPTH = 5
 const TEMP_PREFIX = '.jupiter-writing-'
-
-function refuse(code: string, message: string, userAction: string | null = null): JupiterError {
-  return new JupiterError(code, message, { category: 'validation', userAction })
-}
-
-function errnoOf(error: unknown): string | null {
-  const code = (error as { code?: unknown }).code
-  return typeof code === 'string' ? code : null
-}
-
-function inside(real: string, base: string): boolean {
-  const a = process.platform === 'win32' ? real.toLowerCase() : real
-  const b = process.platform === 'win32' ? base.toLowerCase() : base
-  return a === b || a.startsWith(b.endsWith(sep) ? b : b + sep)
-}
 
 async function sha256(path: string): Promise<string> {
   return createHash('sha256')
@@ -275,62 +249,21 @@ export class FileHost {
    * stay inside the root's real folder.
    */
   async resolveLocation(location: FileLocation): Promise<ResolvedLocation> {
-    const issue = relativePathIssue(location.path)
-    if (issue) throw refuse('PATH_REFUSED', issue)
-    const base = this.rootPath(location.root)
-    let realBase: string
-    try {
-      realBase = await realpath(base)
-    } catch {
-      throw new JupiterError('ROOT_UNAVAILABLE', `The ${location.root} folder does not exist.`, {
-        category: 'dependency',
-        userAction: null
-      })
+    const resolved = await resolveInside(
+      this.rootPath(location.root),
+      location.path,
+      () =>
+        new JupiterError('ROOT_UNAVAILABLE', `The ${location.root} folder does not exist.`, {
+          category: 'dependency',
+          userAction: null
+        })
+    )
+    return {
+      location: { root: location.root, path: resolved.relative },
+      path: resolved.path,
+      exists: resolved.exists,
+      kind: resolved.kind
     }
-    const names = location.path === '' ? [] : location.path.split('/')
-    const full = resolve(base, ...names)
-    if (!inside(full, resolve(base)))
-      throw refuse('PATH_REFUSED', 'The path leaves its approved folder.')
-    let current = base
-    let exists = true
-    let kind: 'file' | 'folder' | null = 'folder'
-    for (const name of names) {
-      current = join(current, name)
-      try {
-        const info = await lstat(current)
-        if (info.isSymbolicLink())
-          throw refuse(
-            'PATH_REFUSED',
-            `"${name}" is a link or junction; Jupiter does not follow links out of approved folders.`
-          )
-        kind = info.isDirectory() ? 'folder' : info.isFile() ? 'file' : null
-        if (kind === null)
-          throw refuse('PATH_REFUSED', `"${name}" is not a regular file or folder.`)
-      } catch (error) {
-        if (error instanceof JupiterError) throw error
-        if (errnoOf(error) === 'ENOENT' || errnoOf(error) === 'ENOTDIR') {
-          exists = false
-          kind = null
-          break
-        }
-        throw error
-      }
-    }
-    // The real location of what exists (the file, or its nearest existing folder) must be inside.
-    let probe = exists ? full : dirname(full)
-    for (;;) {
-      try {
-        const real = await realpath(probe)
-        if (!inside(real, realBase))
-          throw refuse('PATH_REFUSED', 'The path resolves outside its approved folder.')
-        break
-      } catch (error) {
-        if (error instanceof JupiterError) throw error
-        if (probe === base || dirname(probe) === probe) throw error
-        probe = dirname(probe)
-      }
-    }
-    return { location: { root: location.root, path: names.join('/') }, path: full, exists, kind }
   }
 
   private async existingFile(location: FileLocation): Promise<ResolvedLocation> {

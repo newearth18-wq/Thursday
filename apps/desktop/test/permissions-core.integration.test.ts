@@ -155,8 +155,12 @@ describe('Permission Engine', () => {
       running.core.permissions.decide(requestId, 'ALWAYS_ALLOW', { type: 'plugin', id: 'evil' })
     ).toThrow(/Only you can/)
     expect(await pending(running)).toHaveLength(1)
-    expect(await grants(running)).toSatisfy((items: { subject: { kind: string } }[]) =>
-      items.every((item) => item.subject.kind === 'skill')
+    // Apart from Jupiter's own visible defaults (made by core), every grant is a Skill's.
+    expect(await grants(running)).toSatisfy(
+      (items: { subject: { kind: string }; createdBy: string }[]) =>
+        items
+          .filter((item) => item.createdBy !== 'core')
+          .every((item) => item.subject.kind === 'skill')
     )
 
     // The person allows the Skill; a plugin with the same id does not get it.
@@ -172,7 +176,11 @@ describe('Permission Engine', () => {
     expect(borrowed).toMatchObject({ allowed: false, code: 'PERMISSION_REQUIRED' })
 
     // …and cannot revoke the person's grant either.
-    const grant = must((await grants(running)).find((item) => item.capability === 'memory.write'))
+    const grant = must(
+      (await grants(running)).find(
+        (item) => item.capability === 'memory.write' && item.subject.kind === 'skill'
+      )
+    )
     expect(
       await as(running, 'plugin', 'permissions.revoke', { grantId: grant.grantId })
     ).toMatchObject({
@@ -308,7 +316,11 @@ describe('Permission Engine', () => {
     await decide(first, requestId, 'ALWAYS_ALLOW')
     expect((await invoke(first, 'fixture_note_writer', { text: 'x' })).status).toBe('SUCCESS')
 
-    const always = must((await grants(first)).find((item) => item.capability === 'memory.write'))
+    const always = must(
+      (await grants(first)).find(
+        (item) => item.capability === 'memory.write' && item.subject.kind === 'skill'
+      )
+    )
     const revoked = await call(first, 'permissions.revoke', { grantId: always.grantId })
     expect(revoked).toMatchObject({ state: 'REVOKED', kind: 'ALWAYS_ALLOW' })
     expect((await invoke(first, 'fixture_note_writer', { text: 'y' })).status).toBe(
@@ -468,7 +480,11 @@ describe('Permission Engine', () => {
     if (!requestId) throw new Error('expected a request')
     await decide(running, requestId, 'ALWAYS_ALLOW')
     await invoke(running, 'fixture_note_writer', { text: 'n' })
-    const grant = must((await grants(running)).find((item) => item.capability === 'memory.write'))
+    const grant = must(
+      (await grants(running)).find(
+        (item) => item.capability === 'memory.write' && item.subject.kind === 'skill'
+      )
+    )
     await call(running, 'permissions.revoke', { grantId: grant.grantId })
     await failure(running, 'permissions.decide', { requestId, decision: 'DENY' })
     await as(running, 'plugin', 'permissions.decide', { requestId, decision: 'DENY' })
