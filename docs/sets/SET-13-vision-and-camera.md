@@ -15,27 +15,27 @@
 
 ### Sources and capture
 
-| Source           | How                                                                                                                        | Permission                                     |
-| ---------------- | -------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------- |
-| Whole screen     | Electron `desktopCapturer` at the display's real size                                                                      | `computer.read_screen` for `screen:desktop`    |
-| Active window    | Jupiter's focused window (`capturePage`), or on Windows the active window found by the Computer Agent's runtime (`window:HWND`) | `computer.read_screen` for `screen:active-window` |
-| Region           | A region of the screen, in pixels, cropped by the host                                                                     | `computer.read_screen` for `screen:region`     |
-| Camera frame     | A frame of the real camera track (`ImageCapture.grabFrame`)                                                                | `camera.read` for `device:camera`              |
-| An image chosen  | Any image the browser can decode, converted to PNG in the interface                                                        | none (the person chose it)                     |
+| Source          | How                                                                                                                             | Permission                                        |
+| --------------- | ------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------- |
+| Whole screen    | Electron `desktopCapturer` at the display's real size                                                                           | `computer.read_screen` for `screen:desktop`       |
+| Active window   | Jupiter's focused window (`capturePage`), or on Windows the active window found by the Computer Agent's runtime (`window:HWND`) | `computer.read_screen` for `screen:active-window` |
+| Region          | A region of the screen, in pixels, cropped by the host                                                                          | `computer.read_screen` for `screen:region`        |
+| Camera frame    | A frame of the real camera track (`ImageCapture.grabFrame`)                                                                     | `camera.read` for `device:camera`                 |
+| An image chosen | Any image the browser can decode, converted to PNG in the interface                                                             | none (the person chose it)                        |
 
 A delay of 0–10 s lets the person bring the window they mean to the front.
 The captured window is named (title, owner, handle).
 
 ### Tasks
 
-| Task          | Engine                                                                 | Where it runs                     |
-| ------------- | ---------------------------------------------------------------------- | --------------------------------- |
-| Read text     | Tesseract (English + Thai), a confidence for every line                | Always this computer              |
-| Read QR codes | zbar (`zbarimg`)                                                        | Always this computer              |
-| Describe      | The vision model chosen by the router, with an optional question       | Local or cloud, shown before use  |
-| Find elements | The same model: buttons, fields, links… with a box and a confidence    | Local or cloud, shown before use  |
-| Compare       | The host's pixel comparison + OCR of both images                       | This computer                     |
-| Detect faces  | _Coming later_ (SET 14)                                                | —                                 |
+| Task          | Engine                                                              | Where it runs                    |
+| ------------- | ------------------------------------------------------------------- | -------------------------------- |
+| Read text     | Tesseract (English + Thai), a confidence for every line             | Always this computer             |
+| Read QR codes | zbar (`zbarimg`)                                                    | Always this computer             |
+| Describe      | The vision model chosen by the router, with an optional question    | Local or cloud, shown before use |
+| Find elements | The same model: buttons, fields, links… with a box and a confidence | Local or cloud, shown before use |
+| Compare       | The host's pixel comparison + OCR of both images                    | This computer                    |
+| Detect faces  | _Coming later_ (SET 14)                                             | —                                |
 
 Each engine says whether it is available, why not (_Not configured:
 install …_), its name and where it runs, before anything is used.
@@ -190,19 +190,19 @@ RESULTS_PLACEHOLDER
 The E2E suite drives the real app and saves screenshots, copied to
 [docs/sets/set-13](set-13/). Each was reviewed by eye:
 
-| File                         | Shows                                                                                                                       |
-| ---------------------------- | --------------------------------------------------------------------------------------------------------------------------- |
-| `01-vision-engines.png`      | Vision engines and where each runs; face detection _Coming later_ (SET 14); the black-out switch                           |
-| `02-screen-permission.png`   | The permission dialog: `computer.read_screen`, target `screen:desktop`, High                                               |
-| `03-screen-captured.png`     | The whole screen captured, held in memory with its expiry                                                                   |
-| `04-active-window.png`       | The active window captured, named                                                                                           |
-| `05-observation.png`         | An observation: text with confidences, the model's description and answer, elements, 1 area blacked out, every engine local |
-| `06-camera-permission.png`   | The permission dialog: `camera.read`, target `device:camera`, High                                                         |
-| `07-camera-on.png`           | The camera on: the preview, _Camera on_ in the top bar                                                                     |
-| `08-camera-paused.png`       | Paused: _Camera paused_ in the top bar                                                                                     |
-| `09-camera-closed.png`       | Closed: _Off_, no indicator                                                                                                 |
-| `10-not-verified.png`        | A comparison of two different targets: _Not verified_ with the reason                                                      |
-| `11-local-only.png`          | _Local only_ with only a cloud vision model: describing _Unavailable_, text still read on this computer                   |
+| File                       | Shows                                                                                                                       |
+| -------------------------- | --------------------------------------------------------------------------------------------------------------------------- |
+| `01-vision-engines.png`    | Vision engines and where each runs; face detection _Coming later_ (SET 14); the black-out switch                            |
+| `02-screen-permission.png` | The permission dialog: `computer.read_screen`, target `screen:desktop`, High                                                |
+| `03-screen-captured.png`   | The whole screen captured, held in memory with its expiry                                                                   |
+| `04-active-window.png`     | The active window captured, named                                                                                           |
+| `05-observation.png`       | An observation: text with confidences, the model's description and answer, elements, 1 area blacked out, every engine local |
+| `06-camera-permission.png` | The permission dialog: `camera.read`, target `device:camera`, High                                                          |
+| `07-camera-on.png`         | The camera on: the preview, _Camera on_ in the top bar                                                                      |
+| `08-camera-paused.png`     | Paused: _Camera paused_ in the top bar                                                                                      |
+| `09-camera-closed.png`     | Closed: _Off_, no indicator                                                                                                 |
+| `10-not-verified.png`      | A comparison of two different targets: _Not verified_ with the reason                                                       |
+| `11-local-only.png`        | _Local only_ with only a cloud vision model: describing _Unavailable_, text still read on this computer                     |
 
 ## 9. Known limitations
 
@@ -249,18 +249,18 @@ npm ci && npm run dev
 
 ## 12. Acceptance tests
 
-| #   | Test                                                                  | Status   | Evidence (`vision-core.integration.test.ts` unless noted)                                                                                                                                                                                              |
-| --- | --------------------------------------------------------------------- | -------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| 1   | Screenshot captured                                                   | **PASS** | Refused with `PERMISSION_REQUIRED` and nothing captured before the answer; then a PNG of the screen's size, in memory. E2E: the real Xvfb screen at the display's size (screenshots 02, 03)                                                           |
-| 2   | Active-window capture works                                           | **PASS** | The captured window is named (title, owner, handle). E2E: Jupiter's focused window, its title matching the page (screenshot 04)                                                                                                                        |
-| 3   | Vision returns a structured result                                    | **PASS** | The observation schema with text and confidences (real Tesseract), a QR code (real zbar), the model's description, answer and elements, privacy handling; the password line blacked out before the model saw it. E2E: the same in the app (screenshot 05) |
-| 4   | Camera permission is required                                         | **PASS** | `camera.start` refused until `camera.read` is allowed; the gate stays shut. E2E: `getUserMedia` fails with `NotAllowedError` before and after (screenshot 06)                                                                                          |
-| 5   | Camera-active indicator is accurate                                   | **PASS** | States follow the reported track (`STARTING` → `ACTIVE` → `PAUSED` → `OFF`). E2E: the indicator is present exactly while the fake camera's track is live, _paused_ while paused (screenshots 07, 08)                                                  |
-| 6   | Camera closes and releases the device after the task                  | **PASS** | Closing, a lost device, a start that never comes (`CAMERA_START_TIMEOUT`), an idle camera (the task is over) and Core stopping each shut the gate; the session's frames are dropped. E2E: after _Close_, no live track, no indicator, the page cannot open the camera again (screenshot 09)                                              |
-| 7   | Images are not saved unnecessarily                                    | **PASS** | No PNG bytes and no text read from an image in the database files, logs or events; images expire. E2E: every database and log file scanned for the PNG signature and the read text; no image files                                                   |
-| 8   | Vision failure does not break the semantic Computer Agent fallback    | **PASS** | Capture fails → `CHECK_SCREEN` succeeds through UI Automation, method `semantic`, "No visual result was assumed"; a missing text still fails; with Vision working the method is `vision`                                                               |
-| 9   | Incorrect or low-confidence observation is not verified success       | **PASS** | A faint image (Tesseract 76%) → not verified; a comparison of different targets or with the text already there → not verified; a model answer outside the schema → `VISION_MODEL_INVALID`. E2E: _Not verified_ with the reason (screenshot 10)        |
-| 10  | `LOCAL_ONLY` prevents cloud vision calls                              | **PASS** | Local only with only a cloud vision model: describing is _Unavailable_, **0 requests** reach the cloud server, text is still read. E2E: the same, 0 cloud requests (screenshot 11)                                                                     |
+| #   | Test                                                               | Status   | Evidence (`vision-core.integration.test.ts` unless noted)                                                                                                                                                                                                                                   |
+| --- | ------------------------------------------------------------------ | -------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 1   | Screenshot captured                                                | **PASS** | Refused with `PERMISSION_REQUIRED` and nothing captured before the answer; then a PNG of the screen's size, in memory. E2E: the real Xvfb screen at the display's size (screenshots 02, 03)                                                                                                 |
+| 2   | Active-window capture works                                        | **PASS** | The captured window is named (title, owner, handle). E2E: Jupiter's focused window, its title matching the page (screenshot 04)                                                                                                                                                             |
+| 3   | Vision returns a structured result                                 | **PASS** | The observation schema with text and confidences (real Tesseract), a QR code (real zbar), the model's description, answer and elements, privacy handling; the password line blacked out before the model saw it. E2E: the same in the app (screenshot 05)                                   |
+| 4   | Camera permission is required                                      | **PASS** | `camera.start` refused until `camera.read` is allowed; the gate stays shut. E2E: `getUserMedia` fails with `NotAllowedError` before and after (screenshot 06)                                                                                                                               |
+| 5   | Camera-active indicator is accurate                                | **PASS** | States follow the reported track (`STARTING` → `ACTIVE` → `PAUSED` → `OFF`). E2E: the indicator is present exactly while the fake camera's track is live, _paused_ while paused (screenshots 07, 08)                                                                                        |
+| 6   | Camera closes and releases the device after the task               | **PASS** | Closing, a lost device, a start that never comes (`CAMERA_START_TIMEOUT`), an idle camera (the task is over) and Core stopping each shut the gate; the session's frames are dropped. E2E: after _Close_, no live track, no indicator, the page cannot open the camera again (screenshot 09) |
+| 7   | Images are not saved unnecessarily                                 | **PASS** | No PNG bytes and no text read from an image in the database files, logs or events; images expire. E2E: every database and log file scanned for the PNG signature and the read text; no image files                                                                                          |
+| 8   | Vision failure does not break the semantic Computer Agent fallback | **PASS** | Capture fails → `CHECK_SCREEN` succeeds through UI Automation, method `semantic`, "No visual result was assumed"; a missing text still fails; with Vision working the method is `vision`                                                                                                    |
+| 9   | Incorrect or low-confidence observation is not verified success    | **PASS** | A faint image (Tesseract 76%) → not verified; a comparison of different targets or with the text already there → not verified; a model answer outside the schema → `VISION_MODEL_INVALID`. E2E: _Not verified_ with the reason (screenshot 10)                                              |
+| 10  | `LOCAL_ONLY` prevents cloud vision calls                           | **PASS** | Local only with only a cloud vision model: describing is _Unavailable_, **0 requests** reach the cloud server, text is still read. E2E: the same, 0 cloud requests (screenshot 11)                                                                                                          |
 
 ### SET 0–12 re-check (on the SET 13 code)
 
