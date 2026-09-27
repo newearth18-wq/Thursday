@@ -2,7 +2,7 @@
 
 - Status: **all 10 acceptance tests pass with a real browser.** The Browser
   Agent also works in the real application, end to end. Evidence: see §7 and
-  §12. CI on PR #6 was still running when this report was written; its result is recorded in §7 once it is known. SET 9 is not tagged until CI is green.
+  §12. CI on PR #6 is green on Linux, Windows and Legacy (`7765c4c`, run 36295800015). Tagged `jupiter-set-09-browser-agent` on `7765c4c`.
 - SET 8 was checked first: it was green in CI on Linux, Windows and Legacy
   (`692a928`, run 36251841189) and merged (PR #5). Its suites pass again on
   the SET 9 code; the changes are listed in §12.
@@ -329,7 +329,29 @@ The packaged check was run locally in both states:
 
 ### CI
 
-Pending: run 36294813038 on commit `e1103e6` (Linux, Windows and Legacy jobs). Legacy Thursday passed. Linux and Windows had not finished when this was written.
+Evidence: commit `7765c4c`, run 36295800015. All three jobs succeeded.
+
+| Job                                                                                                                                        | Result  | Integration + E2E                                        | SET 9 suites                                                                                                    |
+| ------------------------------------------------------------------------------------------------------------------------------------------ | ------- | -------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------- |
+| Linux — format, lint, typecheck, unit (250), build, integration + E2E, secret scan, dev smoke, Windows and Linux packages, packaged launch | success | 35 files passed, 2 skipped; 261 tests passed, 15 skipped | browser-core 14/14, E2E 4/4, transport 6/6, database 3/3, packaged launch 4/4 including the SET 9 runtime check |
+| Windows — typecheck, unit (250), build, integration + E2E, NSIS installer, package validation, packaged launch                             | success | 36 files passed, 1 skipped; 270 tests passed, 6 skipped  | browser-core 14/14, E2E 4/4, transport 6/6, database 3/3, packaged launch 4/4 including the SET 9 runtime check |
+| Legacy Thursday — build and acceptance suite                                                                                               | success |                                                          |                                                                                                                 |
+
+- **The browsers.** On CI the SET 9 suites drove the runner's own
+  installed browser: Google Chrome on Linux, and Microsoft Edge or Google
+  Chrome on Windows.
+- **The packaged runtime check.** The log shows it passed, but not which
+  branch it took. On Linux it took 26 s, which fits opening a real
+  session; the local run above proves both branches.
+- **The two AT6 tests (SET 5)** passed on both systems in about 5.3–5.5 s:
+  the original test and the new one where the executor ignores the stop.
+
+Earlier runs on this PR:
+
+- **Run 38** (`bfa0049`): Windows succeeded, including the installer and
+  packaged launch. Linux failed on SET 5 AT6, which was fixed in `7765c4c`
+  (see below).
+- **Run 37** was cancelled when a newer commit was pushed.
 
 ### Found and fixed during the SET
 
@@ -402,7 +424,8 @@ standard place.
 
 - `docs/sets/set-09/*.png`: the E2E screenshots (also written to
   `test-results/set-09/` on each run)
-- CI run 36294813038 (PR #6): pending
+- CI run 36295800015 (commit `7765c4c`): Linux job 108554289912, Windows job 108554289977, Legacy job 108554290028; artifacts `jupiter-linux-evidence` and `jupiter-windows-installer` (the E2E screenshots are under `test-results/set-09/`)
+- CI run 36294913600 (commit `bfa0049`): the Linux failure fixed in `7765c4c`
 
 ## 12. Acceptance tests
 
