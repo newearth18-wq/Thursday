@@ -166,7 +166,19 @@ const PATHS = {
       <path d="M5 11a7 7 0 0 0 14 0M12 18v3M9 21h6" />
     </>
   ),
-  speaker: <path d="M4 9h4l5-4v14l-5-4H4zM16 9.5a3.5 3.5 0 0 1 0 5M18.5 7a7 7 0 0 1 0 10" />
+  speaker: <path d="M4 9h4l5-4v14l-5-4H4zM16 9.5a3.5 3.5 0 0 1 0 5M18.5 7a7 7 0 0 1 0 10" />,
+  camera: (
+    <>
+      <path d="M3 8h3.5L8 6h8l1.5 2H21v11H3z" />
+      <circle cx="12" cy="13" r="3.5" />
+    </>
+  ),
+  eye: (
+    <>
+      <path d="M2.5 12S6 5.5 12 5.5 21.5 12 21.5 12 18 18.5 12 18.5 2.5 12 2.5 12z" />
+      <circle cx="12" cy="12" r="3" />
+    </>
+  )
 } as const satisfies Record<string, ReactElement>
 
 export type IconName = keyof typeof PATHS

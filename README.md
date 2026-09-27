@@ -3,32 +3,34 @@
 Jupiter is a Windows desktop AI agent, built in stages (SET 0–24). This
 repository is the Jupiter monorepo.
 
-**Current stage: SET 12 — Voice Interface** (on top of SET 11, Memory System
-and Obsidian Knowledge Base; SET 10, File, Document, Office and Artifact
-System; SET 9, Browser Agent; SET 8, Windows Computer Agent; SET 7,
-Permission and Security Engine; SET 6, Skill System; SET 5, Planner and
-Workflow Engine; SET 4, Mission System; SET 3, AI providers, Model Router and
-Chat; SET 2, the product shell; SET 1, Core architecture; and SET 0, the
-repository foundation). The new **Devices** screen lets you talk to Jupiter.
-Turn voice on, pick the microphone and speaker, and hold _Push to talk_ (or
-press Ctrl+Shift+Space). Jupiter shows its real state — _Listening_,
-_Transcribing_, _Thinking_, _Speaking_ — and a _Microphone on_ indicator in
-the top bar whenever, and only while, the microphone is recording. Speech to
-text and the spoken answer use the speech models you set up in _AI Models_;
-Jupiter can also speak with the voice built into the operating system
-(Windows voices, or espeak-ng on Linux). Press _Stop_ or Escape, or press
-_Push to talk_ again, to interrupt it. The wake word ("Jupiter") works only
-with a speech-to-text model on this computer and is otherwise
-_Unavailable_; with it on, saying "stop" or "หยุด" also interrupts. Thai and
-English both work. Recordings stay in memory and are never saved; under
-_Local only_ no audio leaves the computer. The **Memory** screen shows what
+**Current stage: SET 13 — Vision and Camera** (on top of SET 12, Voice
+Interface; SET 11, Memory System and Obsidian Knowledge Base; SET 10, File,
+Document, Office and Artifact System; SET 9, Browser Agent; SET 8, Windows
+Computer Agent; SET 7, Permission and Security Engine; SET 6, Skill System;
+SET 5, Planner and Workflow Engine; SET 4, Mission System; SET 3, AI
+providers, Model Router and Chat; SET 2, the product shell; SET 1, Core
+architecture; and SET 0, the repository foundation). The **Devices** screen
+now has _Voice_, _Vision_ and _Camera_. _Vision_ captures the screen, the
+active window or a region (with a delay), or takes an image you choose, and
+reads its text and QR codes on this computer (Tesseract and zbar); a vision
+model you set up in _AI Models_ can describe it and find its buttons and
+fields, after secrets in it are blacked out. Every result shows its
+confidence, and one that is not confident enough is never taken as proof.
+_Camera_ shows a preview, captures a frame, pauses and closes; the _Camera
+on_ indicator in the top bar is there exactly while the camera is on, and
+the camera closes by itself when the task is over. Images stay in memory
+for 15 minutes and are never saved; under _Local only_ no image leaves the
+computer. The Computer Agent can check a window visually and falls back to
+reading the control when vision cannot run. Voice: turn it on, pick the
+microphone and speaker, and hold _Push to talk_ (or press Ctrl+Shift+Space);
+recordings stay in memory and are never saved. The **Memory** screen shows what
 Jupiter remembers and why, and connects an **Obsidian** vault. The **File
 Agent** reads and writes documents in the folders Jupiter may use, the
 **Browser Agent** uses the web in an isolated session, and on Windows the
 **Computer Agent** uses real applications. Everything a page, document or
 note says is untrusted data. Nothing Jupiter does with an effect happens
 without a **permission** that matches exactly what, who, which target and
-for how long (the microphone is one); _Settings › Permissions_ lists them
+for how long (the microphone, the screen and the camera are among them); _Settings › Permissions_ lists them
 and the audit trail. **Devices**, **Memory**, **Files**, **Skills**,
 **Missions** planned by your model, _Chat_, _AI Models_, _Settings_ and
 _Diagnostics_ work; the other two screens are labelled _Coming later_ with
@@ -144,6 +146,18 @@ it ended and whether speech to text ran on this computer or in the cloud
 (plus the microphone permission in the audit trail) — never audio,
 transcripts or answers.
 
+Vision keeps no images. Captures, camera frames and images you choose are
+held in memory for at most 15 minutes (and discarded when you discard them
+or close the camera); the text read from them is never stored. The database
+records only which vision tasks ran and where, and when a camera session
+started and ended with how many frames were captured (plus the screen and
+camera permissions in the audit trail).
+
+To read text and QR codes, install Tesseract OCR with the Thai language and
+zbar (Windows: the Tesseract installer from UB Mannheim and ZBar; Linux:
+`sudo apt install tesseract-ocr tesseract-ocr-tha zbar-tools`). Without them
+these tasks are shown as _Not configured_.
+
 ## Documentation
 
 - [AGENTS.md](AGENTS.md) — rules for anyone (human or AI) changing this repository
@@ -164,6 +178,7 @@ transcripts or answers.
 - [docs/sets/SET-10-file-document-office-and-artifacts.md](docs/sets/SET-10-file-document-office-and-artifacts.md) — SET 10 report and acceptance results
 - [docs/sets/SET-11-memory-and-obsidian.md](docs/sets/SET-11-memory-and-obsidian.md) — SET 11 report and acceptance results
 - [docs/sets/SET-12-voice-interface.md](docs/sets/SET-12-voice-interface.md) — SET 12 report and acceptance results
+- [docs/sets/SET-13-vision-and-camera.md](docs/sets/SET-13-vision-and-camera.md) — SET 13 report and acceptance results
 - [docs/decisions/](docs/decisions/) — architecture decision records
 
 ## License

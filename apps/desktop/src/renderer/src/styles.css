@@ -2422,3 +2422,90 @@ kbd {
 .view-devices .actions + p {
   margin-top: var(--jp-space-sm);
 }
+
+/* ---- Vision and the camera (SET 13) ---- */
+
+/* The native file chooser, drawn like the other buttons (Design Lock). */
+.vision-panel input[type='file'] {
+  color: var(--ui-text-muted);
+}
+
+.vision-panel input[type='file']::file-selector-button {
+  min-height: var(--ui-control-height);
+  margin-inline-end: var(--jp-space-md);
+  border: 1px solid var(--ui-border-strong);
+  border-radius: var(--jp-radius-md);
+  background: transparent;
+  color: var(--ui-text);
+  padding: var(--jp-space-xs) var(--jp-space-lg);
+  font: inherit;
+  cursor: pointer;
+}
+
+.vision-panel input[type='file']:hover:not(:disabled)::file-selector-button {
+  background: var(--jp-surface-hover);
+  border-color: var(--jp-color-electric-cyan);
+}
+
+.vision-panel > .card {
+  margin-bottom: var(--jp-space-lg);
+}
+
+.vision-preview {
+  margin: var(--jp-space-sm) 0;
+}
+
+.vision-preview canvas,
+.camera-preview {
+  display: block;
+  max-width: 100%;
+  height: auto;
+  border-radius: var(--jp-radius-sm);
+  background: var(--jp-color-graphite-black);
+}
+
+.camera-preview {
+  margin-top: var(--jp-space-md);
+  max-height: 24rem;
+}
+
+.vision-region {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  gap: var(--jp-space-sm);
+  margin: var(--jp-space-md) 0;
+  border: 0;
+  padding: 0;
+}
+
+.vision-region .field {
+  display: flex;
+  flex-direction: column;
+  gap: var(--jp-space-xs);
+  width: 7rem;
+}
+
+.vision-tasks {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--jp-space-md);
+  margin: var(--jp-space-sm) 0;
+  border: 0;
+  padding: 0;
+}
+
+.field-inline {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--jp-space-xs);
+}
+
+.vision-observation h3 {
+  margin-top: var(--jp-space-md);
+}
+
+.vision-lines {
+  margin: 0;
+  padding-inline-start: var(--jp-space-lg);
+}

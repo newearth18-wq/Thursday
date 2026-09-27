@@ -13,6 +13,7 @@ import type { NotesHost } from './notes-host'
 import type { ComputerHost } from './computer-host'
 import type { CredentialVault } from './credential-vault'
 import type { MicrophoneGate, SpeechHost } from './speech-host'
+import type { VisionHost } from './vision-host'
 
 /**
  * Privileged host functions, executed only when Jupiter Core's capability
@@ -58,6 +59,9 @@ export interface HostCapabilityDependencies {
   readonly speech: SpeechHost
   /** The microphone gate (SET 12): the interface gets the microphone only while it is open. */
   readonly microphone: MicrophoneGate
+  /** SET 13: screen capture, OCR, QR and image processing; the camera gate. */
+  readonly vision: VisionHost
+  readonly camera: MicrophoneGate
   readonly now?: () => number
 }
 
@@ -78,7 +82,14 @@ export const HOST_CAPABILITIES = [
   'host.notes.call',
   'host.speech.voices',
   'host.speech.synthesize',
-  'host.microphone.gate'
+  'host.microphone.gate',
+  'host.vision.engines',
+  'host.vision.capture',
+  'host.vision.ocr',
+  'host.vision.qr',
+  'host.vision.redact',
+  'host.vision.compare',
+  'host.camera.gate'
 ] as const
 
 /** Desktop notifications the interface may show per minute. */
@@ -123,6 +134,14 @@ export class HostCapabilities {
       case 'host.speech.synthesize':
       case 'host.microphone.gate':
         return this.voiceOperation(call, call.capability, log)
+      case 'host.vision.engines':
+      case 'host.vision.capture':
+      case 'host.vision.ocr':
+      case 'host.vision.qr':
+      case 'host.vision.redact':
+      case 'host.vision.compare':
+      case 'host.camera.gate':
+        return this.visionOperation(call, call.capability, log)
       default:
         log.warn('host-capability.unknown', `Refused unknown host capability ${call.capability}`)
         return this.failure(
@@ -452,6 +471,96 @@ export class HostCapabilities {
         'dependency',
         `The system voice failed: ${describeError(error)}`,
         'Try again, or choose a speech model as the voice source.'
+      )
+    }
+  }
+
+  /** Vision and camera (SET 13): Jupiter Core only. Images and their text are never logged. */
+  private async visionOperation(
+    call: HostCall,
+    operation:
+      | 'host.vision.engines'
+      | 'host.vision.capture'
+      | 'host.vision.ocr'
+      | 'host.vision.qr'
+      | 'host.vision.redact'
+      | 'host.vision.compare'
+      | 'host.camera.gate',
+    log: Logger
+  ): Promise<HostOutcome> {
+    if (call.actor.type !== 'core') {
+      log.warn('host-capability.denied', `Refused ${operation} for ${call.actor.type}`)
+      return this.failure(
+        'PERMISSION_DENIED',
+        'permission',
+        `Only Jupiter Core may use ${operation}.`,
+        null
+      )
+    }
+    const input = HostOperations[operation].input.safeParse(call.input)
+    if (!input.success) return this.invalid(operation)
+    const vision = this.deps.vision
+    try {
+      switch (operation) {
+        case 'host.vision.engines':
+          return { ok: true, data: await vision.engines() }
+        case 'host.vision.capture': {
+          const request = HostOperations['host.vision.capture'].input.parse(call.input)
+          const image = await vision.capture(request)
+          log.info(
+            'vision.captured',
+            `Captured ${request.source} (${String(image.width)}×${String(image.height)})`
+          )
+          return { ok: true, data: image }
+        }
+        case 'host.vision.ocr':
+          return {
+            ok: true,
+            data: await vision.ocr(HostOperations['host.vision.ocr'].input.parse(call.input))
+          }
+        case 'host.vision.qr':
+          return {
+            ok: true,
+            data: await vision.qr(HostOperations['host.vision.qr'].input.parse(call.input))
+          }
+        case 'host.vision.redact':
+          return {
+            ok: true,
+            data: vision.redact(HostOperations['host.vision.redact'].input.parse(call.input))
+          }
+        case 'host.vision.compare':
+          return {
+            ok: true,
+            data: vision.compare(HostOperations['host.vision.compare'].input.parse(call.input))
+          }
+        case 'host.camera.gate': {
+          const request = HostOperations['host.camera.gate'].input.parse(call.input)
+          const open = this.deps.camera.set({ ...request, purpose: 'listen' })
+          log.info(
+            open ? 'camera.gate.opened' : 'camera.gate.closed',
+            open ? 'Camera gate opened' : 'Camera gate closed',
+            { sessionId: request.sessionId }
+          )
+          return { ok: true, data: { open } }
+        }
+      }
+    } catch (error) {
+      if (error instanceof JupiterError)
+        return {
+          ok: false,
+          error: createErrorEnvelope({
+            code: error.code,
+            category: error.category,
+            message: error.message,
+            userAction: error.userAction,
+            retryable: error.retryable
+          })
+        }
+      return this.failure(
+        'VISION_HOST_FAILED',
+        'dependency',
+        `The vision engine failed: ${describeError(error)}`,
+        'Try again.'
       )
     }
   }

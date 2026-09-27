@@ -90,7 +90,14 @@ export const SettingDefinitions = {
   /** 0.5–2 times normal speed. */
   'voice.speakingRate': z.number().min(0.5).max(2).multipleOf(0.25),
   /** How loud and long speech must be to interrupt Jupiter while it speaks. */
-  'voice.interruptionSensitivity': InterruptionSensitivity
+  'voice.interruptionSensitivity': InterruptionSensitivity,
+  /** Vision (SET 13): the camera to use; `null`: the system's default camera. */
+  'vision.cameraDevice': AudioDeviceId.nullable(),
+  /**
+   * Before an image goes to a vision model, black out lines that OCR (on this
+   * computer) recognises as passwords, keys or tokens.
+   */
+  'vision.redactSecrets': z.boolean()
 } as const satisfies Record<string, z.ZodType>
 
 export type SettingKey = keyof typeof SettingDefinitions
@@ -128,7 +135,9 @@ export const SettingDefaults: { readonly [K in SettingKey]: SettingValue<K> } = 
   'voice.voice': null,
   'voice.language': 'auto',
   'voice.speakingRate': 1,
-  'voice.interruptionSensitivity': 'medium'
+  'voice.interruptionSensitivity': 'medium',
+  'vision.cameraDevice': null,
+  'vision.redactSecrets': true
 }
 
 export const SettingRecord = z

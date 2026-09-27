@@ -3,6 +3,11 @@ import {
   SettingDefaults,
   SettingDefinitions,
   type Actor,
+  type HostCompareResult,
+  type HostImage,
+  type HostOcrResult,
+  type HostQrResult,
+  type HostVisionEngines,
   type AuditEvent,
   type BackupInfo,
   type CapabilityOutput,
@@ -43,6 +48,7 @@ import { EventBus, type EventDelivery, type PublishInput } from '../events/event
 import type { AdapterContext, ProviderAdapter } from '../ai/adapter'
 import { completeText } from '../ai/complete'
 import { VoiceService, type SpeechPlan, type VoiceCallContext } from '../voice/service'
+import { VisionService, type CameraTimings, type VisionPlan } from '../vision/service'
 import { ChatService } from '../ai/chat'
 import { BrowserAgent } from '../browser/agent'
 import { checkedBrowserDriver } from '../browser/driver'
@@ -137,6 +143,8 @@ export interface CoreKernelOptions {
   /** Resources for those Skills (the test fixtures' in-memory notes). */
   readonly extraResources?: Readonly<Record<string, SkillResource>>
   readonly now?: () => Date
+  /** Shorter camera timeouts, for tests of the camera closing by itself (SET 13). */
+  readonly cameraTimings?: CameraTimings
 }
 
 const CORE_ACTOR: Actor = { type: 'core', id: 'core' }
@@ -154,6 +162,7 @@ export class CoreKernel {
   readonly skills: SkillRegistry
   readonly permissions: PermissionEngine
   readonly computer: ComputerAgent
+  readonly vision: VisionService
   readonly browser: BrowserAgent
   readonly files: FileAgent
   readonly memory: MemoryService
@@ -297,6 +306,96 @@ export class CoreKernel {
       }
     })
     // SET 8: the Computer Agent decides and checks permissions here; the host acts.
+    // SET 13: Vision decides what is captured and looked at; the host captures and runs OCR/QR.
+    this.vision = new VisionService({
+      database: () => this.requireDatabase(),
+      bus: this.bus,
+      logger: this.logger.child({ component: 'vision' }),
+      now: this.now,
+      permissions: this.permissions,
+      setting: (key) => this.validSettingValue(key, this.database?.settings.get(key)?.value),
+      language: () => (this.database?.settings.get('ui.language')?.value === 'th' ? 'th' : 'en'),
+      ...(options.cameraTimings ? { cameraTimings: options.cameraTimings } : {}),
+      engines: {
+        engines: async () =>
+          (await this.hostOperation('host.vision.engines', {}, uuidv7())) as HostVisionEngines,
+        capture: async (input, signal) =>
+          (await this.hostOperation('host.vision.capture', input, uuidv7(), signal)) as HostImage,
+        ocr: async (png, signal) =>
+          (await this.hostOperation(
+            'host.vision.ocr',
+            { mediaType: 'image/png', data: png },
+            uuidv7(),
+            signal
+          )) as HostOcrResult,
+        qr: async (png, signal) =>
+          (await this.hostOperation(
+            'host.vision.qr',
+            { mediaType: 'image/png', data: png },
+            uuidv7(),
+            signal
+          )) as HostQrResult,
+        redact: async (png, boxes) =>
+          (
+            (await this.hostOperation(
+              'host.vision.redact',
+              { mediaType: 'image/png', data: png, boxes: [...boxes] },
+              uuidv7()
+            )) as { data: string }
+          ).data,
+        compare: async (before, after) =>
+          (await this.hostOperation(
+            'host.vision.compare',
+            {
+              before: { mediaType: 'image/png', data: before },
+              after: { mediaType: 'image/png', data: after }
+            },
+            uuidv7()
+          )) as HostCompareResult,
+        cameraGate: async (input) => {
+          await this.hostOperation('host.camera.gate', input, uuidv7())
+        },
+        modelPlan: () => this.visionPlan(),
+        describe: async (input, context) => {
+          const answered: { plan: Extract<VisionPlan, { ok: true }> | null } = { plan: null }
+          const completion = await completeText(this.providers, {
+            capability: 'vision',
+            messages: [
+              { role: 'system', text: input.system },
+              {
+                role: 'user',
+                content: [
+                  { type: 'image', mediaType: 'image/png', dataBase64: input.png },
+                  { type: 'text', text: input.user }
+                ]
+              }
+            ],
+            signal: context.signal ?? new AbortController().signal,
+            correlationId: context.correlationId,
+            actor: { type: context.actor, id: context.actor },
+            onRoute: (route) => {
+              answered.plan = {
+                ok: true,
+                providerId: route.providerId,
+                providerName: route.providerName,
+                modelId: route.modelId,
+                locality: route.locality
+              }
+            }
+          })
+          return {
+            text: completion.text,
+            plan: answered.plan ?? {
+              ok: true as const,
+              providerId: completion.route.providerId,
+              providerName: completion.route.providerName,
+              modelId: completion.route.modelId,
+              locality: completion.route.locality
+            }
+          }
+        }
+      }
+    })
     this.computer = new ComputerAgent({
       database: () => this.requireDatabase(),
       bus: this.bus,
@@ -305,7 +404,10 @@ export class CoreKernel {
       permissions: this.permissions,
       driver: checkedDriver((op, params, signal) =>
         this.hostOperation('host.computer.call', { op, params }, uuidv7(), signal)
-      )
+      ),
+      vision: this.options.config.hostCapabilities.includes('host.vision.capture')
+        ? this.vision
+        : null
     })
     // SET 9: the Browser Agent decides, checks permissions and origins here; the host acts.
     this.browser = new BrowserAgent({
@@ -583,6 +685,21 @@ export class CoreKernel {
   }
 
   /** Which speech model the router would use (SET 12); it obeys the routing mode. */
+  /** The vision model the router would use now, or why none can (the routing mode applies). */
+  private visionPlan(): VisionPlan {
+    if (!this.database) return { ok: false, reason: 'The database is not available.' }
+    const { result } = this.providers.route('vision', null)
+    if (!result.ok) return { ok: false, reason: result.error.message }
+    const { provider, model } = result.primary
+    return {
+      ok: true,
+      providerId: provider.providerId,
+      providerName: provider.displayName,
+      modelId: model.modelId,
+      locality: provider.locality
+    }
+  }
+
   private speechPlan(capability: 'transcription' | 'speech'): SpeechPlan {
     if (!this.database) return { ok: false, reason: 'The database is not available.' }
     const { result } = this.providers.route(capability, null)
@@ -645,6 +762,7 @@ export class CoreKernel {
   async stop(): Promise<void> {
     this.dispatcher.cancelAll()
     await this.voice.shutdown()
+    await this.vision.shutdown()
     this.record({
       type: 'core.stopped',
       stream: { kind: 'system', id: 'core' },
@@ -702,6 +820,7 @@ export class CoreKernel {
         await this.supervisor.retry('artifact-manager')
         await this.supervisor.retry('memory')
         await this.supervisor.retry('voice')
+        await this.supervisor.retry('vision')
         await this.supervisor.retry('skill-registry')
       }
       return null
@@ -1303,6 +1422,28 @@ export class CoreKernel {
       }
     })
 
+    // SET 13: the Vision System. It needs the database (settings, observation records).
+    this.supervisor.register({
+      id: 'vision',
+      version: null,
+      capabilities: ['vision.capture', 'vision.ocr', 'vision.analysis', 'camera'],
+      critical: false,
+      retryable: true,
+      start: () => {
+        if (!this.database)
+          throw new JupiterError(
+            'DEPENDENCY_UNAVAILABLE',
+            'Vision needs the database, which is not available.',
+            {
+              category: 'dependency',
+              userAction: 'Fix the Database service, then press Retry on it.',
+              retryable: true
+            }
+          )
+        return undefined
+      }
+    })
+
     // SET 10: the Artifact Manager (with the File Agent). Its records live in the database.
     this.supervisor.register({
       id: 'artifact-manager',
@@ -1489,7 +1630,9 @@ export class CoreKernel {
     'voice.voice': () => undefined,
     'voice.language': () => undefined,
     'voice.speakingRate': () => undefined,
-    'voice.interruptionSensitivity': () => undefined
+    'voice.interruptionSensitivity': () => undefined,
+    'vision.cameraDevice': () => undefined,
+    'vision.redactSecrets': () => undefined
   }
 
   private applyLogLevel(level: LogLevel, correlationId: string): void {

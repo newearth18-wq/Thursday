@@ -40,6 +40,7 @@ const RUNNING = [
   'computer-agent',
   'memory',
   'voice',
+  'vision',
   'capability-dispatcher'
 ] as const
 const PLANNED = ['plugin-runtime'] as const

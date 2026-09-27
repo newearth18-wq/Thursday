@@ -51,6 +51,26 @@ export interface ComputerAgentOptions {
   readonly permissions: PermissionEngine
   readonly driver: ComputerDriver
   readonly sleep?: (ms: number) => Promise<void>
+  /** SET 13: checks what a window shows (a capture of that window, read on this computer). */
+  readonly vision?: VisionCheckPort | null
+}
+
+/** What the Computer Agent asks Vision: does this very window show this text, confidently? */
+export interface VisionCheckPort {
+  checkWindowText(
+    input: {
+      readonly handle: number
+      readonly title: string
+      readonly expectText: string
+      readonly minConfidence: number
+    },
+    signal: AbortSignal
+  ): Promise<{
+    readonly verified: boolean
+    readonly found: boolean
+    readonly confidence: number | null
+    readonly reason: string
+  }>
 }
 
 export interface ComputerRunContext {
@@ -387,6 +407,7 @@ export class ComputerAgent {
           result.push({ capability: 'computer.read_screen', target: app(action.window) })
           break
         case 'SCREENSHOT':
+        case 'CHECK_SCREEN':
           result.push({ capability: 'computer.read_screen', target: app(action.window) })
           break
         case 'CLICK_ELEMENT':
@@ -649,6 +670,8 @@ export class ComputerAgent {
       }
       case 'SAVE_FILE':
         return this.saveFile(action, windows, adapterContext, signal)
+      case 'CHECK_SCREEN':
+        return this.checkScreen(action, windows, signal)
       case 'CLICK_POINT': {
         const window = await this.resolve(action.window, windows, signal)
         if (action.x >= window.bounds.width || action.y >= window.bounds.height)
@@ -780,6 +803,79 @@ export class ComputerAgent {
    * through the application's adapter: its candidate queries are tried in
    * order, and the first control that exists is the one acted on.
    */
+  /**
+   * Checks a window's text with Vision. A result Vision really produced
+   * decides: only a confident reading verifies it. Only when Vision cannot run
+   * at all does the agent read the control's text through UI Automation — and
+   * the result says which path was used.
+   */
+  private async checkScreen(
+    action: Extract<ComputerAction, { type: 'CHECK_SCREEN' }>,
+    windows: Map<ComputerAppId, number>,
+    signal: AbortSignal
+  ): Promise<Outcome> {
+    const window = await this.resolve(action.window, windows, signal)
+    const minConfidence = action.minConfidence ?? 0.8
+    let visionFailure: string
+    try {
+      if (!this.options.vision)
+        throw new JupiterError('VISION_UNAVAILABLE', 'Vision is not available in this Core.', {
+          category: 'unsupported',
+          userAction: null
+        })
+      const check = await this.options.vision.checkWindowText(
+        {
+          handle: window.handle,
+          title: window.title,
+          expectText: action.expectText,
+          minConfidence
+        },
+        signal
+      )
+      if (!check.verified)
+        throw new JupiterError(
+          'ACTION_NOT_VERIFIED',
+          `Vision did not verify "${window.title}": ${check.reason}`,
+          {
+            category: 'dependency',
+            userAction: 'Look at the window; the text may be missing, hidden or unclear.'
+          }
+        )
+      return {
+        target: label(window),
+        method: 'vision',
+        observation: `Seen in a capture of "${window.title}" (OCR on this computer, confidence ${(check.confidence ?? 0).toFixed(2)} ≥ ${minConfidence.toFixed(2)}).`
+      }
+    } catch (error) {
+      // A result Vision produced is never overridden; only a Vision that could not run is.
+      if (error instanceof JupiterError && error.code === 'ACTION_NOT_VERIFIED') throw error
+      if (signal.aborted) throw error
+      visionFailure = error instanceof Error ? error.message : String(error)
+    }
+    const query = await this.concrete(
+      action.window.app,
+      window,
+      action.element ?? { role: 'editor' },
+      signal
+    )
+    const { text } = await this.options.driver.call(
+      'readText',
+      { handle: window.handle, query },
+      signal
+    )
+    if (!normalize(text).includes(normalize(action.expectText)))
+      throw new JupiterError(
+        'ACTION_NOT_VERIFIED',
+        `Vision could not run (${visionFailure.slice(0, 200)}), and reading "${window.title}" through UI Automation did not find the text either.`,
+        { category: 'dependency', userAction: null }
+      )
+    return {
+      target: label(window),
+      method: 'semantic',
+      observation: `Vision could not run (${visionFailure.slice(0, 200)}); checked through UI Automation instead: the control shows the text. No visual result was assumed.`
+    }
+  }
+
   private async concrete(
     app: ComputerAppId,
     window: WindowInfo,

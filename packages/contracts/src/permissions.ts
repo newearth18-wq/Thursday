@@ -150,9 +150,11 @@ export const PERMISSION_CATALOGUE = {
   'computer.read_screen': {
     risk: 'HIGH',
     summary: 'Read what is on the screen',
-    consequence: 'An image or text of the screen becomes part of the result.',
+    consequence:
+      'An image of the screen, a window or a region is held in memory (never saved) and its text becomes part of the result.',
     reversible: true,
-    dataLeavesDevice: null
+    dataLeavesDevice:
+      'Only when you ask a cloud vision model about it: the image, with secrets blacked out. Local only never sends it.'
   },
   'computer.manage_window': {
     risk: 'LOW',
@@ -251,9 +253,11 @@ export const PERMISSION_CATALOGUE = {
   'camera.read': {
     risk: 'HIGH',
     summary: 'Use the camera',
-    consequence: 'Images from the camera become part of the result.',
+    consequence:
+      'While the camera is on, the indicator shows it; frames you capture are held in memory (never saved) and the camera is released when you close it.',
     reversible: true,
-    dataLeavesDevice: null
+    dataLeavesDevice:
+      'Only when you ask a cloud vision model about a frame: that frame. Local only never sends it.'
   },
   'microphone.listen': {
     risk: 'HIGH',

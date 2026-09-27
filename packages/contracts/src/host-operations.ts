@@ -6,6 +6,18 @@ import { FileCall } from './files'
 import { NoteCall } from './notes'
 import { Uuidv7 } from './primitives'
 import { MicrophoneGateInput, SystemSpeech, SystemSpeechInput, SystemVoices } from './voice'
+import {
+  CameraGateInput,
+  HostCaptureInput,
+  HostCompareInput,
+  HostCompareResult,
+  HostImage,
+  HostImageInput,
+  HostOcrResult,
+  HostQrResult,
+  HostRedactInput,
+  HostVisionEngines
+} from './vision'
 
 /**
  * Host operations Jupiter Core uses internally (SET 3).
@@ -69,6 +81,23 @@ export const HostOperations = {
   'host.speech.synthesize': { input: SystemSpeechInput, output: SystemSpeech },
   'host.microphone.gate': {
     input: MicrophoneGateInput,
+    output: z.object({ open: z.boolean() }).strict()
+  },
+  /**
+   * SET 13: screen capture (the host chooses what is captured: the screen,
+   * the active window, a region of it, or a window by the handle the agent
+   * found), OCR on this computer (Windows OCR or Tesseract), QR codes (zbar),
+   * image processing (blacking out regions, comparing two captures), and the
+   * camera gate, which works like the microphone gate.
+   */
+  'host.vision.engines': { input: z.object({}).strict(), output: HostVisionEngines },
+  'host.vision.capture': { input: HostCaptureInput, output: HostImage },
+  'host.vision.ocr': { input: HostImageInput, output: HostOcrResult },
+  'host.vision.qr': { input: HostImageInput, output: HostQrResult },
+  'host.vision.redact': { input: HostRedactInput, output: HostImageInput },
+  'host.vision.compare': { input: HostCompareInput, output: HostCompareResult },
+  'host.camera.gate': {
+    input: CameraGateInput,
     output: z.object({ open: z.boolean() }).strict()
   },
   'host.vault.status': {

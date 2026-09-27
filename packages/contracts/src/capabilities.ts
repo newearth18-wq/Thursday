@@ -100,6 +100,24 @@ import {
   VoiceState,
   VoiceStatus
 } from './voice'
+import {
+  AnalyzeInput,
+  CameraReportInput,
+  CameraSession,
+  CameraStartInput,
+  CameraStatus,
+  CameraStopInput,
+  CaptureInput,
+  CompareInput,
+  ImageContent,
+  ImageIdInput,
+  ImagePartInput,
+  ImagePartResult,
+  ImageRef,
+  Observation,
+  VisionStatus,
+  VisualComparison
+} from './vision'
 
 /**
  * The capability catalogue: every command and query Jupiter Core accepts,
@@ -231,7 +249,9 @@ export const SettingUpdate = z.discriminatedUnion('key', [
   settingUpdate('voice.voice'),
   settingUpdate('voice.language'),
   settingUpdate('voice.speakingRate'),
-  settingUpdate('voice.interruptionSensitivity')
+  settingUpdate('voice.interruptionSensitivity'),
+  settingUpdate('vision.cameraDevice'),
+  settingUpdate('vision.redactSecrets')
 ])
 export type SettingUpdate = z.infer<typeof SettingUpdate>
 
@@ -999,7 +1019,40 @@ export const Capabilities = {
     output: z.object({ utteranceId: Uuidv7 }).strict()
   },
   /** Leaves ERROR once the person has seen it. */
-  'voice.recover': { kind: 'command', input: Empty, output: VoiceStatus }
+  'voice.recover': { kind: 'command', input: Empty, output: VoiceStatus },
+  // ---- Vision and camera (SET 13) ----
+  /** Each engine and where it runs, the images held in memory, and the camera. */
+  'vision.status': { kind: 'query', input: Empty, output: VisionStatus },
+  /**
+   * Captures the whole screen, the active window or a region of the screen,
+   * into memory. Asks for `computer.read_screen` first.
+   */
+  'vision.capture': { kind: 'command', input: CaptureInput, output: ImageRef },
+  /** A camera frame or an image the person chose, sent in parts; kept in memory only. */
+  'vision.image.part': { kind: 'command', input: ImagePartInput, output: ImagePartResult },
+  /** An image held in memory, for the interface to show. */
+  'vision.image': { kind: 'query', input: ImageIdInput, output: ImageContent },
+  /** Drops an image from memory at once. */
+  'vision.image.discard': {
+    kind: 'command',
+    input: ImageIdInput,
+    output: z.object({ discarded: z.boolean() }).strict()
+  },
+  /**
+   * Reads text (on this computer), QR codes and, with a vision model the
+   * router allows, what the image shows. Never invents a result: a task that
+   * could not run says so.
+   */
+  'vision.analyze': { kind: 'command', input: AnalyzeInput, output: Observation },
+  /** Before/after validation of two captures of the same target. */
+  'vision.compare': { kind: 'command', input: CompareInput, output: VisualComparison },
+  'camera.status': { kind: 'query', input: Empty, output: CameraStatus },
+  /** Starts the camera: asks for `camera.read`, then opens the host's camera gate. */
+  'camera.start': { kind: 'command', input: CameraStartInput, output: CameraSession },
+  /** The interface reports what really happened to the camera track. */
+  'camera.report': { kind: 'command', input: CameraReportInput, output: CameraStatus },
+  /** Closes the camera and releases the device. */
+  'camera.stop': { kind: 'command', input: CameraStopInput, output: CameraStatus }
 } as const satisfies Record<string, { kind: RequestKind; input: z.ZodType; output: z.ZodType }>
 
 export type CapabilityName = keyof typeof Capabilities

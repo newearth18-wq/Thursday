@@ -18,7 +18,11 @@ const K = new Uint32Array([
 const rotr = (value: number, bits: number) => (value >>> bits) | (value << (32 - bits))
 
 export function sha256Hex(text: string): string {
-  const bytes = new TextEncoder().encode(text)
+  return sha256HexOfBytes(new TextEncoder().encode(text))
+}
+
+/** SHA-256 of raw bytes, hex (SET 13: identifies an image held in memory). */
+export function sha256HexOfBytes(bytes: Uint8Array): string {
   const bitLength = bytes.length * 8
   const padded = new Uint8Array(Math.ceil((bytes.length + 9) / 64) * 64)
   padded.set(bytes)

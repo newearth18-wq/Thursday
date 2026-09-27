@@ -55,26 +55,36 @@ export function hardenSession(
   session: Session,
   logger: Logger,
   microphone: MicrophonePolicy,
-  isAppUrl: (url: string) => boolean
+  isAppUrl: (url: string) => boolean,
+  camera: MicrophonePolicy
 ): void {
   const log = logger.child({ component: 'security' })
-  const audioOnly = (mediaTypes: readonly string[] | undefined) =>
-    mediaTypes !== undefined &&
-    mediaTypes.length > 0 &&
-    mediaTypes.every((type) => type === 'audio')
+  const only = (kind: 'audio' | 'video', mediaTypes: readonly string[] | undefined) =>
+    mediaTypes !== undefined && mediaTypes.length > 0 && mediaTypes.every((type) => type === kind)
   // Deny by default: web pages never get Chromium permissions (camera, microphone, …).
   // Jupiter's own capabilities are decided by the Permission Engine in Core (SET 7). The one
   // exception is the microphone for Jupiter's own interface, and only while Core has opened the
-  // gate for a listening session the person started and allowed (SET 12).
+  // gate for a listening session the person started and allowed (SET 12), and the camera, only
+  // while Core has opened the camera gate for a session the person started and allowed (SET 13).
   session.setPermissionRequestHandler((_contents, permission, callback, details) => {
     const mediaTypes = 'mediaTypes' in details ? details.mediaTypes : undefined
     if (
       permission === 'media' &&
       isAppUrl(details.requestingUrl) &&
-      audioOnly(mediaTypes) &&
+      only('audio', mediaTypes) &&
       microphone.mayCapture()
     ) {
       log.info('security.microphone.allowed', 'Allowed the microphone for a listening session')
+      callback(true)
+      return
+    }
+    if (
+      permission === 'media' &&
+      isAppUrl(details.requestingUrl) &&
+      only('video', mediaTypes) &&
+      camera.mayCapture()
+    ) {
+      log.info('security.camera.allowed', 'Allowed the camera for a camera session')
       callback(true)
       return
     }
@@ -88,7 +98,8 @@ export function hardenSession(
     if (!fromApp) return false
     // Choosing where Jupiter's own speech plays needs no microphone.
     if ((permission as string) === 'speaker-selection') return true
-    return permission === 'media' && details.mediaType !== 'video' && microphone.isOpen()
+    if (permission !== 'media') return false
+    return details.mediaType === 'video' ? camera.isOpen() : microphone.isOpen()
   })
   session.on('will-download', (event) => {
     event.preventDefault()
