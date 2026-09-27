@@ -1,3 +1,4 @@
+import jsQR, { type QRCode } from 'jsqr'
 import { spawn } from 'node:child_process'
 import { existsSync } from 'node:fs'
 import { delimiter, join } from 'node:path'
@@ -35,7 +36,8 @@ import {
  *   by a path or a command in a request.
  * - OCR on this computer with Tesseract, which reports a confidence for every
  *   word (Windows OCR does not, and a result without a confidence cannot be
- *   used as evidence). QR codes with zbar where it is installed.
+ *   used as evidence). QR codes with jsQR, in this process: nothing to install,
+ *   and the image never leaves memory.
  * - Blacking out regions and comparing two captures, on pixels in memory.
  *
  * Images reach the engines only on standard input, and results come back on
@@ -46,6 +48,10 @@ const TIMEOUT_MS = 60_000
 const MAX_OUTPUT = 8 * 1024 * 1024
 /** The languages Jupiter reads, when the engine has them. */
 const OCR_LANGUAGES = ['eng', 'tha'] as const
+/** QR codes are read in this process, from the decoded pixels. */
+const QR_ENGINE = 'jsQR 1.4.0'
+
+type QrCodeResult = HostQrResult['codes'][number]
 
 export interface CapturedScreen {
   readonly png: Buffer
@@ -77,10 +83,7 @@ interface Tool {
 export class VisionHost {
   private readonly platform: NodeJS.Platform
   private readonly env: NodeJS.ProcessEnv
-  private tools: Promise<{
-    tesseract: (Tool & { languages: string[] }) | null
-    zbar: Tool | null
-  }> | null = null
+  private tools: Promise<{ tesseract: (Tool & { languages: string[] }) | null }> | null = null
 
   constructor(private readonly options: VisionHostOptions) {
     this.platform = options.platform ?? process.platform
@@ -88,7 +91,7 @@ export class VisionHost {
   }
 
   async engines(): Promise<HostVisionEngines> {
-    const { tesseract, zbar } = await this.findTools()
+    const { tesseract } = await this.findTools()
     const capturer = this.options.capturer
     const unavailable = capturer
       ? capturer.unavailable('desktop')
@@ -128,11 +131,7 @@ export class VisionHost {
                 ? 'Not configured: install Tesseract OCR (for example "winget install UB-Mannheim.TesseractOCR") to read text on this computer.'
                 : 'Not configured: install Tesseract OCR (for example "sudo apt install tesseract-ocr tesseract-ocr-tha") to read text on this computer.'
           }),
-      qr: zbar
-        ? info('qr', { available: true, name: `zbar ${zbar.version}` })
-        : info('qr', {
-            reason: 'Not configured: install zbar (zbarimg) to read QR codes on this computer.'
-          }),
+      qr: info('qr', { available: true, name: QR_ENGINE }),
       camera: info('camera', { available: true, name: 'Chromium camera' })
     }
   }
@@ -243,27 +242,35 @@ export class VisionHost {
     }
   }
 
-  async qr(image: { data: string }): Promise<HostQrResult> {
-    const { zbar } = await this.findTools()
-    if (!zbar)
-      throw new JupiterError(
-        'QR_UNAVAILABLE',
-        'QR codes cannot be read on this computer: zbar is not installed (Not configured).',
-        { category: 'dependency', userAction: 'Install zbar, then try again.' }
-      )
-    const png = this.image(image.data)
-    let output: Buffer
+  /** Reads QR codes like the other engines answer: asynchronously, a bad image rejecting. */
+  qr(image: { data: string }): Promise<HostQrResult> {
+    return new Promise((resolve) => {
+      resolve(this.readQr(image))
+    })
+  }
+
+  private readQr(image: { data: string }): HostQrResult {
+    const bitmap = this.decode(this.image(image.data))
+    let found: QRCode | null
     try {
-      // zbarimg exits with 4 when the image has no code: that is an answer, not a failure.
-      output = await this.run(zbar.path, ['-q', '--xml', '-'], png, [0, 4])
+      found = jsQR(
+        new Uint8ClampedArray(bitmap.rgba.buffer, bitmap.rgba.byteOffset, bitmap.rgba.byteLength),
+        bitmap.width,
+        bitmap.height
+      )
     } catch (error) {
-      throw new JupiterError('QR_FAILED', `zbar could not read the image: ${messageOf(error)}`, {
-        category: 'dependency',
-        userAction: null,
-        retryable: true
-      })
+      throw new JupiterError(
+        'QR_FAILED',
+        `The QR reader could not read the image: ${messageOf(error)}`,
+        {
+          category: 'internal',
+          userAction: null,
+          retryable: true
+        }
+      )
     }
-    return { engine: `zbar ${zbar.version}`, codes: parseZbarXml(output.toString('utf8')) }
+    // No code is an answer, not a failure.
+    return { engine: QR_ENGINE, codes: found ? [qrCodeOf(found, bitmap)] : [] }
   }
 
   redact(input: { data: string; boxes: readonly PixelBox[] }): {
@@ -316,10 +323,7 @@ export class VisionHost {
     }
   }
 
-  private findTools(): Promise<{
-    tesseract: (Tool & { languages: string[] }) | null
-    zbar: Tool | null
-  }> {
+  private findTools(): Promise<{ tesseract: (Tool & { languages: string[] }) | null }> {
     this.tools ??= (async () => {
       const tesseractPath = this.findExecutable('tesseract', [
         join(this.env.ProgramFiles ?? 'C:\\Program Files', 'Tesseract-OCR'),
@@ -350,24 +354,7 @@ export class VisionHost {
           )
         }
       }
-      const zbarPath = this.findExecutable('zbarimg', [
-        join(this.env['ProgramFiles(x86)'] ?? 'C:\\Program Files (x86)', 'ZBar', 'bin'),
-        join(this.env.ProgramFiles ?? 'C:\\Program Files', 'ZBar', 'bin')
-      ])
-      let zbar: Tool | null = null
-      if (zbarPath) {
-        try {
-          const version = (await this.run(zbarPath, ['--version'], Buffer.alloc(0)))
-            .toString('utf8')
-            .trim()
-          zbar = { path: zbarPath, version: /^[\d.]+$/.test(version) ? version : 'unknown' }
-        } catch (error) {
-          this.options.logger.warn('vision.zbar.unusable', 'zbar is installed but did not run', {
-            reason: messageOf(error)
-          })
-        }
-      }
-      return { tesseract, zbar }
+      return { tesseract }
     })()
     return this.tools
   }
@@ -492,33 +479,25 @@ export function parseTesseractTsv(tsv: string): TextLine[] {
   }))
 }
 
-/** zbarimg's XML: one symbol per code, with its type, polygon and data. */
-export function parseZbarXml(xml: string): HostQrResult['codes'] {
-  const codes: HostQrResult['codes'] = []
-  for (const symbol of xml.matchAll(/<symbol\b([^>]*)>([\s\S]*?)<\/symbol>/g)) {
-    const kind = /\btype='([^']*)'/.exec(symbol[1] ?? '')?.[1] ?? 'unknown'
-    const data = /<data>(?:<!\[CDATA\[([\s\S]*?)\]\]>|([^<]*))<\/data>/.exec(symbol[2] ?? '')
-    const value = data?.[1] ?? data?.[2] ?? ''
-    const points = [
-      ...(/points='([^']*)'/.exec(symbol[2] ?? '')?.[1] ?? '').matchAll(/([+-]?\d+),([+-]?\d+)/g)
-    ].map((point) => ({ x: Number(point[1]), y: Number(point[2]) }))
-    const xs = points.map((point) => point.x)
-    const ys = points.map((point) => point.y)
-    codes.push({
-      value: value.slice(0, 4_000),
-      kind: kind.slice(0, 40),
-      box:
-        points.length > 1 && Math.max(...xs) > Math.min(...xs) && Math.max(...ys) > Math.min(...ys)
-          ? {
-              x: Math.max(0, Math.min(...xs)),
-              y: Math.max(0, Math.min(...ys)),
-              width: Math.max(...xs) - Math.min(...xs),
-              height: Math.max(...ys) - Math.min(...ys)
-            }
-          : null
-    })
+/** A code jsQR found: its text, and the box around its corners (inside the image). */
+export function qrCodeOf(code: QRCode, bitmap: { width: number; height: number }): QrCodeResult {
+  const corners = [
+    code.location.topLeftCorner,
+    code.location.topRightCorner,
+    code.location.bottomLeftCorner,
+    code.location.bottomRightCorner
+  ]
+  const xs = corners.map((point) => Math.round(point.x))
+  const ys = corners.map((point) => Math.round(point.y))
+  const x = Math.max(0, Math.min(...xs))
+  const y = Math.max(0, Math.min(...ys))
+  const width = Math.min(bitmap.width, Math.max(...xs)) - x
+  const height = Math.min(bitmap.height, Math.max(...ys)) - y
+  return {
+    value: code.data.slice(0, 4_000),
+    kind: 'QR-Code',
+    box: width > 0 && height > 0 ? { x, y, width, height } : null
   }
-  return codes.slice(0, 50)
 }
 
 function messageOf(error: unknown): string {

@@ -689,7 +689,7 @@ Decisions and alternatives: [ADR 0014](decisions/0014-vision-and-camera.md).
   schema, finding text). `completeText` takes `capability: 'vision'` so the
   router picks a vision model.
 - **Host**: `VisionHost` (`vision-host.ts`; capture through
-  `desktopCapturer` (`screen-capture.ts`), Tesseract and zbar, blacking out,
+  `desktopCapturer` (`screen-capture.ts`), Tesseract, jsQR, blacking out,
   comparison; Core only), the PNG codec (`png.ts`), and the camera gate
   (`MicrophoneGate`, `host.camera.gate`, Core only) that the session's
   permission handlers consult for video.

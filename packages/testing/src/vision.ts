@@ -5,7 +5,7 @@ import { fileURLToPath } from 'node:url'
 /**
  * Real images for the vision tests (made by `scripts/make-vision-fixtures.py`
  * with real fonts and a real QR code), read by the real OCR (Tesseract) and
- * QR (zbar) engines. The "password" in `form` is an obviously fake value.
+ * QR (jsQR) engines. The "password" in `form` is an obviously fake value.
  */
 
 const here = dirname(fileURLToPath(import.meta.url))

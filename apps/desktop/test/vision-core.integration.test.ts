@@ -30,7 +30,7 @@ import { FakeDesktop } from './fake-desktop'
 
 /**
  * SET 13 in-process: real Jupiter Core, SQLite and Permission Engine, the real
- * vision host with the real OCR (Tesseract) and QR (zbar) engines on real
+ * vision host with the real OCR (Tesseract) and QR (jsQR) engines on real
  * images, and vision models behind protocol test servers (one of them on a
  * non-loopback address, so it counts as the cloud). The screen capturer is
  * the test's: it hands over fixture images as the screen and its windows.

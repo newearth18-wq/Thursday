@@ -12,7 +12,7 @@ providers, Model Router and Chat; SET 2, the product shell; SET 1, Core
 architecture; and SET 0, the repository foundation). The **Devices** screen
 now has _Voice_, _Vision_ and _Camera_. _Vision_ captures the screen, the
 active window or a region (with a delay), or takes an image you choose, and
-reads its text and QR codes on this computer (Tesseract and zbar); a vision
+reads its text and QR codes on this computer (Tesseract and jsQR); a vision
 model you set up in _AI Models_ can describe it and find its buttons and
 fields, after secrets in it are blacked out. Every result shows its
 confidence, and one that is not confident enough is never taken as proof.
@@ -153,10 +153,10 @@ records only which vision tasks ran and where, and when a camera session
 started and ended with how many frames were captured (plus the screen and
 camera permissions in the audit trail).
 
-To read text and QR codes, install Tesseract OCR with the Thai language and
-zbar (Windows: the Tesseract installer from UB Mannheim and ZBar; Linux:
-`sudo apt install tesseract-ocr tesseract-ocr-tha zbar-tools`). Without them
-these tasks are shown as _Not configured_.
+To read text, install Tesseract OCR with the Thai language (Windows: the
+Tesseract installer from UB Mannheim; Linux:
+`sudo apt install tesseract-ocr tesseract-ocr-tha`). Without it, reading text
+is shown as _Not configured_. QR codes need nothing installed.
 
 ## Documentation
 

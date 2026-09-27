@@ -169,7 +169,8 @@ UNTRUSTED NOTE TEXT`).
   one, to disk, the database, a log or an event. The host
   (`apps/desktop/src/main/vision-host.ts`) chooses what is captured (a
   request names a source and a region, never a path or a window it did not
-  find) and reads text and QR codes on this computer (Tesseract, zbar).
+  find) and reads text and QR codes on this computer (Tesseract; jsQR in the host
+  process).
   Analysis by a model goes through the router (`capability: 'vision'`), after
   secrets are blacked out; never send an image to a cloud model that could
   not be checked for secrets. Only Core opens the camera gate

@@ -16,7 +16,7 @@ import { appDirectory, assertBuilt, query, waitForGateway } from './helpers'
 /**
  * SET 13 in the real application: screen capture with Electron (under Xvfb
  * on Linux), Chromium's fake camera behind the real permission and camera
- * gate, the real OCR (Tesseract) and QR (zbar) engines, and vision models
+ * gate, the real OCR (Tesseract) and QR (jsQR) engines, and vision models
  * behind protocol test servers (one on a non-loopback address, so it counts
  * as the cloud). Screenshots go to test-results/set-13/.
  */

@@ -86,7 +86,7 @@ export const HostOperations = {
   /**
    * SET 13: screen capture (the host chooses what is captured: the screen,
    * the active window, a region of it, or a window by the handle the agent
-   * found), OCR on this computer (Windows OCR or Tesseract), QR codes (zbar),
+   * found), OCR on this computer (Tesseract), QR codes (jsQR, in the host process),
    * image processing (blacking out regions, comparing two captures), and the
    * camera gate, which works like the microphone gate.
    */

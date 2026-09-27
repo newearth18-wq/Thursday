@@ -1,7 +1,7 @@
 import { visionFixture } from '@jupiter/testing/vision'
 import { describe, expect, it } from 'vitest'
 import { blackOut, changedFraction, crop, decodePng, encodePng, pngSize } from './png'
-import { parseTesseractTsv, parseZbarXml } from './vision-host'
+import { parseTesseractTsv, qrCodeOf } from './vision-host'
 
 describe('PNG reader and writer (SET 13)', () => {
   it('reads a real PNG and writes one that reads back to the same pixels', () => {
@@ -60,16 +60,21 @@ describe('OCR and QR output parsing', () => {
     ])
   })
 
-  it('reads zbar XML: the value, its type and where it is', () => {
-    const xml =
-      "<barcodes><source><index num='0'><symbol type='QR-Code' quality='1'><polygon points='+31,+31 +31,+264 +265,+265 +264,+31'/><data><![CDATA[https://example.com/a]]></data></symbol></index></source></barcodes>"
-    expect(parseZbarXml(xml)).toEqual([
-      {
-        value: 'https://example.com/a',
-        kind: 'QR-Code',
-        box: { x: 31, y: 31, width: 234, height: 234 }
+  it('turns a QR code found into its text and a box inside the image', () => {
+    const point = (x: number, y: number) => ({ x, y })
+    const found = {
+      data: 'https://example.com/a',
+      location: {
+        topLeftCorner: point(31.4, 31.2),
+        topRightCorner: point(264.6, 31),
+        bottomLeftCorner: point(31, 264.5),
+        bottomRightCorner: point(310, 264)
       }
-    ])
-    expect(parseZbarXml('<barcodes></barcodes>')).toEqual([])
+    } as unknown as Parameters<typeof qrCodeOf>[0]
+    expect(qrCodeOf(found, { width: 296, height: 296 })).toEqual({
+      value: 'https://example.com/a',
+      kind: 'QR-Code',
+      box: { x: 31, y: 31, width: 265, height: 234 }
+    })
   })
 })

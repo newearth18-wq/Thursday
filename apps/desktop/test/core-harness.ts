@@ -104,7 +104,7 @@ export async function startCore(
      */
     voice?: { speech: SpeechHost | null; gate: MicrophoneGate }
     /**
-     * SET 13: the real vision host (Tesseract, zbar, image processing; its screen capturer is
+     * SET 13: the real vision host (Tesseract, jsQR, image processing; its screen capturer is
      * the test's) and the real camera gate, serving host.vision.* and host.camera.gate.
      */
     vision?: { host: VisionHost; camera: MicrophoneGate; timings?: CameraTimings }

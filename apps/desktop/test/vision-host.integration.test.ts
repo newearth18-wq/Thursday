@@ -6,7 +6,7 @@ import { VisionHost, type ScreenCapturer } from '../src/main/vision-host'
 
 /**
  * SET 13: the vision host with the real engines on this computer — Tesseract
- * (OCR) and zbar (QR) — on real images. The screen capturer is the fixture
+ * (OCR) and jsQR (QR, in this process) — on real images. The screen capturer is the fixture
  * double below (the Electron capturer is tested in the real app).
  */
 
@@ -52,7 +52,11 @@ describe('SET 13 — vision host with the real engines', () => {
 
   it('reads a QR code, and says so when there is none', async () => {
     expect((await host.qr({ data: visionFixtureBase64('qr') })).codes).toEqual([
-      expect.objectContaining({ value: VISION_FIXTURES.qr.value, kind: 'QR-Code' })
+      {
+        value: VISION_FIXTURES.qr.value,
+        kind: 'QR-Code',
+        box: { x: 32, y: 32, width: 232, height: 232 }
+      }
     ])
     expect((await host.qr({ data: visionFixtureBase64('form') })).codes).toEqual([])
   })
@@ -105,6 +109,12 @@ describe('SET 13 — vision host with the real engines', () => {
     expect(engines.ocr.available).toBe(false)
     expect(engines.ocr.reason).toMatch(/^Not configured/)
     expect(engines.capture.available).toBe(false)
+    // QR codes need nothing installed: they are read in this process.
+    expect(engines.qr).toMatchObject({
+      available: true,
+      name: 'jsQR 1.4.0',
+      locality: 'this-device'
+    })
     await expect(bare.ocr({ data: visionFixtureBase64('form') })).rejects.toMatchObject({
       code: 'OCR_UNAVAILABLE'
     })

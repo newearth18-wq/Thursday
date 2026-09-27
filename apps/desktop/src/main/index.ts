@@ -253,7 +253,7 @@ async function start(environment: MainEnvironment, mainLogging: MainLogging): Pr
   })
   // SET 12: the operating system's voice (Windows SAPI, or espeak-ng where installed).
   const speech = new SpeechHost({ logger: logger.child({ component: 'speech-host' }) })
-  // SET 13: screen capture, OCR (Tesseract), QR (zbar) and image processing, in memory only.
+  // SET 13: screen capture, OCR (Tesseract), QR (jsQR) and image processing, in memory only.
   const vision = new VisionHost({
     logger: logger.child({ component: 'vision-host' }),
     capturer: electronScreenCapturer({

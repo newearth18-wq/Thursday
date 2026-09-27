@@ -40,11 +40,12 @@ Describing an image and finding its elements go to a model with the
 routing mode apply as for chat. Under _Local only_ the router refuses a
 cloud model and the transport refuses a cloud address again.
 
-OCR and QR codes never leave the computer: the host runs Tesseract (English
-and Thai, `tsv` output with a confidence for every word) and zbar
-(`zbarimg --xml`). Both are found on `PATH` (and in their usual folders on
-Windows). When one is missing, its task is _Not configured_ with what to
-install; nothing else is affected.
+OCR and QR codes never leave the computer. The host runs Tesseract (English
+and Thai, `tsv` output with a confidence for every word), found on `PATH`
+(and in its usual folders on Windows); when it is missing, reading text is
+_Not configured_ with what to install, and nothing else is affected. QR codes
+are read by jsQR in the host process, from the decoded pixels: nothing to
+install, and the image never leaves memory.
 
 The person chose this over the alternatives below.
 
@@ -136,6 +137,10 @@ visual result was assumed". A vision failure never stops the semantic path.
 
 ## Alternatives rejected
 
+- **zbar for QR codes** (tried first): the Windows build that can be
+  installed (0.10) cannot read an image from standard input, so it would
+  need the image written to a file; jsQR reads the pixels in memory on every
+  platform.
 - **Windows OCR**: no confidence per reading (decision 2).
 - **Sending every image to the vision model for OCR**: text and QR codes
   would leave the computer even when a local reader can do it, and a model
@@ -151,8 +156,8 @@ visual result was assumed". A vision failure never stops the semantic path.
 
 ## Consequences
 
-- Tesseract (with the Thai model) and zbar must be installed for text and
-  QR codes; CI installs them on Linux and Windows.
+- Tesseract (with the Thai model) must be installed to read text; CI
+  installs it on Linux and Windows. QR codes need nothing installed.
 - Images disappear after 15 minutes or when the app closes; the person must
   capture again.
 - Capturing another application's active window works on Windows only.

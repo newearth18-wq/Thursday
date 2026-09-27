@@ -2,7 +2,7 @@
 
 - Status: **all 10 acceptance tests pass**, in-process (real Core, real
   SQLite and Permission Engine, the real vision host with real Tesseract
-  and zbar on real images, vision models behind protocol test servers) and
+  and jsQR on real images, vision models behind protocol test servers) and
   in the real Electron application (E2E: real screen capture under Xvfb,
   Chromium's fake camera, with screenshots). Evidence: §7 and §12.
 - SET 12 was checked first: green in CI on Linux, Windows and Legacy
@@ -31,7 +31,7 @@ The captured window is named (title, owner, handle).
 | Task          | Engine                                                              | Where it runs                    |
 | ------------- | ------------------------------------------------------------------- | -------------------------------- |
 | Read text     | Tesseract (English + Thai), a confidence for every line             | Always this computer             |
-| Read QR codes | zbar (`zbarimg`)                                                    | Always this computer             |
+| Read QR codes | jsQR, in the host process (nothing to install)                      | Always this computer             |
 | Describe      | The vision model chosen by the router, with an optional question    | Local or cloud, shown before use |
 | Find elements | The same model: buttons, fields, links… with a box and a confidence | Local or cloud, shown before use |
 | Compare       | The host's pixel comparison + OCR of both images                    | This computer                    |
@@ -126,7 +126,7 @@ top bar. English and Thai text; design tokens only.
   `vision-core.integration.test.ts`, `vision.integration.test.ts` (E2E),
   `core-harness.ts`, `apps/desktop/src/main/png.test.ts`,
   `host-capabilities.test.ts`; earlier suites updated (§12).
-- **CI:** Tesseract (English, Thai) and zbar on the Linux and Windows jobs.
+- **CI:** Tesseract (English, Thai) on the Linux and Windows jobs.
 - **Docs:** ADR 0014, `ARCHITECTURE.md`, `SECURITY.md`, `README.md`,
   `AGENTS.md`, this report and `docs/sets/set-13/`.
 
@@ -161,8 +161,9 @@ existing audit trail.
 - No image is kept; text read from an image is not stored.
 - Secrets in an image are blacked out before a vision model sees it.
 - _Local only_ keeps every image on this computer.
-- Tesseract and zbar run with fixed arguments and the image on standard
-  input; no path or command comes from a request.
+- Tesseract runs with fixed arguments and the image on standard input;
+  QR codes are read in the host process. No path or command comes from a
+  request, and no image is written to a file for either.
 - Text in an image is data, never an instruction; model answers must fit a
   strict schema.
 
@@ -186,7 +187,7 @@ npm run verify
 ### Local run
 
 `npm run verify` on Linux (Node.js 22, Xvfb, a throwaway GNOME Keyring,
-Tesseract 5.3.4 with English and Thai, zbar 0.23.93): **13/13 steps PASS**,
+Tesseract 5.3.4 with English and Thai): **13/13 steps PASS**,
 exit 0.
 
 - unit tests: 31 files, 288 tests
@@ -200,8 +201,8 @@ The SET 13 suites:
 | Suite                                               | Tests | What it runs                                                                                                                               |
 | --------------------------------------------------- | ----- | ------------------------------------------------------------------------------------------------------------------------------------------ |
 | `packages/core/src/vision/vision.test.ts`           | 6     | The image store (time and number limits, parts), secret lines, finding text, the confidence rule, the strict model answer                  |
-| `apps/desktop/src/main/png.test.ts`                 | 5     | The PNG codec on real pixels (crop, black out, compare), Tesseract TSV and zbar XML parsing                                                |
-| `apps/desktop/test/vision-host.integration.test.ts` | 6     | The real Tesseract and zbar on the fixture images: engines, text with confidences, QR codes, region, black-out, comparison, Not configured |
+| `apps/desktop/src/main/png.test.ts`                 | 5     | The PNG codec on real pixels (crop, black out, compare), Tesseract TSV parsing, the QR code box                                            |
+| `apps/desktop/test/vision-host.integration.test.ts` | 6     | The real Tesseract and jsQR on the fixture images: engines, text with confidences, QR codes, region, black-out, comparison, Not configured |
 | `apps/desktop/test/vision-core.integration.test.ts` | 8     | Real Core, SQLite, Permission Engine and vision host: AT1–AT10, including the camera closing by itself                                     |
 | `apps/desktop/test/vision.integration.test.ts`      | 7     | The real Electron app (real screen capture under Xvfb, Chromium's fake camera): AT1–AT10 through the interface, with screenshots           |
 | `apps/desktop/src/main/host-capabilities.test.ts`   | 1 new | The camera gate and the vision host operations are for Jupiter Core only                                                                   |
@@ -209,16 +210,17 @@ The SET 13 suites:
 
 ### Found and fixed during the SET
 
-| Found                                                                                                                             | Fix                                                                                        |
-| --------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------ |
-| With 131 capabilities, `diagnostics.snapshot` broke its own contract (at most 128), so Diagnostics and seven earlier tests failed | The limit is 256, and a contract test checks that every capability and host operation fits |
-| The camera preview and a capture could grab frames at the same time, and a capture came back empty                                | Frames are grabbed one at a time                                                           |
-| After a capture, the Vision screen did not show the new image until something else changed                                        | It reloads after each capture, and when a model is added or changed                        |
-| Windows OCR reports no confidence                                                                                                 | Tesseract on every platform (ADR 0014, decision 2)                                         |
-| The Local only test counted connections, which keep-alive can hide                                                                | It checks the requests the cloud server received                                           |
-| A Thai credential label was missed (`\b` does not work for Thai)                                                                  | Thai labels are matched separately                                                         |
-| E2E: after a new upload, the test read the previous image's card                                                                  | Each card names its image (`data-image-id`) and the test uses the newest one               |
-| The native file chooser did not follow the design                                                                                 | Drawn like the other buttons with the design tokens                                        |
+| Found                                                                                                                             | Fix                                                                                                                            |
+| --------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------ |
+| With 131 capabilities, `diagnostics.snapshot` broke its own contract (at most 128), so Diagnostics and seven earlier tests failed | The limit is 256, and a contract test checks that every capability and host operation fits                                     |
+| The camera preview and a capture could grab frames at the same time, and a capture came back empty                                | Frames are grabbed one at a time                                                                                               |
+| After a capture, the Vision screen did not show the new image until something else changed                                        | It reloads after each capture, and when a model is added or changed                                                            |
+| On Windows CI, zbar (0.10, the build that can be installed) could not read an image from standard input, so every QR code failed  | QR codes are read by jsQR in the host process, on the decoded pixels (ADR 0014): nothing to install, nothing written to a file |
+| Windows OCR reports no confidence                                                                                                 | Tesseract on every platform (ADR 0014, decision 2)                                                                             |
+| The Local only test counted connections, which keep-alive can hide                                                                | It checks the requests the cloud server received                                                                               |
+| A Thai credential label was missed (`\b` does not work for Thai)                                                                  | Thai labels are matched separately                                                                                             |
+| E2E: after a new upload, the test read the previous image's card                                                                  | Each card names its image (`data-image-id`) and the test uses the newest one                                                   |
+| The native file chooser did not follow the design                                                                                 | Drawn like the other buttons with the design tokens                                                                            |
 
 ### CI
 
@@ -246,8 +248,9 @@ The E2E suite drives the real app and saves screenshots, copied to
 ## 9. Known limitations
 
 - **Tesseract, not Windows OCR** (decision 2). Tesseract with the Thai
-  model and zbar must be installed; without them these tasks are _Not
-  configured_ with what to install.
+  model must be installed; without it reading text is _Not configured_
+  with what to install. QR codes need nothing installed.
+- **One QR code per image**: the reader returns the first code it finds.
 - **No "keep this image"**: images disappear after 15 minutes or when the
   app closes; keeping a capture as an artifact is not in SET 13.
 - **Active window of another application on Linux** is _Unavailable_
@@ -266,8 +269,8 @@ The E2E suite drives the real app and saves screenshots, copied to
 ## 10. How to run
 
 ```bash
-# Linux: sudo apt install tesseract-ocr tesseract-ocr-tha zbar-tools
-# Windows: install Tesseract OCR (UB Mannheim, with Thai) and ZBar
+# Linux: sudo apt install tesseract-ocr tesseract-ocr-tha
+# Windows: install Tesseract OCR (UB Mannheim, with Thai)
 npm ci && npm run dev
 ```
 
@@ -292,7 +295,7 @@ npm ci && npm run dev
 | --- | ------------------------------------------------------------------ | -------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | 1   | Screenshot captured                                                | **PASS** | Refused with `PERMISSION_REQUIRED` and nothing captured before the answer; then a PNG of the screen's size, in memory. E2E: the real Xvfb screen at the display's size (screenshots 02, 03)                                                                                                 |
 | 2   | Active-window capture works                                        | **PASS** | The captured window is named (title, owner, handle). E2E: Jupiter's focused window, its title matching the page (screenshot 04)                                                                                                                                                             |
-| 3   | Vision returns a structured result                                 | **PASS** | The observation schema with text and confidences (real Tesseract), a QR code (real zbar), the model's description, answer and elements, privacy handling; the password line blacked out before the model saw it. E2E: the same in the app (screenshot 05)                                   |
+| 3   | Vision returns a structured result                                 | **PASS** | The observation schema with text and confidences (real Tesseract), a QR code (jsQR), the model's description, answer and elements, privacy handling; the password line blacked out before the model saw it. E2E: the same in the app (screenshot 05)                                        |
 | 4   | Camera permission is required                                      | **PASS** | `camera.start` refused until `camera.read` is allowed; the gate stays shut. E2E: `getUserMedia` fails with `NotAllowedError` before and after (screenshot 06)                                                                                                                               |
 | 5   | Camera-active indicator is accurate                                | **PASS** | States follow the reported track (`STARTING` → `ACTIVE` → `PAUSED` → `OFF`). E2E: the indicator is present exactly while the fake camera's track is live, _paused_ while paused (screenshots 07, 08)                                                                                        |
 | 6   | Camera closes and releases the device after the task               | **PASS** | Closing, a lost device, a start that never comes (`CAMERA_START_TIMEOUT`), an idle camera (the task is over) and Core stopping each shut the gate; the session's frames are dropped. E2E: after _Close_, no live track, no indicator, the page cannot open the camera again (screenshot 09) |

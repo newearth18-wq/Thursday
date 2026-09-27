@@ -1,6 +1,6 @@
 """
 Makes the SET 13 vision test images: real PNGs with real text and a real QR
-code, read by the real OCR (Tesseract) and QR (zbar) engines in the tests.
+code, read by the real OCR (Tesseract) and QR (jsQR) engines in the tests.
 
     python3 packages/testing/scripts/make-vision-fixtures.py
 
