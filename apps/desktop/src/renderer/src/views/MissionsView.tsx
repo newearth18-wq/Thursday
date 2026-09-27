@@ -265,6 +265,10 @@ function MissionDetailView({
   const elapsed = useElapsed(summary.startedAt, summary.endedAt)
   const current = detail.steps.find((step) => step.stepId === detail.currentStepId) ?? null
   const next = detail.steps.find((step) => step.stepId === detail.nextStepId) ?? null
+  // The agents the plan's steps run on (their step types are named after them).
+  const agents = (['computer', 'browser'] as const).filter((agent) =>
+    detail.plan?.steps.some((step) => step.skillId.startsWith(`${agent}.`))
+  )
   const executionId = detail.executionHistory.at(-1)?.executionId ?? null
 
   const run = (action: MissionAction, work: () => Promise<MissionDetail>) => {
@@ -416,9 +420,10 @@ function MissionDetailView({
         </div>
         <div>
           <dt>{t('mission.agent')}</dt>
-          <dd>
-            <span className="badge badge-muted">{t('availability.COMING_LATER')}</span>{' '}
-            <span className="muted small">{t('missions.agentLater')}</span>
+          <dd data-testid="mission-agents">
+            {agents.length > 0
+              ? agents.map((agent) => t(`missions.agent.${agent}`)).join(', ')
+              : t('missions.noAgent')}
           </dd>
         </div>
         <div>
@@ -434,8 +439,15 @@ function MissionDetailView({
           <dd data-testid="mission-permissions">
             {detail.permissions.length === 0 ? t('missions.noPermissions') : null}
             {detail.permissions.map((permission) => (
-              <span key={permission.name} className="badge badge-muted">
-                {permission.name}
+              <span
+                key={permission.name}
+                className="badge badge-muted"
+                data-decision={permission.decision}
+              >
+                {t('missions.permissionDecision', {
+                  name: permission.name,
+                  decision: t(`missions.permissionDecision.${permission.decision}`)
+                })}
               </span>
             ))}
           </dd>

@@ -1,3 +1,4 @@
+import { existsSync } from 'node:fs'
 import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import {
@@ -42,6 +43,7 @@ import { electronCoreLauncher } from './core-launcher'
 import { CoreProcessManager } from './core-process'
 import { prepareEnvironment, type MainEnvironment } from './environment'
 import { HostGateway } from './gateway'
+import { BrowserHost, findBrowser } from './browser-host'
 import { ComputerHost } from './computer-host'
 import { HOST_CAPABILITIES, HostCapabilities } from './host-capabilities'
 import { CredentialVault } from './credential-vault'
@@ -146,9 +148,35 @@ async function start(environment: MainEnvironment, mainLogging: MainLogging): Pr
         : app.getPath('desktop'),
     evidenceFolder: join(environment.userDataDir, 'computer-evidence')
   })
+  // SET 9: the Browser Agent drives an installed Chromium-family browser, never the person's own profile.
+  const testing = environment.resolution.environment === 'test'
+  const testBrowser = testing ? process.env.JUPITER_TEST_BROWSER_EXECUTABLE : undefined
+  const browserBase =
+    testing && process.env.JUPITER_TEST_BROWSER_FOLDER
+      ? process.env.JUPITER_TEST_BROWSER_FOLDER
+      : join(environment.userDataDir, 'browser')
+  const runtimeEntry = join(here, 'browser-runtime.cjs')
+  const browser = new BrowserHost({
+    logger: logger.child({ component: 'browser-host' }),
+    executable: testBrowser
+      ? { path: testBrowser, name: 'Chromium (test)' }
+      : findBrowser(process.platform, process.env),
+    folders: {
+      profile: join(environment.userDataDir, 'browser', 'profile'),
+      quarantine: join(browserBase, 'quarantine'),
+      downloads: join(browserBase, 'downloads'),
+      uploads: join(browserBase, 'uploads'),
+      evidence: join(environment.userDataDir, 'browser-evidence')
+    },
+    runtimeEntry: existsSync(runtimeEntry) ? runtimeEntry : null,
+    // The runtime runs on Electron's own Node.js, in a process of its own.
+    command: process.execPath,
+    env: { ELECTRON_RUN_AS_NODE: '1' }
+  })
   const hostCapabilities = new HostCapabilities({
     logger,
     computer,
+    browser,
     logsDirectory: environment.logsDir,
     vault,
     openPath: (path) => shell.openPath(path),
@@ -374,6 +402,7 @@ async function start(environment: MainEnvironment, mainLogging: MainLogging): Pr
     core,
     vault,
     computer,
+    browser,
     takeAutomaticRestart: () => {
       const pending = automaticRestartPending
       automaticRestartPending = false

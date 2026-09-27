@@ -82,6 +82,20 @@ const COMPUTER_RUN: Policy = {
   audit: 'always',
   timeoutMs: 600_000
 }
+const BROWSER_READ: Policy = { ...UI_READ, requires: ['database', 'browser-agent'] }
+const BROWSER_RUN: Policy = {
+  ...BROWSER_READ,
+  requires: ['database', 'permission-engine', 'browser-agent'],
+  risk: 'HIGH',
+  audit: 'always',
+  timeoutMs: 600_000
+}
+const BROWSER_SESSION: Policy = {
+  ...BROWSER_READ,
+  risk: 'MEDIUM',
+  audit: 'always',
+  timeoutMs: 120_000
+}
 /** Commands that plan or run a workflow (SET 5) also need the workflow engine. */
 const WORKFLOW_WRITE: Policy = {
   ...MISSION_WRITE,
@@ -459,6 +473,45 @@ export function coreCapabilities(kernel: CoreKernel): CapabilityDefinition<never
     ),
     define('computer.tasks', COMPUTER_READ, (input) => ({
       tasks: kernel.computer.tasks(input.limit)
+    })),
+
+    define('browser.status', { ...BROWSER_READ, timeoutMs: 60_000 }, () =>
+      kernel.refreshBrowserAvailability()
+    ),
+    define(
+      'browser.sessions.open',
+      BROWSER_SESSION,
+      (input) => kernel.browser.openSession(input),
+      (input) => `browser-session:${input.profile}`
+    ),
+    define(
+      'browser.sessions.close',
+      BROWSER_SESSION,
+      async (input) => ({ closed: await kernel.browser.closeSession(input.sessionId) }),
+      (input) => `browser-session:${input.sessionId}`
+    ),
+    define('browser.sessions.list', { ...BROWSER_READ, timeoutMs: 30_000 }, async () => ({
+      sessions: await kernel.browser.sessions()
+    })),
+    define(
+      'browser.run',
+      BROWSER_RUN,
+      (input, context) =>
+        kernel.browser.run(input, {
+          actor: context.request.actor.type,
+          correlationId: context.request.correlationId,
+          signal: context.signal
+        }),
+      (input) => `browser-task:${input.taskId}`
+    ),
+    define(
+      'browser.cancel',
+      { ...BROWSER_READ, audit: 'always' },
+      (input) => ({ cancelled: kernel.browser.cancel(input.taskId) }),
+      (input) => `browser-task:${input.taskId}`
+    ),
+    define('browser.tasks', BROWSER_READ, (input) => ({
+      tasks: kernel.browser.tasks(input.limit, input.missionId)
     })),
 
     define('permissions.catalogue', PERMISSION_READ, () => ({

@@ -67,6 +67,28 @@ describe.skipIf(!executablePath)('packaged Jupiter build', () => {
     expect(existsSync(join(userDataDir, 'jupiter.db'))).toBe(true)
   })
 
+  it('runs the bundled browser runtime from the package when a browser is installed (SET 9)', async () => {
+    const page = jupiter.window
+    await settledOverallStatus(page)
+    const status = await query(page, 'browser.status', {})
+    if (!status.available) {
+      // No Edge, Chrome or Chromium here: shown as Unavailable, never as working.
+      expect(status.reason).toBeTruthy()
+      expect(serviceStatus(await gatewayStatus(page), 'browser-runtime')).toBe('UNAVAILABLE')
+      return
+    }
+    expect(status.runtime.state).toBe('running')
+    // A real browser, started by the runtime inside the packaged app.
+    const session = await query(page, 'browser.sessions.open', {
+      missionId: null,
+      profile: 'temporary'
+    })
+    expect(session.profile).toBe('temporary')
+    expect(await query(page, 'browser.sessions.close', { sessionId: session.sessionId })).toEqual({
+      closed: true
+    })
+  })
+
   it('keeps DevTools unavailable in the packaged production build', async () => {
     const devTools = await jupiter.evaluateMain<boolean | null>(`(() => {
       const contents = require('electron').BrowserWindow.getAllWindows()[0]?.webContents

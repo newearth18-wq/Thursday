@@ -189,7 +189,12 @@ export function SettingsView({
           {
             id: 'permissions',
             label: t('settings.tab.permissions'),
-            panel: <PermissionsPanel coreSession={coreSessionOf(status)} />
+            panel: (
+              <>
+                <BrowserProfileSetting coreRunning={coreRunning} />
+                <PermissionsPanel coreSession={coreSessionOf(status)} />
+              </>
+            )
           },
           {
             id: 'advanced',
@@ -210,6 +215,72 @@ export function SettingsView({
           : null}
       </p>
     </section>
+  )
+}
+
+/**
+ * The Browser Agent's persistent profile (SET 9): off by default, so every
+ * browser session is a temporary profile removed when it closes. Saved by
+ * Jupiter Core; the switch says "Saved" only after Core confirms.
+ */
+function BrowserProfileSetting({ coreRunning }: { readonly coreRunning: boolean }) {
+  const { t } = useI18n()
+  const key = 'browser.persistentProfile'
+  const [value, setValue] = useState<Loadable<boolean>>({ state: 'loading' })
+  const [saved, setSaved] = useState<SaveState | null>(null)
+
+  useEffect(() => {
+    if (!coreRunning) return
+    let active = true
+    request('settings.list', {}).then(
+      (result) => {
+        const record = result.settings.find((setting) => setting.key === key)
+        if (active)
+          setValue({
+            state: 'ready',
+            value: typeof record?.value === 'boolean' ? record.value : SettingDefaults[key]
+          })
+      },
+      (error: unknown) => {
+        if (active) setValue({ state: 'error', error: envelopeOf(error) })
+      }
+    )
+    return () => {
+      active = false
+    }
+  }, [coreRunning])
+
+  if (value.state !== 'ready')
+    return value.state === 'error' ? (
+      <p className="notice notice-warning" role="status">
+        {t('settings.browserProfileUnavailable', { reason: value.error.message })}
+      </p>
+    ) : null
+  return (
+    <>
+      <Switch
+        label={t('settings.browserProfile')}
+        testId="setting-browser-profile"
+        checked={value.value}
+        onChange={(next) => {
+          setSaved(null)
+          request('settings.update', { key, value: next }).then(
+            () => {
+              setValue({ state: 'ready', value: next })
+              setSaved({ kind: 'saved' })
+            },
+            (error: unknown) => {
+              setSaved({ kind: 'failed', message: envelopeOf(error).message })
+            }
+          )
+        }}
+        description={t('settings.browserProfileHint')}
+      />
+      <p className="muted small" role="status" data-testid="browser-profile-save-status">
+        {saved?.kind === 'saved' ? t('settings.saved') : null}
+        {saved?.kind === 'failed' ? t('settings.notSaved', { reason: saved.message }) : null}
+      </p>
+    </>
   )
 }
 

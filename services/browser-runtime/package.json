@@ -1,11 +1,24 @@
 {
   "name": "@jupiter/browser-runtime",
-  "version": "0.0.0",
+  "version": "0.1.0",
   "private": true,
-  "description": "Coming later (SET 9): isolated Playwright-based Browser Agent process; all web content treated as untrusted.",
+  "description": "The browser runtime (SET 9): Playwright driving a Chromium-family browser in its own process, behind a narrow, typed contract. Web content is always untrusted.",
   "license": "MIT",
-  "jupiter": {
-    "status": "COMING_LATER",
-    "plannedSet": 9
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts",
+    "./build": "./src/build.ts"
+  },
+  "scripts": {
+    "typecheck": "tsc -p tsconfig.json"
+  },
+  "dependencies": {
+    "@jupiter/contracts": "0.1.0",
+    "playwright-core": "^1.63.0",
+    "zod": "^4.6.5"
+  },
+  "devDependencies": {
+    "@jupiter/testing": "0.1.0",
+    "esbuild": "^0.25.12"
   }
 }

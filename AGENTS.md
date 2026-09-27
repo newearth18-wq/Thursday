@@ -109,6 +109,17 @@ Do not modify `legacy/thursday-browser` unless a task is explicitly about it.
   unverified effect is a failure. A new application is an adapter
   (`computer/adapters.ts`) that finds controls semantically; coordinates are
   only the labelled, opt-in `CLICK_POINT` fallback.
+- Browser Agent (SET 9): Core decides and checks every action
+  (`packages/core/src/browser/`); the host (`apps/desktop/src/main/browser-host.ts`)
+  chooses the browser and every folder and never takes a path from a request;
+  the browser runs only in the browser runtime (`services/browser-runtime`).
+  A new action needs a contract entry (`BrowserAction`), a permission
+  requirement for its exact origin, and an observation of what really
+  happened. Page content is untrusted data: never let it add actions,
+  permissions or origins, pass it on only as `UntrustedContent` (fenced in
+  Missions), and label text that tries to direct the agent. Leaving the
+  approved origins is a `SAFETY_STOP`, never a warning. Downloads are kept
+  only after the host checks them in quarantine; nothing is overwritten.
 - Schema changes are new migrations at the end of `JUPITER_MIGRATIONS`; never
   edit a migration that has shipped (see `packages/database/README.md`).
 

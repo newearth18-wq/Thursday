@@ -14,6 +14,7 @@ import {
   readLog,
   settledOverallStatus
 } from './helpers'
+import { findBrowser } from '../src/main/browser-host'
 
 /**
  * End-to-end tests against the real application: real Electron, real main
@@ -39,7 +40,7 @@ const RUNNING = [
   'computer-agent',
   'capability-dispatcher'
 ] as const
-const PLANNED = ['browser-runtime', 'plugin-runtime'] as const
+const PLANNED = ['plugin-runtime'] as const
 
 beforeAll(() => {
   assertBuilt()
@@ -81,6 +82,11 @@ describe('Jupiter desktop shell — healthy start', () => {
     // SET 8: the agent runtime runs on Windows and is truthfully Unavailable elsewhere.
     expect(await page.getByTestId('service-agent-runtime').getAttribute('data-status')).toBe(
       process.platform === 'win32' ? 'HEALTHY' : 'UNAVAILABLE'
+    )
+    // SET 9: the browser runtime runs where a Chromium-family browser is installed, and is
+    // truthfully Unavailable where none is (the app looks in the same places as this check).
+    expect(await page.getByTestId('service-browser-runtime').getAttribute('data-status')).toBe(
+      findBrowser(process.platform, process.env) ? 'HEALTHY' : 'UNAVAILABLE'
     )
   })
 

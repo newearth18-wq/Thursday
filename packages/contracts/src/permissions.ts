@@ -147,6 +147,36 @@ export const PERMISSION_CATALOGUE = {
     reversible: true,
     dataLeavesDevice: 'The address of the page.'
   },
+  'browser.read': {
+    risk: 'LOW',
+    summary: 'Read a web page',
+    consequence: 'The text, structure or a picture of the page becomes part of the result.',
+    reversible: true,
+    dataLeavesDevice: null
+  },
+  'browser.interact': {
+    risk: 'MEDIUM',
+    summary: 'Click and type on a web page',
+    consequence:
+      'The page reacts as if a person clicked or typed; what is typed may reach the website.',
+    reversible: false,
+    dataLeavesDevice: 'What is typed into the page.'
+  },
+  'browser.submit_login': {
+    risk: 'MEDIUM',
+    summary: 'Sign in to a website',
+    consequence: 'The sign-in form is sent to the website.',
+    reversible: true,
+    dataLeavesDevice: 'The sign-in details entered in the form.'
+  },
+  'browser.click_point': {
+    risk: 'HIGH',
+    summary: 'Click a point on a web page (coordinate fallback)',
+    consequence:
+      'Whatever is at that point of the page is clicked, without knowing which control it is.',
+    reversible: false,
+    dataLeavesDevice: null
+  },
   'browser.download': {
     risk: 'MEDIUM',
     summary: 'Download a file from the web',

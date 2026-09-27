@@ -10,6 +10,7 @@ import { ServiceStatus } from './service-health'
 import { SkillExecutionStatus, SkillHealthStatus, SkillVersion } from './skills'
 import { PermissionName, SkillId } from './plans'
 import { PermissionDecision } from './permissions'
+import { BrowserActionType, BrowserMethod, BrowserTaskStatus, SuspiciousContent } from './browser'
 import { ComputerActionType, ComputerTaskStatus, InteractionMethod } from './computer'
 
 /**
@@ -35,7 +36,8 @@ export const StreamKind = z.enum([
   'conversation',
   'skill',
   'permission',
-  'computer'
+  'computer',
+  'browser'
 ])
 export type StreamKind = z.infer<typeof StreamKind>
 
@@ -313,6 +315,46 @@ export const EventPayloads = {
       status: ComputerTaskStatus,
       errorCode: z.string().max(64).nullable()
     })
+    .strict(),
+  // The Browser Agent (SET 9), on the stream `browser/<taskId>`.
+  'browser.task_started': z
+    .object({ taskId: Uuidv7, sessionId: Uuidv7, actions: z.number().int().min(1).max(50) })
+    .strict(),
+  'browser.action_completed': z
+    .object({
+      taskId: Uuidv7,
+      index: z.number().int().min(0).max(49),
+      action: BrowserActionType,
+      success: z.boolean(),
+      method: BrowserMethod,
+      origin: z.string().max(300).nullable(),
+      errorCode: z.string().max(64).nullable()
+    })
+    .strict(),
+  /** Page text that tried to direct the agent was found and labelled (never followed). */
+  'browser.suspicious_content': z
+    .object({
+      taskId: Uuidv7,
+      index: z.number().int().min(0).max(49),
+      origin: z.string().max(300),
+      kinds: z.array(SuspiciousContent.shape.kind).min(1).max(7)
+    })
+    .strict(),
+  /** A safety rule stopped the task (an origin it was not approved for). */
+  'browser.safety_stop': z
+    .object({
+      taskId: Uuidv7,
+      index: z.number().int().min(0).max(49),
+      reached: z.string().max(300),
+      allowed: z.array(z.string().max(300)).max(20)
+    })
+    .strict(),
+  'browser.task_finished': z
+    .object({
+      taskId: Uuidv7,
+      status: BrowserTaskStatus,
+      errorCode: z.string().max(64).nullable()
+    })
     .strict()
 } as const satisfies Record<string, z.ZodType>
 
@@ -384,7 +426,12 @@ export const DomainEvent = z
     variant('permission.grant_ended'),
     variant('computer.task_started'),
     variant('computer.action_completed'),
-    variant('computer.task_finished')
+    variant('computer.task_finished'),
+    variant('browser.task_started'),
+    variant('browser.action_completed'),
+    variant('browser.suspicious_content'),
+    variant('browser.safety_stop'),
+    variant('browser.task_finished')
   ])
   .refine(
     (event) =>

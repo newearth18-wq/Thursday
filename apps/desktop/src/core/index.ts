@@ -148,6 +148,12 @@ async function initialise(config: CoreConfig): Promise<void> {
       `The host did not report the Computer Agent's status: ${describeError(error)}`
     )
   })
+  created.refreshBrowserAvailability().catch((error: unknown) => {
+    log.warn(
+      'browser-agent.unavailable',
+      `The host did not report the Browser Agent's status: ${describeError(error)}`
+    )
+  })
 }
 
 async function handle(raw: unknown): Promise<void> {

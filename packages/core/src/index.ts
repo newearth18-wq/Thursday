@@ -37,6 +37,7 @@ export type {
   AuditStore,
   BackupOptions,
   ChatStore,
+  BrowserTaskStore,
   ComputerTaskStore,
   ExecutionRecord,
   MissionChanges,
@@ -141,3 +142,5 @@ export {
   type PlanParseResult
 } from './workflow/validate'
 export { completeText, type Completion } from './ai/complete'
+export { BROWSER_AGENT } from './browser/agent'
+export { findSuspiciousInstructions } from './browser/injection'

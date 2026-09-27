@@ -21,6 +21,13 @@ import {
   UserMessageText
 } from './chat'
 import { AuditEvent } from './audit'
+import {
+  BrowserProfile,
+  BrowserSession,
+  BrowserStatus,
+  BrowserTask,
+  BrowserTaskRequest
+} from './browser'
 import { ComputerStatus, ComputerTask, ComputerTaskRequest } from './computer'
 import {
   MissionDetail,
@@ -162,7 +169,8 @@ export const SettingUpdate = z.discriminatedUnion('key', [
   settingUpdate('ai.preferredChatModel'),
   settingUpdate('ai.preferredReasoningModel'),
   settingUpdate('ai.preferredVisionModel'),
-  settingUpdate('ai.preferredEmbeddingModel')
+  settingUpdate('ai.preferredEmbeddingModel'),
+  settingUpdate('browser.persistentProfile')
 ])
 export type SettingUpdate = z.infer<typeof SettingUpdate>
 
@@ -573,6 +581,52 @@ export const Capabilities = {
     kind: 'query',
     input: z.object({ limit: z.number().int().min(1).max(100) }).strict(),
     output: z.object({ tasks: z.array(ComputerTask).max(100) }).strict()
+  },
+  // ---- Browser Agent (SET 9) ----------------------------------------------------------------
+  'browser.status': { kind: 'query', input: Empty, output: BrowserStatus },
+  /**
+   * Open a browser session: a temporary profile (removed when it closes), or
+   * the persistent profile when the person turned it on. Never the person's
+   * own browser profile.
+   */
+  'browser.sessions.open': {
+    kind: 'command',
+    input: z.object({ missionId: Uuidv7.nullable(), profile: BrowserProfile }).strict(),
+    output: BrowserSession
+  },
+  'browser.sessions.close': {
+    kind: 'command',
+    input: z.object({ sessionId: Uuidv7 }).strict(),
+    output: z.object({ closed: z.boolean() }).strict()
+  },
+  'browser.sessions.list': {
+    kind: 'query',
+    input: Empty,
+    output: z.object({ sessions: z.array(BrowserSession).max(50) }).strict()
+  },
+  /**
+   * Run a task of typed browser actions. Every action is checked by the
+   * Permission Engine for its exact origin; missing permissions are asked for
+   * all at once, before anything runs. Reaching an origin the task was not
+   * approved for stops it (SAFETY_STOP).
+   */
+  'browser.run': { kind: 'command', input: BrowserTaskRequest, output: BrowserTask },
+  /** Stop a running task at once: the operation under way is stopped; queued actions do not run. */
+  'browser.cancel': {
+    kind: 'command',
+    input: z.object({ taskId: Uuidv7 }).strict(),
+    output: z.object({ cancelled: z.boolean() }).strict()
+  },
+  'browser.tasks': {
+    kind: 'query',
+    input: z
+      .object({
+        limit: z.number().int().min(1).max(100),
+        /** Only this Mission's tasks (its browser evidence), oldest first. */
+        missionId: Uuidv7.optional()
+      })
+      .strict(),
+    output: z.object({ tasks: z.array(BrowserTask).max(100) }).strict()
   }
 } as const satisfies Record<string, { kind: RequestKind; input: z.ZodType; output: z.ZodType }>
 

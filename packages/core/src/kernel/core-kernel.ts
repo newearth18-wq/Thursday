@@ -6,6 +6,7 @@ import {
   type AuditEvent,
   type BackupInfo,
   type CapabilityOutput,
+  type BrowserStatus,
   type ComputerStatus,
   type CoreConfig,
   type DiagnosticsSnapshot,
@@ -38,6 +39,8 @@ import {
 import { EventBus, type EventDelivery, type PublishInput } from '../events/event-bus'
 import type { ProviderAdapter } from '../ai/adapter'
 import { ChatService } from '../ai/chat'
+import { BrowserAgent } from '../browser/agent'
+import { checkedBrowserDriver } from '../browser/driver'
 import { ComputerAgent } from '../computer/agent'
 import { checkedDriver } from '../computer/driver'
 import { MissionManager } from '../missions/manager'
@@ -124,6 +127,7 @@ export interface CoreKernelOptions {
 const CORE_ACTOR: Actor = { type: 'core', id: 'core' }
 const MAX_BUFFERED_AUDIT = 500
 const HOST_OPERATION_TIMEOUT_MS = 15_000
+const BROWSER_OPERATION_TIMEOUT_MS = 150_000
 const RENDERER_ERRORS_PER_MINUTE = 20
 
 export class CoreKernel {
@@ -135,6 +139,7 @@ export class CoreKernel {
   readonly skills: SkillRegistry
   readonly permissions: PermissionEngine
   readonly computer: ComputerAgent
+  readonly browser: BrowserAgent
   private readonly supervisor: ServiceSupervisor
   private readonly logger: Logger
   private readonly now: () => Date
@@ -142,6 +147,8 @@ export class CoreKernel {
   private database: (DatabasePort & { checkpoint(): void }) | null = null
   /** Whether the host can run the Computer Agent (known after the computer-agent service starts). */
   private computerAvailable = false
+  /** Whether the host can run the Browser Agent (known once Core is running). */
+  private browserAvailable = false
   private readonly auditBuffer: AuditEvent[] = []
   private droppedAudit = 0
   private readonly lastStatus = new Map<string, ServiceHealth>()
@@ -279,6 +286,22 @@ export class CoreKernel {
         this.hostOperation('host.computer.call', { op, params }, uuidv7(), signal)
       )
     })
+    // SET 9: the Browser Agent decides, checks permissions and origins here; the host acts.
+    this.browser = new BrowserAgent({
+      database: () => this.requireDatabase(),
+      bus: this.bus,
+      logger: this.logger.child({ component: 'browser-agent' }),
+      now: this.now,
+      permissions: this.permissions,
+      driver: checkedBrowserDriver((op, params, signal) =>
+        this.hostOperation('host.browser.call', { op, params }, uuidv7(), signal)
+      ),
+      persistentProfile: () =>
+        this.validSettingValue(
+          'browser.persistentProfile',
+          this.database?.settings.get('browser.persistentProfile')?.value
+        )
+    })
     this.missions = new MissionManager({
       database: () => this.requireDatabase(),
       providers: this.providers,
@@ -287,7 +310,9 @@ export class CoreKernel {
       now: this.now,
       skills: this.skills,
       computer: this.computer,
-      computerAvailable: () => this.computerAvailable
+      computerAvailable: () => this.computerAvailable,
+      browser: this.browser,
+      browserAvailable: () => this.browserAvailable
     })
     // A Mission step that waited for a permission continues (or fails) once the person answers.
     this.permissions.onDecided((request) => {
@@ -312,6 +337,22 @@ export class CoreKernel {
       return status
     } catch (error) {
       this.computerAvailable = false
+      throw error
+    }
+  }
+
+  /**
+   * Asks the host whether it can run the Browser Agent (SET 9) and remembers
+   * the answer for the workflow catalogue. Called once Core is running, and
+   * again by every `browser.status` query.
+   */
+  async refreshBrowserAvailability(): Promise<BrowserStatus> {
+    try {
+      const status = await this.browser.status()
+      this.browserAvailable = status.available
+      return status
+    } catch (error) {
+      this.browserAvailable = false
       throw error
     }
   }
@@ -377,6 +418,7 @@ export class CoreKernel {
         await this.supervisor.retry('permission-engine')
         // Quick services first, so none is left FAILED while the Skill health checks run.
         await this.supervisor.retry('computer-agent')
+        await this.supervisor.retry('browser-agent')
         await this.supervisor.retry('skill-registry')
       }
       return null
@@ -584,16 +626,28 @@ export class CoreKernel {
           'This host does not offer the Windows Computer Agent.',
           { category: 'unsupported', userAction: null }
         )
+      if (operation === 'host.browser.call')
+        throw new JupiterError(
+          'BROWSER_UNAVAILABLE',
+          'This host does not offer the Browser Agent.',
+          {
+            category: 'unsupported',
+            userAction: null
+          }
+        )
       throw new JupiterError(
         'SECURE_STORAGE_UNAVAILABLE',
         'The host does not offer secure storage for API keys.',
         { category: 'dependency', userAction: null }
       )
     }
+    // A browser operation may wait for a slow page, a download or a control (up to two minutes).
+    const deadlineMs =
+      operation === 'host.browser.call' ? BROWSER_OPERATION_TIMEOUT_MS : HOST_OPERATION_TIMEOUT_MS
     const controller = new AbortController()
     const timer = setTimeout(() => {
       controller.abort()
-    }, HOST_OPERATION_TIMEOUT_MS)
+    }, deadlineMs)
     const forward = () => {
       controller.abort()
     }
@@ -613,7 +667,7 @@ export class CoreKernel {
           actor: CORE_ACTOR,
           sentAt: now.toISOString(),
           receivedAt: now.toISOString(),
-          deadline: new Date(now.getTime() + HOST_OPERATION_TIMEOUT_MS).toISOString()
+          deadline: new Date(now.getTime() + deadlineMs).toISOString()
         },
         controller.signal
       )
@@ -883,6 +937,29 @@ export class CoreKernel {
       }
     })
 
+    // SET 9: the Browser Agent. Start records tasks a Core stop cut off.
+    this.supervisor.register({
+      id: 'browser-agent',
+      version: null,
+      capabilities: ['browser.tasks', 'browser.sessions'],
+      critical: false,
+      retryable: true,
+      start: () => {
+        if (!this.database)
+          throw new JupiterError(
+            'DEPENDENCY_UNAVAILABLE',
+            'The Browser Agent needs the database, which is not available.',
+            {
+              category: 'dependency',
+              userAction: 'Fix the Database service, then press Retry on it.',
+              retryable: true
+            }
+          )
+        this.browser.start()
+        return undefined
+      }
+    })
+
     this.supervisor.register({
       id: 'mission-manager',
       version: null,
@@ -1025,7 +1102,9 @@ export class CoreKernel {
     'ai.preferredChatModel': () => undefined,
     'ai.preferredReasoningModel': () => undefined,
     'ai.preferredVisionModel': () => undefined,
-    'ai.preferredEmbeddingModel': () => undefined
+    'ai.preferredEmbeddingModel': () => undefined,
+    // Read when a browser session is opened.
+    'browser.persistentProfile': () => undefined
   }
 
   private applyLogLevel(level: LogLevel, correlationId: string): void {

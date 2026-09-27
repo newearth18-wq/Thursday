@@ -19,6 +19,7 @@
   },
   "devDependencies": {
     "@jupiter/agent-runtime": "0.1.0",
+    "@jupiter/browser-runtime": "0.1.0",
     "@jupiter/contracts": "0.1.0",
     "@jupiter/core": "0.1.0",
     "@jupiter/database": "0.1.0",

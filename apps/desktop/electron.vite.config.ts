@@ -1,4 +1,5 @@
 import { resolve } from 'node:path'
+import { bundleBrowserRuntime } from '@jupiter/browser-runtime/build'
 import react from '@vitejs/plugin-react'
 import { defineConfig } from 'electron-vite'
 import type { BuildOptions, Plugin } from 'vite'
@@ -21,6 +22,20 @@ function contentSecurityPolicy(): Plugin {
   }
 }
 
+/**
+ * The browser runtime (SET 9) runs in a process of its own: it is bundled
+ * separately, with Playwright inside, next to the main bundle.
+ */
+function browserRuntime(): Plugin {
+  return {
+    name: 'jupiter-browser-runtime',
+    apply: 'build',
+    async closeBundle() {
+      await bundleBrowserRuntime(resolve(__dirname, 'out/main/browser-runtime.cjs'))
+    }
+  }
+}
+
 /** zod ships comments Rollup cannot place; the warning is noise, not a defect. */
 const onwarn: NonNullable<NonNullable<BuildOptions['rollupOptions']>['onwarn']> = (
   warning,
@@ -36,6 +51,7 @@ export default defineConfig(({ command }) => {
   return {
     main: {
       define: { __JUPITER_BUILD_METADATA__: JSON.stringify(metadata) },
+      plugins: [browserRuntime()],
       build: {
         // Everything is bundled: the packaged app ships no node_modules.
         externalizeDeps: false,

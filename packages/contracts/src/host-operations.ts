@@ -1,5 +1,6 @@
 import { z } from 'zod'
 import { ApiKeyInput } from './ai'
+import { BrowserCall } from './browser'
 import { AutomationCall } from './computer'
 import { Uuidv7 } from './primitives'
 
@@ -39,7 +40,12 @@ export const HostOperations = {
    * The Windows Computer Agent's calls (SET 8). The result is checked by
    * Core against the operation's own result schema (`AutomationOps`).
    */
-  'host.computer.call': { input: AutomationCall, output: z.unknown() }
+  'host.computer.call': { input: AutomationCall, output: z.unknown() },
+  /**
+   * The Browser Agent's calls (SET 9). The result is checked by Core
+   * against the operation's own result schema (`BrowserOps`).
+   */
+  'host.browser.call': { input: BrowserCall, output: z.unknown() }
 } as const satisfies Record<string, { input: z.ZodType; output: z.ZodType }>
 
 export type HostOperationName = keyof typeof HostOperations

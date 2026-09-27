@@ -15,6 +15,7 @@ import { AgentRuntime } from '@jupiter/agent-runtime'
 import { Logger, MemorySink, uuidv7 } from '@jupiter/core'
 import { fakeCredentials } from '@jupiter/testing/fake-credentials'
 import { afterEach, describe, expect, it, vi } from 'vitest'
+import { BrowserHost } from './browser-host'
 import { ComputerHost } from './computer-host'
 import { CredentialVault, type SafeStorageLike } from './credential-vault'
 import { HostCapabilities, type HostCall } from './host-capabilities'
@@ -55,6 +56,19 @@ function setup(
       platform,
       saveFolder: join(root, 'desktop'),
       evidenceFolder: join(root, 'evidence')
+    }),
+    browser: new BrowserHost({
+      logger,
+      executable: null,
+      folders: {
+        profile: join(root, 'browser', 'profile'),
+        quarantine: join(root, 'browser', 'quarantine'),
+        downloads: join(root, 'browser', 'downloads'),
+        uploads: join(root, 'browser', 'uploads'),
+        evidence: join(root, 'browser', 'evidence')
+      },
+      runtimeEntry: null,
+      command: process.execPath
     }),
     vault: new CredentialVault(credentialsDirectory, fakeSafeStorage(storage), platform, logger),
     logsDirectory,

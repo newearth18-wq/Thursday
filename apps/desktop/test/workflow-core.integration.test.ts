@@ -352,6 +352,36 @@ describe('Workflow Engine', () => {
     expect(failed.artifacts).toEqual([])
   }, 30_000)
 
+  it('AT6: the time limit ends a step even when its executor does not stop when asked', async () => {
+    // An adapter that ignores its abort signal: it sends one chunk, then never settles.
+    const [openAi, ...rest] = standard()
+    if (!openAi) throw new Error('no adapter')
+    const deaf: typeof openAi = {
+      ...openAi,
+      streamChat(context, request) {
+        const prompt = JSON.stringify(request.messages)
+        if (!prompt.includes('ignore the stop')) return openAi.streamChat(context, request)
+        return (async function* () {
+          yield { type: 'text' as const, text: 'Starting…' }
+          await new Promise(() => undefined)
+        })()
+      }
+    }
+    const running = await startCore([deaf, ...rest])
+    await withModel(running)
+    server.enqueue(
+      planned(plan([step('deaf', { timeoutMs: 5_000, input: { prompt: 'ignore the stop' } })]))
+    )
+    const missionId = await modelMission(running, 'Too slow, and deaf')
+    const failed = await settled(running, missionId, 'FAILED')
+    expect(failed.steps[0]).toMatchObject({ status: 'FAILED', error: { code: 'STEP_TIMEOUT' } })
+    expect(failed.stepAttempts).toEqual([
+      expect.objectContaining({ attempt: 1, outcome: 'timed-out', errorCode: 'STEP_TIMEOUT' })
+    ])
+    expect(failed.artifacts).toEqual([])
+    expect(running.core.missions.activeCount).toBe(0)
+  }, 30_000)
+
   it('AT7: retries with growing waits, and keeps exactly one output (no duplicate side effects)', async () => {
     const running = await startCore(standard())
     await withModel(running)
@@ -658,6 +688,8 @@ describe('Workflow Engine', () => {
       ['checkpoint.approval', true],
       // SET 8: this Core's host offers no Computer Agent, so the Notepad step cannot run here.
       ['computer.notepad_write', false],
+      // SET 9: nor a Browser Agent, so the page-reading step cannot run here either.
+      ['browser.read_page', false],
       ['checkpoint.identity', false],
       // SET 6: registered Skills are step types too. The harness Core has no build
       // metadata, so get_app_version fails its health check and cannot be a step.

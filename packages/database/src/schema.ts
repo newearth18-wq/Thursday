@@ -526,5 +526,27 @@ export const JUPITER_MIGRATIONS: readonly Migration[] = [
 
       CREATE INDEX computer_tasks_by_time ON computer_tasks (created_at);
     `
+  },
+  {
+    version: 9,
+    name: '0009_browser_tasks',
+    sql: `
+      -- The Browser Agent (SET 9). One row per task: its actions (type and
+      -- origin only, never typed text), each action's observed result, the
+      -- evidence it produced and its final status. Linked to its Mission.
+      CREATE TABLE browser_tasks (
+        task_id       TEXT PRIMARY KEY NOT NULL,
+        mission_id    TEXT,
+        session_id    TEXT NOT NULL,
+        status        TEXT NOT NULL
+                        CHECK (status IN ('RUNNING', 'SUCCEEDED', 'FAILED', 'CANCELLED', 'WAITING_APPROVAL', 'SAFETY_STOP')),
+        task_json     TEXT NOT NULL CHECK (json_valid(task_json)),
+        created_at    TEXT NOT NULL,
+        completed_at  TEXT
+      ) STRICT;
+
+      CREATE INDEX browser_tasks_by_time ON browser_tasks (created_at);
+      CREATE INDEX browser_tasks_by_mission ON browser_tasks (mission_id, created_at);
+    `
   }
 ]

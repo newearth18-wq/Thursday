@@ -3,6 +3,7 @@ import type {
   AuditEvent,
   BackupInfo,
   ChatMessage,
+  BrowserTask,
   ComputerTask,
   Conversation,
   ConversationRouting,
@@ -330,6 +331,17 @@ export interface SkillStore {
  * Permission requests, grants and the permission audit trail (SET 7). The
  * audit trail is append-only.
  */
+/** Browser Agent tasks (SET 9): saved as they progress; never deleted. */
+export interface BrowserTaskStore {
+  save(task: BrowserTask): void
+  task(taskId: string): BrowserTask | null
+  /** Newest first. */
+  tasks(limit: number): BrowserTask[]
+  /** A Mission's browser tasks, oldest first. */
+  forMission(missionId: string): BrowserTask[]
+  running(): BrowserTask[]
+}
+
 /** Computer Agent tasks (SET 8): saved as they progress; never deleted. */
 export interface ComputerTaskStore {
   save(task: ComputerTask): void
@@ -393,6 +405,7 @@ export interface DatabasePort {
   readonly skills: SkillStore
   readonly permissions: PermissionStore
   readonly computer: ComputerTaskStore
+  readonly browser: BrowserTaskStore
   info(): DatabaseInfo
   backup(reason: BackupInfo['reason'], options?: BackupOptions): Promise<BackupInfo>
   close(): void
