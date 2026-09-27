@@ -138,6 +138,46 @@ async function answerDialog(first?: string, timeout = 15_000): Promise<string[]>
 }
 
 /**
+ * Answers Allow once to every permission dialog until `result` returns an answer. For work
+ * that asks several times in turn: however long the gap between two requests, no dialog is
+ * left open and nothing is waited for once the work has finished.
+ */
+async function answerUntil(
+  result: () => Promise<string | null>,
+  first: string,
+  timeout = 60_000
+): Promise<{ asked: string[]; result: string }> {
+  const prompt = page.getByTestId('permission-dialog')
+  const asked: string[] = []
+  const deadline = Date.now() + timeout
+  while (Date.now() < deadline) {
+    if (await prompt.isVisible()) {
+      if (asked.length === 0) await evidence(first)
+      const id = await prompt.getByTestId('permission-facts').getAttribute('data-request-id')
+      asked.push((await prompt.getByTestId('permission-capability').textContent()) ?? '')
+      await prompt.getByTestId('permission-allow-once').click()
+      await expect
+        .poll(() =>
+          page.evaluate(
+            () =>
+              document
+                .querySelector('[data-testid="permission-dialog"] [data-testid="permission-facts"]')
+                ?.getAttribute('data-request-id') ?? 'closed'
+          )
+        )
+        .not.toBe(id)
+      continue
+    }
+    const done = await result()
+    if (done !== null) return { asked, result: done }
+    await page.waitForTimeout(100)
+  }
+  throw new Error(
+    `Still waiting after ${String(timeout)} ms; permissions answered: ${asked.join(', ')}`
+  )
+}
+
+/**
  * What Jupiter itself writes in the profile, which must always be readable here: the database
  * and its WAL, logs, backups, credentials, the vault state and note backups. (`jupiter.db-shm`
  * is SQLite's shared-memory index, which holds no content.)
@@ -428,15 +468,18 @@ describe('SET 11 — Memory System and Obsidian, in the real application', () =>
     await page.getByTestId('notes-create-tags').fill('storm')
     await page.getByTestId('notes-create-links').fill('Jupiter, Saturn')
     await page.getByTestId('notes-create-submit').click()
-    const asked = await answerDialog('14-at7-write-permission')
-    expect(asked.every((capability) => capability === 'notes.write')).toBe(true)
-    await expect
-      .poll(async () =>
-        (await page.getByTestId('notes-create-error').count())
-          ? await page.getByTestId('notes-create-error').textContent()
-          : await page.getByTestId('notes-create-status').textContent()
-      )
-      .toBe('Created Space/Great Red Spot.md.')
+    // The note and each linked note ask for notes.write in turn; answer until it is created.
+    const created = await answerUntil(async () => {
+      if (await page.getByTestId('notes-create-error').count())
+        return page.getByTestId('notes-create-error').textContent()
+      const status = page.getByTestId('notes-create-status')
+      if (!(await status.count())) return null
+      const text = await status.textContent()
+      return text?.startsWith('Created') ? text : null
+    }, '14-at7-write-permission')
+    expect(created.asked.length).toBeGreaterThan(0)
+    expect(created.asked.every((capability) => capability === 'notes.write')).toBe(true)
+    expect(created.result).toBe('Created Space/Great Red Spot.md.')
     const backlinks = await page
       .getByTestId('notes-backlinks')
       .locator('li')

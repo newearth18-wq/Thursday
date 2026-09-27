@@ -251,6 +251,12 @@ Earlier run on this PR:
   fixed in `44aacbc` (see §12).
 - **Run 36330055167** (`44aacbc`): Linux failed the in-process SET 11
   privacy test on the same four-digit search; fixed in `e0b391d`.
+- **Run 36331926520** (`80ce3ca`, the report only): Windows failed the
+  SET 11 E2E note creation. A note with two links asks for `notes.write`
+  three times in turn; the test's helper stopped waiting 3 s after an
+  answer, and on the Windows runner the next request came later, so a
+  permission dialog stayed open and blocked the following tests. The test
+  now answers every dialog until the note is created or an error is shown.
 
 ## 8. Manual tests
 
