@@ -16,6 +16,7 @@ import {
   missionTitleFrom,
   AppInfo,
   Capabilities,
+  DiagnosticsSnapshot,
   ChatMessage,
   DomainEvent,
   HostOperations,
@@ -148,6 +149,19 @@ describe('gateway IPC contract', () => {
   it('binds every channel to an input and output schema', () => {
     expect(Object.keys(gatewayContract).sort()).toEqual([...INVOKE_CHANNELS].sort())
     for (const channel of INVOKE_CHANNELS) expect(channel).toMatch(/^jupiter:v1:[a-z-]+$/)
+  })
+
+  it('lets Diagnostics list every capability (and the host operations) there is', () => {
+    const all = [...Object.keys(Capabilities), ...Object.keys(HostOperations)].map((id) => ({
+      id,
+      kind: 'query' as const,
+      allowedActors: ['core' as const],
+      risk: 'LOW' as const,
+      provider: 'core' as const
+    }))
+    expect(DiagnosticsSnapshot.shape.dispatcher.shape.capabilities.safeParse(all).success).toBe(
+      true
+    )
   })
 
   it('recognises only allowlisted channels', () => {

@@ -193,7 +193,7 @@ export const DiagnosticsSnapshot = z
     dispatcher: z
       .object({
         inFlight: z.number().int().nonnegative(),
-        capabilities: z.array(CapabilitySummary).max(128)
+        capabilities: z.array(CapabilitySummary).max(256)
       })
       .strict()
   })
