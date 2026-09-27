@@ -506,7 +506,8 @@ describe('SET 10 — File Agent, documents and the Artifact Manager', () => {
       })
     )
     await answerAll(running)
-    const missing = await refusedAfterAsking(running, () => read('nowhere.pdf'))
+    // A missing file fails at once: there is nothing to ask the person about.
+    const missing = await read('nowhere.pdf')
     expect(missing.code).toBe('FILE_NOT_FOUND')
     const damaged = await refusedAfterAsking(running, () => read('damaged.docx'))
     expect([damaged.code, damaged.category]).toEqual(['DOCUMENT_INVALID', 'validation'])

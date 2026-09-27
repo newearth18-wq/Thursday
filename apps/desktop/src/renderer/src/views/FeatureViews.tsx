@@ -13,7 +13,7 @@ import { ViewHeader } from './ViewHeader'
 
 export type FeatureViewId = Exclude<
   ViewId,
-  'home' | 'settings' | 'diagnostics' | 'chat' | 'models' | 'missions' | 'skills'
+  'home' | 'settings' | 'diagnostics' | 'chat' | 'models' | 'missions' | 'skills' | 'files'
 >
 
 export function FeatureView({ view }: { readonly view: FeatureViewId }) {

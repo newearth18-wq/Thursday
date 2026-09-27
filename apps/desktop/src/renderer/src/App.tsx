@@ -17,6 +17,7 @@ import { coreSessionOf, useRuntimeContext, type Loadable } from './useRuntime'
 import { ChatView } from './views/ChatView'
 import { DiagnosticsView } from './views/DiagnosticsView'
 import { FeatureView } from './views/FeatureViews'
+import { FilesView } from './views/FilesView'
 import { SkillsView } from './views/SkillsView'
 import { HomeView } from './views/HomeView'
 import { MissionsView } from './views/MissionsView'
@@ -201,6 +202,8 @@ function ViewContent({
       return <MissionsView onNavigate={onNavigate} />
     case 'skills':
       return <SkillsView />
+    case 'files':
+      return <FilesView />
     default:
       return <FeatureView view={view} />
   }

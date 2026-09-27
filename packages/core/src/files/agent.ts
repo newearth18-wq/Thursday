@@ -79,7 +79,7 @@ export class FileAgent {
   async find(query: FileQuery, context: FileContext): Promise<FileListing> {
     return this.operation('find', { root: query.root, path: query.folder }, context, async () => {
       const folder = await this.resolve({ root: query.root, path: query.folder }, context)
-      this.require('files.list', folder.path, `Look for files in ${folder.path}`, context)
+      this.permit('files.list', folder.path, `Look for files in ${folder.path}`, context)
       return this.options.driver.call('list', { query }, context.signal)
     })
   }
@@ -91,7 +91,13 @@ export class FileAgent {
   ): Promise<{ file: FileEntry; content: DocumentContent; suspicious: SuspiciousContent[] }> {
     return this.operation('read', location, context, async () => {
       const resolved = await this.resolve(location, context)
-      this.require('files.read', resolved.path, `Read ${resolved.path}`, context)
+      // Nothing to ask the person about when there is no file to read.
+      if (!resolved.exists || resolved.kind !== 'file')
+        throw new JupiterError('FILE_NOT_FOUND', `There is no file at ${resolved.path}.`, {
+          category: 'validation',
+          userAction: 'Check the name and folder, then try again.'
+        })
+      this.permit('files.read', resolved.path, `Read ${resolved.path}`, context)
       const file = await this.options.driver.call('stat', { location }, context.signal)
       const content = await this.options.driver.call(
         'extract',
@@ -107,8 +113,8 @@ export class FileAgent {
       const source = await this.resolve(from, context)
       const target = await this.resolve(to, context)
       if (from.root !== 'workspace')
-        this.require('files.read', source.path, `Copy ${source.path}`, context)
-      this.require(
+        this.permit('files.read', source.path, `Copy ${source.path}`, context)
+      this.permit(
         'files.write',
         target.path,
         `Save a copy of ${source.path} as ${target.path}`,
@@ -123,8 +129,8 @@ export class FileAgent {
     return this.operation('move', from, context, async () => {
       const source = await this.resolve(from, context)
       const target = await this.resolve(to, context)
-      this.require('files.write', source.path, `Move ${source.path} to ${target.path}`, context)
-      this.require('files.write', target.path, `Move ${source.path} to ${target.path}`, context)
+      this.permit('files.write', source.path, `Move ${source.path} to ${target.path}`, context)
+      this.permit('files.write', target.path, `Move ${source.path} to ${target.path}`, context)
       const moved = await this.options.driver.call('move', { from, to }, context.signal)
       return this.options.driver.call('stat', { location: moved.location }, context.signal)
     })
@@ -133,7 +139,7 @@ export class FileAgent {
   async mkdir(location: FileLocation, context: FileContext): Promise<FileEntry> {
     return this.operation('mkdir', location, context, async () => {
       const target = await this.resolve(location, context)
-      this.require('files.write', target.path, `Create the folder ${target.path}`, context)
+      this.permit('files.write', target.path, `Create the folder ${target.path}`, context)
       await this.options.driver.call('mkdir', { location }, context.signal)
       return this.options.driver.call('stat', { location }, context.signal)
     })
@@ -142,7 +148,7 @@ export class FileAgent {
   async open(location: FileLocation, context: FileContext): Promise<{ done: boolean }> {
     return this.operation('open', location, context, async () => {
       const target = await this.resolve(location, context)
-      this.require('files.open', target.path, `Open ${target.path}`, context)
+      this.permit('files.open', target.path, `Open ${target.path}`, context)
       return this.options.driver.call('open', { location }, context.signal)
     })
   }
@@ -150,7 +156,7 @@ export class FileAgent {
   async reveal(location: FileLocation, context: FileContext): Promise<{ done: boolean }> {
     return this.operation('reveal', location, context, async () => {
       const target = await this.resolve(location, context)
-      this.require('files.open', target.path, `Show ${target.path} in its folder`, context)
+      this.permit('files.open', target.path, `Show ${target.path} in its folder`, context)
       return this.options.driver.call('reveal', { location }, context.signal)
     })
   }
@@ -164,7 +170,7 @@ export class FileAgent {
           category: 'validation',
           userAction: null
         })
-      this.require('files.delete', target.path, `Move ${target.path} to the Recycle Bin`, context)
+      this.permit('files.delete', target.path, `Move ${target.path} to the Recycle Bin`, context)
       const done = await this.options.driver.call('trash', { location }, context.signal)
       for (const artifact of this.options
         .database()
@@ -207,7 +213,7 @@ export class FileAgent {
     const folder: FileLocation = { root: 'workspace', path: input.missionId ?? SHARED_FOLDER }
     return this.operation('create', folder, context, async () => {
       const resolved = await this.resolve(folder, context)
-      this.require(
+      this.permit(
         'artifacts.create',
         resolved.path,
         `Create "${input.name}" in ${resolved.path}`,
@@ -338,7 +344,7 @@ export class FileAgent {
       })
     const destination = target
     return this.operation('copy', destination.location, context, async () => {
-      this.require(
+      this.permit(
         'files.write',
         destination.path,
         `Save a copy of "${artifact.name}" as ${destination.path}`,
@@ -452,7 +458,7 @@ export class FileAgent {
   ): Promise<{ removed: number }> {
     const folder = await this.resolve({ root: 'workspace', path: missionId }, context)
     if (!folder.exists) return { removed: 0 }
-    this.require(
+    this.permit(
       'files.delete',
       `${folder.path}/* (except ${String(keep.length)} kept file${keep.length === 1 ? '' : 's'})`,
       'Remove this Mission’s intermediate files; kept outputs stay',
@@ -480,7 +486,7 @@ export class FileAgent {
     return this.options.driver.call('resolve', { location }, context.signal)
   }
 
-  private require(capability: string, target: string, reason: string, context: FileContext): void {
+  private permit(capability: string, target: string, reason: string, context: FileContext): void {
     const outcome = this.options.permissions.check({
       capability,
       subject: FILE_AGENT,

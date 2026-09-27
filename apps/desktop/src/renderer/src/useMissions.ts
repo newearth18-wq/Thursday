@@ -58,7 +58,8 @@ export function useMission(
   const filter: EventFilter | null =
     missionId === null
       ? null
-      : { types: null, streams: [{ kind: 'mission', id: missionId }], missionId: null }
+      : // The Mission's own events and everything done for it (its files, its agents' tasks).
+        { types: null, streams: null, missionId }
   const { opened } = useLiveEvents(filter, bump, coreSession)
   const load = useCallback(async (): Promise<MissionView> => {
     if (missionId === null) throw new Error('no Mission selected')

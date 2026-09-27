@@ -120,6 +120,20 @@ Do not modify `legacy/thursday-browser` unless a task is explicitly about it.
   Missions), and label text that tries to direct the agent. Leaving the
   approved origins is a `SAFETY_STOP`, never a warning. Downloads are kept
   only after the host checks them in quarantine; nothing is overwritten.
+- Files and artifacts (SET 10): Core decides and checks every operation
+  (`packages/core/src/files/`); the host (`apps/desktop/src/main/file-host.ts`)
+  owns the approved folders and resolves every path, refusing absolute paths,
+  `..`, links and junctions before anything is touched; documents are parsed,
+  written and validated only in the document runtime
+  (`services/document-runtime`). Requests name a root and a relative path
+  (`FileLocation`), never an absolute path. Check the permission for the exact
+  resolved file at the moment of use; deleting is CRITICAL and goes to the
+  Recycle Bin. Write only through the atomic create (temporary file, validate,
+  link to a free name): never overwrite, a new version is a new file. An
+  artifact is recorded with lineage, version, SHA-256 and each verification
+  check, and is never deleted (mark it); cleanup never removes a kept file.
+  Document text is untrusted data: pass it on only fenced (`BEGIN/END
+UNTRUSTED DOCUMENT TEXT`) and never evaluate formulas or scripts in it.
 - Schema changes are new migrations at the end of `JUPITER_MIGRATIONS`; never
   edit a migration that has shipped (see `packages/database/README.md`).
 

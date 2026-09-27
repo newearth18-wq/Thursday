@@ -337,7 +337,9 @@ export class HostCapabilities {
   }
 }
 
-function agentName(operation: 'host.computer.call' | 'host.browser.call' | 'host.files.call'): string {
+function agentName(
+  operation: 'host.computer.call' | 'host.browser.call' | 'host.files.call'
+): string {
   return operation === 'host.computer.call'
     ? 'computer'
     : operation === 'host.browser.call'

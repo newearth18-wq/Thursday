@@ -76,10 +76,14 @@ export class SqliteArtifactStore implements ArtifactStore {
     const row =
       missionId === null
         ? this.db
-            .prepare('SELECT * FROM artifacts WHERE mission_id IS NULL AND name = ? ORDER BY version DESC LIMIT 1')
+            .prepare(
+              'SELECT * FROM artifacts WHERE mission_id IS NULL AND name = ? ORDER BY version DESC LIMIT 1'
+            )
             .get(name)
         : this.db
-            .prepare('SELECT * FROM artifacts WHERE mission_id = ? AND name = ? ORDER BY version DESC LIMIT 1')
+            .prepare(
+              'SELECT * FROM artifacts WHERE mission_id = ? AND name = ? ORDER BY version DESC LIMIT 1'
+            )
             .get(missionId, name)
     return row ? toArtifact(row) : null
   }

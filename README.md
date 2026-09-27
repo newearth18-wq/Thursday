@@ -3,26 +3,29 @@
 Jupiter is a Windows desktop AI agent, built in stages (SET 0–24). This
 repository is the Jupiter monorepo.
 
-**Current stage: SET 9 — Browser Agent** (on top of SET 8, Windows Computer
-Agent; SET 7, Permission and Security Engine; SET 6, Skill System; SET 5,
-Planner and Workflow Engine; SET 4, Mission System; SET 3, AI providers, Model
-Router and Chat; SET 2, the product shell; SET 1, Core architecture; and SET 0,
-the repository foundation). Jupiter can now use the web through an installed
-Microsoft Edge, Google Chrome or Chromium, driven in a process of its own and
-in an isolated session: open pages, search with a site's own controls, read
-and extract content, take screenshots, download files (checked in quarantine
-before they are kept) and upload approved files. Every action asks for its
-permission for the exact site first. Everything a page says is treated as
-untrusted data; text that tries to direct the agent is labelled, never
-followed, and reaching a site the task was not approved for stops it at once.
-Without a supported browser the Browser Agent is shown as _Unavailable_. On
-Windows, the **Computer Agent** uses real applications through UI Automation
-(open Notepad, type, save to the Desktop, read the file back). Nothing Jupiter
-does with an effect happens without a **permission** that matches exactly
-what, who, which target and for how long; _Settings › Permissions_ lists them
-and the audit trail. **Skills**, **Missions** planned by your model, _Chat_,
-_AI Models_, _Settings_ and _Diagnostics_ work; the other five screens are
-labelled _Coming later_ with the SET that builds them.
+**Current stage: SET 10 — File, Document, Office and Artifact System** (on top
+of SET 9, Browser Agent; SET 8, Windows Computer Agent; SET 7, Permission and
+Security Engine; SET 6, Skill System; SET 5, Planner and Workflow Engine; SET
+4, Mission System; SET 3, AI providers, Model Router and Chat; SET 2, the
+product shell; SET 1, Core architecture; and SET 0, the repository
+foundation). The new **Files** screen finds, sorts and reads documents in the
+folders Jupiter may use (Downloads, Documents, Desktop and its own workspace):
+TXT, Markdown, CSV, JSON, PDF, Word, PowerPoint and Excel, parsed in a process
+of its own. Missions can read the newest PDF in Downloads and save what they
+produce as TXT, Markdown, CSV, JSON, DOCX, PPTX, XLSX or PDF; every file is
+written without overwriting anything, checked, and recorded as an
+**artifact** with where it came from, its version, SHA-256 and each check,
+with Open, Show in folder, Copy path, Save a copy, Keep and Delete (to the
+Recycle Bin, with a CRITICAL permission for that exact file). Paths that
+leave the approved folders, and links, are refused. The **Browser Agent**
+uses the web through an installed Edge, Chrome or Chromium in an isolated
+session, and on Windows the **Computer Agent** uses real applications through
+UI Automation. Everything a page or document says is untrusted data. Nothing
+Jupiter does with an effect happens without a **permission** that matches
+exactly what, who, which target and for how long; _Settings › Permissions_
+lists them and the audit trail. **Files**, **Skills**, **Missions** planned by
+your model, _Chat_, _AI Models_, _Settings_ and _Diagnostics_ work; the other
+four screens are labelled _Coming later_ with the SET that builds them.
 
 |                 |                                                                                            |
 | --------------- | ------------------------------------------------------------------------------------------ |
@@ -66,14 +69,15 @@ Running as root in a container? Chromium's sandbox cannot start as root, so use
 ```text
 apps/desktop/            Jupiter desktop app: host (Electron main + gateway), Core utility process, preload, React renderer
 packages/contracts/      Versioned zod schemas for every trust boundary
-packages/core/           Core kernel: capability dispatcher, event bus, service supervisor, logger, IDs; model router, chat, adapter port; Mission Manager, planner and workflow engine; Skill Registry and sandbox; Permission Engine; Computer Agent; Browser Agent
+packages/core/           Core kernel: capability dispatcher, event bus, service supervisor, logger, IDs; model router, chat, adapter port; Mission Manager, planner and workflow engine; Skill Registry and sandbox; Permission Engine; Computer Agent; Browser Agent; File Agent and Artifact Manager
 packages/providers/      Provider adapters (OpenAI-compatible, Anthropic), reached only through Core's guarded transport
 packages/database/       SQLite (node:sqlite): migrations, transactions, backups, repositories
 packages/security/       Secret patterns and redaction
 packages/ui/             Visual Design Lock v1: design tokens, fonts, icons, the Jupiter mark
-packages/testing/        Launch the real app with Playwright; credential-shaped test values; provider protocol test servers; test websites
+packages/testing/        Launch the real app with Playwright; credential-shaped test values; provider protocol test servers; test websites; document fixtures and independent Office checks
 services/agent-runtime/  Windows UI Automation runtime (PowerShell) behind a validated JSON-lines RPC; its Node client
 services/browser-runtime/ Browser runtime: playwright-core bundled into one file, in its own process; its Node client
+services/document-runtime/ Document runtime: readers, OOXML writers and validators in their own process; its Node client
 services/plugin-runtime/ Coming later (SET 15)
 plugins/                 Coming later (SET 15)
 docs/                    Architecture, decisions, definition of done, SET reports
@@ -110,6 +114,12 @@ The Browser Agent keeps its files in `<data folder>\browser\`: `quarantine\`
 persistent profile, `profile\`. Screenshots and page snapshots go to
 `<data folder>\browser-evidence\`. It never uses your own browser profile.
 
+Files Jupiter makes go to `<data folder>\workspace\`, one folder per Mission
+(`workspace\<Mission id>\`). A copy you save goes to Downloads, Documents or
+Desktop under a free name. Jupiter never overwrites a file; deleting moves it
+to the Recycle Bin, and cleaning up a finished Mission never removes a file you
+chose to keep.
+
 ## Documentation
 
 - [AGENTS.md](AGENTS.md) — rules for anyone (human or AI) changing this repository
@@ -127,6 +137,7 @@ persistent profile, `profile\`. Screenshots and page snapshots go to
 - [docs/sets/SET-07-permission-and-security-engine.md](docs/sets/SET-07-permission-and-security-engine.md) — SET 7 report and acceptance results
 - [docs/sets/SET-08-windows-computer-agent.md](docs/sets/SET-08-windows-computer-agent.md) — SET 8 report and acceptance results
 - [docs/sets/SET-09-browser-agent.md](docs/sets/SET-09-browser-agent.md) — SET 9 report and acceptance results
+- [docs/sets/SET-10-file-document-office-and-artifacts.md](docs/sets/SET-10-file-document-office-and-artifacts.md) — SET 10 report and acceptance results
 - [docs/decisions/](docs/decisions/) — architecture decision records
 
 ## License

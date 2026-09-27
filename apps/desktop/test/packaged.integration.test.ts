@@ -89,6 +89,51 @@ describe.skipIf(!executablePath)('packaged Jupiter build', () => {
     })
   })
 
+  it('writes and verifies documents with the bundled document runtime (SET 10)', async () => {
+    const page = jupiter.window
+    expect((await query(page, 'files.status', {})).available).toBe(true)
+    const create = async (format: 'docx' | 'pdf') => {
+      const input = {
+        missionId: null,
+        name: `packaged.${format}`,
+        spec: {
+          format,
+          title: 'Packaged check',
+          author: 'Jupiter',
+          blocks: [
+            { type: 'heading', level: 1, text: 'Packaged check' },
+            { type: 'paragraph', text: 'Written by the packaged document runtime.' }
+          ]
+        }
+      }
+      try {
+        return await query(page, 'artifacts.create', input)
+      } catch (error) {
+        // The first time, Jupiter asks for artifacts.create; the person allows it.
+        if (!String(error).includes('PERMISSION_REQUIRED')) throw error
+        const { requests } = await query(page, 'permissions.requests', {
+          status: 'PENDING',
+          limit: 10
+        })
+        for (const request of requests)
+          await query(page, 'permissions.decide', {
+            requestId: request.requestId,
+            decision: 'ALLOW_ONCE'
+          })
+        return await query(page, 'artifacts.create', input)
+      }
+    }
+    for (const format of ['docx', 'pdf'] as const) {
+      const artifact = await create(format)
+      expect(artifact.verificationStatus, format).toBe('VERIFIED')
+      expect(existsSync(artifact.path), format).toBe(true)
+      expect(artifact.path.startsWith(join(userDataDir, 'workspace')), format).toBe(true)
+    }
+    const status = await query(page, 'files.status', {})
+    expect(status.runtime.state).toBe('running')
+    expect(serviceStatus(await gatewayStatus(page), 'document-runtime')).toBe('HEALTHY')
+  })
+
   it('keeps DevTools unavailable in the packaged production build', async () => {
     const devTools = await jupiter.evaluateMain<boolean | null>(`(() => {
       const contents = require('electron').BrowserWindow.getAllWindows()[0]?.webContents

@@ -192,7 +192,9 @@ async function start(environment: MainEnvironment, mainLogging: MainLogging): Pr
       downloads: knownFolder('downloads'),
       documents: knownFolder('documents'),
       desktop: knownFolder('desktop'),
-      workspace: testFiles ? join(testFiles, 'workspace') : join(environment.userDataDir, 'workspace')
+      workspace: testFiles
+        ? join(testFiles, 'workspace')
+        : join(environment.userDataDir, 'workspace')
     },
     runtimeEntry: existsSync(documentEntry) ? documentEntry : null,
     // The runtime runs on Electron's own Node.js, in a process of its own.
@@ -633,7 +635,9 @@ async function printDocumentPdf(html: string, path: string): Promise<void> {
     }
   })
   try {
-    await window.loadURL(`data:text/html;charset=utf-8;base64,${Buffer.from(html, 'utf8').toString('base64')}`)
+    await window.loadURL(
+      `data:text/html;charset=utf-8;base64,${Buffer.from(html, 'utf8').toString('base64')}`
+    )
     const pdf = await window.webContents.printToPDF({ pageSize: 'A4', printBackground: true })
     await writeFile(path, pdf, { flag: 'wx' })
   } finally {
