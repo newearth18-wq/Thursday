@@ -2,7 +2,9 @@
 
 - Status: **all 10 acceptance tests pass**, in-process (real Core, real
   SQLite, real vault folders on disk) and in the real Electron application
-  (E2E, with screenshots). Local `npm run verify`: 13/13 steps PASS. CI: see §7 (filled in from the pull request's run).
+  (E2E, with screenshots). Local `npm run verify`: 13/13 steps PASS. CI on PR #8 is green on Linux,
+  Windows and Legacy (`98ea150`, run 36318737753). Tagged
+  `jupiter-set-11-memory-and-obsidian` on `98ea150`.
   Evidence: §7 and §12.
 - SET 10 was checked first: green in CI on Linux, Windows and Legacy
   (`59e2c77`, run 36309148629) and merged (PR #7, `f497c2d`). Its suites
@@ -255,7 +257,13 @@ The SET 11 suites:
 
 ### CI
 
-Filled in from the pull request's green run.
+Evidence: commit `98ea150`, run 36318737753. All three jobs succeeded.
+
+| Job                                                                                                                                  | Result  | Notes                                                                                                   |
+| ------------------------------------------------------------------------------------------------------------------------------------ | ------- | ------------------------------------------------------------------------------------------------------- |
+| Linux — format, lint, typecheck, unit, build, integration + E2E, secret scan, dev smoke, Windows and Linux packages, packaged launch | success | PyYAML installed with the Office parsers; the SET 11 suites ran with a throwaway GNOME Keyring          |
+| Windows — typecheck, unit, build, integration + E2E, NSIS installer, package validation, packaged launch                             | success | The SET 11 suites ran on Windows: DPAPI sealing, real long vault paths, Chromium's locked files skipped |
+| Legacy Thursday — build and acceptance suite                                                                                         | success |                                                                                                         |
 
 Earlier run on this PR:
 
@@ -340,7 +348,8 @@ npx vitest run --project integration apps/desktop/test/memory-core.integration.t
 
 - `docs/sets/set-11/*.png`: the E2E screenshots (also written to
   `test-results/set-11/` on each run)
-- CI: the pull request's run (see §7)
+- CI run 36318737753 (commit `98ea150`): Linux job 108618326769, Windows job 108618326790, Legacy job 108618326619
+- CI runs 36316889775 (`eb3554a`) and 36317827740 (`9c1c515`): the Windows failures fixed in `9c1c515` and `98ea150` (§7)
 
 ## 12. Acceptance tests
 
