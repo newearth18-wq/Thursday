@@ -3,6 +3,7 @@ import { JupiterError, describeError, type ServiceSupervisor } from '@jupiter/co
 import { probeWritableDirectory, type RotatingFileSink } from '@jupiter/core/node'
 import { readBuildMetadata } from './build-metadata'
 import type { CoreProcessManager } from './core-process'
+import type { BrowserHost } from './browser-host'
 import type { ComputerHost } from './computer-host'
 import type { CredentialVault } from './credential-vault'
 import type { MainEnvironment } from './environment'
@@ -21,18 +22,13 @@ interface ServiceDependencies {
   readonly core: CoreProcessManager
   readonly vault: CredentialVault
   readonly computer: ComputerHost
+  readonly browser: BrowserHost
   /** Set by the restart policy so the next Core start is counted as an automatic restart. */
   readonly takeAutomaticRestart: () => boolean
 }
 
 /** Jupiter Core modules and isolated runtimes that later SETs deliver. Never started, never shown as working. */
 export const PLANNED_SERVICES = [
-  {
-    id: 'browser-runtime',
-    availability: 'COMING_LATER',
-    plannedSet: 9,
-    capabilities: ['agent.browser']
-  },
   {
     id: 'artifact-manager',
     availability: 'COMING_LATER',
@@ -226,6 +222,33 @@ export function registerServices(supervisor: ServiceSupervisor, deps: ServiceDep
       availability: 'UNAVAILABLE',
       plannedSet: 8,
       capabilities: ['agent.computer']
+    })
+  }
+
+  // SET 9: the browser runtime, where Playwright drives the browser the host found.
+  if (deps.browser.available) {
+    supervisor.register({
+      id: 'browser-runtime',
+      version: null,
+      capabilities: ['agent.browser'],
+      critical: false,
+      retryable: true,
+      timeoutMs: 45_000,
+      async start() {
+        // A real start: the runtime process comes up and answers. The browser itself starts with the first session.
+        await deps.browser.probe()
+        return undefined
+      },
+      stop() {
+        return deps.browser.stop()
+      }
+    })
+  } else {
+    supervisor.registerPlanned({
+      id: 'browser-runtime',
+      availability: 'UNAVAILABLE',
+      plannedSet: 9,
+      capabilities: ['agent.browser']
     })
   }
 

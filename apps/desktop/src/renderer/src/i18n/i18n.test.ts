@@ -147,6 +147,7 @@ describe('keys built at runtime', () => {
         'skill-registry',
         'permission-engine',
         'computer-agent',
+        'browser-agent',
         'agent-runtime',
         'browser-runtime',
         'artifact-manager',

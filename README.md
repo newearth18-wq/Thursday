@@ -3,23 +3,26 @@
 Jupiter is a Windows desktop AI agent, built in stages (SET 0–24). This
 repository is the Jupiter monorepo.
 
-**Current stage: SET 8 — Windows Computer Agent** (on top of SET 7,
-Permission and Security Engine; SET 6, Skill System; SET 5, Planner and
-Workflow Engine; SET 4, Mission System; SET 3, AI providers, Model Router and
-Chat; SET 2, the product shell; SET 1, Core architecture; and SET 0, the
-repository foundation). On Windows, Jupiter can use real applications through
-Windows UI Automation: open Notepad, type exact text, save it through Notepad's
-own Save As dialog to your Desktop, and read the file back before it reports
-success. Every action asks for its permission first (with the exact file
-path), returns what it really observed, and can be cancelled; the automation
-runs in its own process, so a fault there never takes Jupiter down. Coordinate
-clicks are an opt-in, labelled last resort. On other systems the agent is shown
-as _Unavailable_, with the reason. Nothing Jupiter does with an effect happens
-without a **permission** that matches exactly what, who, which target and for
-how long; _Settings › Permissions_ lists them and the audit trail. **Skills**,
-**Missions** planned by your model, _Chat_, _AI Models_, _Settings_ and
-_Diagnostics_ work; the other five screens are labelled _Coming later_ with
-the SET that builds them.
+**Current stage: SET 9 — Browser Agent** (on top of SET 8, Windows Computer
+Agent; SET 7, Permission and Security Engine; SET 6, Skill System; SET 5,
+Planner and Workflow Engine; SET 4, Mission System; SET 3, AI providers, Model
+Router and Chat; SET 2, the product shell; SET 1, Core architecture; and SET 0,
+the repository foundation). Jupiter can now use the web through an installed
+Microsoft Edge, Google Chrome or Chromium, driven in a process of its own and
+in an isolated session: open pages, search with a site's own controls, read
+and extract content, take screenshots, download files (checked in quarantine
+before they are kept) and upload approved files. Every action asks for its
+permission for the exact site first. Everything a page says is treated as
+untrusted data; text that tries to direct the agent is labelled, never
+followed, and reaching a site the task was not approved for stops it at once.
+Without a supported browser the Browser Agent is shown as _Unavailable_. On
+Windows, the **Computer Agent** uses real applications through UI Automation
+(open Notepad, type, save to the Desktop, read the file back). Nothing Jupiter
+does with an effect happens without a **permission** that matches exactly
+what, who, which target and for how long; _Settings › Permissions_ lists them
+and the audit trail. **Skills**, **Missions** planned by your model, _Chat_,
+_AI Models_, _Settings_ and _Diagnostics_ work; the other five screens are
+labelled _Coming later_ with the SET that builds them.
 
 |                 |                                                                                            |
 | --------------- | ------------------------------------------------------------------------------------------ |
@@ -63,14 +66,14 @@ Running as root in a container? Chromium's sandbox cannot start as root, so use
 ```text
 apps/desktop/            Jupiter desktop app: host (Electron main + gateway), Core utility process, preload, React renderer
 packages/contracts/      Versioned zod schemas for every trust boundary
-packages/core/           Core kernel: capability dispatcher, event bus, service supervisor, logger, IDs; model router, chat, adapter port; Mission Manager, planner and workflow engine; Skill Registry and sandbox; Permission Engine; Computer Agent
+packages/core/           Core kernel: capability dispatcher, event bus, service supervisor, logger, IDs; model router, chat, adapter port; Mission Manager, planner and workflow engine; Skill Registry and sandbox; Permission Engine; Computer Agent; Browser Agent
 packages/providers/      Provider adapters (OpenAI-compatible, Anthropic), reached only through Core's guarded transport
 packages/database/       SQLite (node:sqlite): migrations, transactions, backups, repositories
 packages/security/       Secret patterns and redaction
 packages/ui/             Visual Design Lock v1: design tokens, fonts, icons, the Jupiter mark
-packages/testing/        Launch the real app with Playwright; credential-shaped test values; provider protocol test servers
+packages/testing/        Launch the real app with Playwright; credential-shaped test values; provider protocol test servers; test websites
 services/agent-runtime/  Windows UI Automation runtime (PowerShell) behind a validated JSON-lines RPC; its Node client
-services/browser-runtime/ Coming later (SET 9)
+services/browser-runtime/ Browser runtime: playwright-core bundled into one file, in its own process; its Node client
 services/plugin-runtime/ Coming later (SET 15)
 plugins/                 Coming later (SET 15)
 docs/                    Architecture, decisions, definition of done, SET reports
@@ -101,6 +104,12 @@ on Linux), readable only by your user account. On Linux without a running
 Secret Service (GNOME Keyring or KWallet), Jupiter says so and does not store
 keys; providers that need no key still work.
 
+The Browser Agent keeps its files in `<data folder>\browser\`: `quarantine\`
+(downloads waiting to be checked), `downloads\` (downloads that passed),
+`uploads\` (the only files it may upload) and, only if you turn on the
+persistent profile, `profile\`. Screenshots and page snapshots go to
+`<data folder>\browser-evidence\`. It never uses your own browser profile.
+
 ## Documentation
 
 - [AGENTS.md](AGENTS.md) — rules for anyone (human or AI) changing this repository
@@ -115,6 +124,9 @@ keys; providers that need no key still work.
 - [docs/sets/SET-04-mission-system.md](docs/sets/SET-04-mission-system.md) — SET 4 report and acceptance results
 - [docs/sets/SET-05-planner-and-workflow-engine.md](docs/sets/SET-05-planner-and-workflow-engine.md) — SET 5 report and acceptance results
 - [docs/sets/SET-06-skill-system.md](docs/sets/SET-06-skill-system.md) — SET 6 report and acceptance results
+- [docs/sets/SET-07-permission-and-security-engine.md](docs/sets/SET-07-permission-and-security-engine.md) — SET 7 report and acceptance results
+- [docs/sets/SET-08-windows-computer-agent.md](docs/sets/SET-08-windows-computer-agent.md) — SET 8 report and acceptance results
+- [docs/sets/SET-09-browser-agent.md](docs/sets/SET-09-browser-agent.md) — SET 9 report and acceptance results
 - [docs/decisions/](docs/decisions/) — architecture decision records
 
 ## License

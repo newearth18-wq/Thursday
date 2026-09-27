@@ -345,8 +345,11 @@ function WorkflowNode({
   readonly titleOf: (key: string) => string
 }) {
   const { t } = useI18n()
-  // An attempt cut off by a restart does not use up the retry budget, so it is not counted here.
-  const used = step.attempts - attempts.filter((item) => item.outcome === 'interrupted').length
+  // Recorded attempts plus the one running now. An attempt cut off by a restart, or a run that
+  // stopped to wait for a permission, uses no retry, so neither is counted here.
+  const used =
+    attempts.filter((item) => item.outcome !== 'interrupted').length +
+    (step.status === 'RUNNING' ? 1 : 0)
   return (
     <li
       className="mission-step workflow-node"

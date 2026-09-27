@@ -2,6 +2,7 @@ import {
   PlanDraft,
   PlanStepKey,
   SaveFileName,
+  WebAddress,
   capabilityInfo,
   type PlanIssue,
   type PlanStep
@@ -129,6 +130,16 @@ export function validatePlan(
         !SaveFileName.safeParse(fileName).success
       )
         add('schema', `Step "${step.id}": "${fileName}" is not a plain .txt file name.`, step.id)
+    }
+    // A Browser Agent step opens only an http(s) address.
+    if (type.runner === 'browser') {
+      const url = step.input.url
+      if (url !== undefined && !url.includes('{{') && !WebAddress.safeParse(url).success)
+        add(
+          'schema',
+          `Step "${step.id}": "${url.slice(0, 200)}" is not an http(s) address.`,
+          step.id
+        )
     }
     if (step.timeoutMs < type.minTimeoutMs)
       add(

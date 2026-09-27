@@ -61,7 +61,7 @@ export interface PermissionCheck {
 }
 
 export type PermissionOutcome =
-  | { readonly allowed: true; readonly grantId: string }
+  | { readonly allowed: true; readonly grantId: string; readonly singleUse: boolean }
   | {
       readonly allowed: false
       readonly code: 'PERMISSION_UNKNOWN' | 'PERMISSION_REQUIRED'
@@ -221,7 +221,7 @@ export class PermissionEngine {
           missionId: check.missionId ?? null,
           grantId: grant.grantId
         })
-        return { allowed: true, grantId: grant.grantId }
+        return { allowed: true, grantId: grant.grantId, singleUse: grant.kind === 'ALLOW_ONCE' }
       }
       let requestId: string | null = null
       if (check.askIfNeeded) requestId = this.ask(check, info.risk).requestId

@@ -42,7 +42,13 @@ export const SettingDefinitions = {
   'ai.preferredChatModel': ModelRef.nullable(),
   'ai.preferredReasoningModel': ModelRef.nullable(),
   'ai.preferredVisionModel': ModelRef.nullable(),
-  'ai.preferredEmbeddingModel': ModelRef.nullable()
+  'ai.preferredEmbeddingModel': ModelRef.nullable(),
+  /**
+   * Browser sessions may use Jupiter's persistent browser profile (cookies
+   * and sign-ins kept between sessions). Off: every session is a temporary
+   * profile, removed when it closes. Never the person's own browser profile.
+   */
+  'browser.persistentProfile': z.boolean()
 } as const satisfies Record<string, z.ZodType>
 
 export type SettingKey = keyof typeof SettingDefinitions
@@ -66,7 +72,8 @@ export const SettingDefaults: { readonly [K in SettingKey]: SettingValue<K> } = 
   'ai.preferredChatModel': null,
   'ai.preferredReasoningModel': null,
   'ai.preferredVisionModel': null,
-  'ai.preferredEmbeddingModel': null
+  'ai.preferredEmbeddingModel': null,
+  'browser.persistentProfile': false
 }
 
 export const SettingRecord = z

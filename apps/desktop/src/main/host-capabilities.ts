@@ -7,6 +7,7 @@ import {
   type ErrorEnvelope
 } from '@jupiter/contracts'
 import { JupiterError, createErrorEnvelope, describeError, type Logger } from '@jupiter/core'
+import type { BrowserHost } from './browser-host'
 import type { ComputerHost } from './computer-host'
 import type { CredentialVault } from './credential-vault'
 
@@ -44,6 +45,8 @@ export interface HostCapabilityDependencies {
   readonly vault: CredentialVault
   /** The Windows Computer Agent's host side (SET 8). */
   readonly computer: ComputerHost
+  /** The Browser Agent's host side (SET 9). */
+  readonly browser: BrowserHost
   readonly now?: () => number
 }
 
@@ -55,7 +58,8 @@ export const HOST_CAPABILITIES = [
   'host.credentials.store',
   'host.credentials.read',
   'host.credentials.delete',
-  'host.computer.call'
+  'host.computer.call',
+  'host.browser.call'
 ] as const
 
 /** Desktop notifications the interface may show per minute. */
@@ -85,7 +89,9 @@ export class HostCapabilities {
       case 'host.credentials.delete':
         return this.credentialOperation(call, call.capability, log)
       case 'host.computer.call':
-        return this.computerOperation(call, log)
+        return this.agentOperation(call, 'host.computer.call', log)
+      case 'host.browser.call':
+        return this.agentOperation(call, 'host.browser.call', log)
       default:
         log.warn('host-capability.unknown', `Refused unknown host capability ${call.capability}`)
         return this.failure(
@@ -246,30 +252,45 @@ export class HostCapabilities {
     }
   }
 
-  /** Computer actions are performed only for Jupiter Core, which has already checked the permissions. */
-  private async computerOperation(call: HostCall, log: Logger): Promise<HostOutcome> {
+  /**
+   * Computer (SET 8) and browser (SET 9) actions are performed only for
+   * Jupiter Core, which has already checked the permissions (and, for the
+   * browser, the origins).
+   */
+  private async agentOperation(
+    call: HostCall,
+    operation: 'host.computer.call' | 'host.browser.call',
+    log: Logger
+  ): Promise<HostOutcome> {
     if (call.actor.type !== 'core') {
-      log.warn('host-capability.denied', `Refused host.computer.call for ${call.actor.type}`)
+      log.warn('host-capability.denied', `Refused ${operation} for ${call.actor.type}`)
       return this.failure(
         'PERMISSION_DENIED',
         'permission',
-        'Only Jupiter Core may use host.computer.call.',
+        `Only Jupiter Core may use ${operation}.`,
         null
       )
     }
-    const input = HostOperations['host.computer.call'].input.safeParse(call.input)
+    const input = HostOperations[operation].input.safeParse(call.input)
     if (!input.success)
       return this.failure(
         'INVALID_PAYLOAD',
         'validation',
-        `Invalid input for host.computer.call: ${input.error.issues.map((issue) => issue.message).join('; ')}`,
+        `Invalid input for ${operation}: ${input.error.issues.map((issue) => issue.message).join('; ')}`,
         null
       )
     try {
-      return { ok: true, data: await this.deps.computer.call(input.data) }
+      const data =
+        operation === 'host.computer.call'
+          ? await this.deps.computer.call(input.data)
+          : await this.deps.browser.call(input.data)
+      return { ok: true, data }
     } catch (error) {
       if (error instanceof JupiterError) {
-        log.info('host-capability.computer.failed', `${input.data.op} failed: ${error.code}`)
+        log.info(
+          `host-capability.${operation === 'host.computer.call' ? 'computer' : 'browser'}.failed`,
+          `${input.data.op} failed: ${error.code}`
+        )
         return {
           ok: false,
           error: createErrorEnvelope({
@@ -284,7 +305,7 @@ export class HostCapabilities {
       return this.failure(
         'HOST_ACTION_FAILED',
         'dependency',
-        `The computer action failed: ${describeError(error)}`,
+        `The ${operation === 'host.computer.call' ? 'computer' : 'browser'} action failed: ${describeError(error)}`,
         null
       )
     }

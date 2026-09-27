@@ -89,7 +89,8 @@ export type CostLatencyPreference = z.infer<typeof CostLatencyPreference>
 const LOOPBACK_V4 = /^127(?:\.\d{1,3}){3}$/
 
 /** The parts of a WHATWG URL used here. Contracts carry no DOM or Node typings, so it is typed locally. */
-interface ParsedUrl {
+export interface ParsedUrl {
+  readonly origin: string
   readonly protocol: string
   readonly hostname: string
   readonly username: string
@@ -98,7 +99,7 @@ interface ParsedUrl {
   readonly hash: string
 }
 
-function parseUrl(value: string): ParsedUrl | null {
+export function parseUrl(value: string): ParsedUrl | null {
   const Url = (globalThis as unknown as { URL: new (input: string) => ParsedUrl }).URL
   try {
     return new Url(value)

@@ -658,6 +658,8 @@ describe('Workflow Engine', () => {
       ['checkpoint.approval', true],
       // SET 8: this Core's host offers no Computer Agent, so the Notepad step cannot run here.
       ['computer.notepad_write', false],
+      // SET 9: nor a Browser Agent, so the page-reading step cannot run here either.
+      ['browser.read_page', false],
       ['checkpoint.identity', false],
       // SET 6: registered Skills are step types too. The harness Core has no build
       // metadata, so get_app_version fails its health check and cannot be a step.

@@ -14,8 +14,11 @@ export interface StepTypeDefinition extends StepTypeInfo {
   readonly minTimeoutMs: number
   /** A checkpoint waits for a person instead of running. */
   readonly checkpoint: 'approval' | 'identity' | null
-  /** `skill`: run through the Skill Registry (SET 6). `computer`: the Computer Agent (SET 8). */
-  readonly runner: 'builtin' | 'skill' | 'computer'
+  /**
+   * `skill`: run through the Skill Registry (SET 6). `computer`: the Computer
+   * Agent (SET 8). `browser`: the Browser Agent (SET 9).
+   */
+  readonly runner: 'builtin' | 'skill' | 'computer' | 'browser'
 }
 
 /** Finds a step type by id: the built-in ones and, since SET 6, registered Skills. */
@@ -99,6 +102,25 @@ export const STEP_TYPES: readonly StepTypeDefinition[] = [
     minTimeoutMs: 30_000,
     checkpoint: null,
     runner: 'computer'
+  },
+  {
+    skillId: 'browser.read_page',
+    name: 'Read a web page',
+    description:
+      'Opens the address in a temporary, isolated browser session, reads the page’s text and structure and captures it. The page’s text is the output, labelled as untrusted data: nothing it says is followed. The task stops if the page leads to another site.',
+    inputs: [
+      {
+        name: 'url',
+        required: true,
+        description: 'The http(s) address to read, e.g. https://example.com/page.'
+      }
+    ],
+    producesOutput: true,
+    permissions: ['browser.navigate', 'browser.read'],
+    available: true,
+    minTimeoutMs: 30_000,
+    checkpoint: null,
+    runner: 'browser'
   },
   {
     skillId: 'checkpoint.identity',

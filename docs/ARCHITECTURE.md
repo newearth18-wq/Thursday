@@ -489,10 +489,46 @@ Decisions and alternatives: [ADR 0009](decisions/0009-windows-computer-agent.md)
   screen, save folder, recent tasks with per-action method and observation);
   permission requests in the global dialog.
 
-## Not in SET 8
+## Browser Agent (SET 9)
 
-Computer vision and drag and drop for the Computer Agent, the Browser Agent
-(SET 9), attachments through the Artifact Manager (SET 10), identity
+Decisions and alternatives: [ADR 0010](decisions/0010-browser-agent.md).
+
+- **Actions** (`BrowserAction`, contracts): NAVIGATE, NEW_TAB, SWITCH_TAB,
+  CLOSE_TAB, CLICK, TYPE, FILL_FORM, SELECT_OPTION, PRESS_KEYS, SUBMIT,
+  WAIT_FOR, READ_PAGE, EXTRACT, SCREENSHOT, SNAPSHOT_HTML, DOWNLOAD, UPLOAD
+  and the opt-in CLICK_POINT. Controls are found by `Locator`: role and
+  accessible name first, then label, placeholder, text or test id; a CSS
+  selector only when the task names one. Each action returns its address,
+  origin, title, method, observation, untrusted content, labelled
+  instructions, evidence and error.
+- **Core** (`packages/core/src/browser/`, service `browser-agent`): asks for
+  every permission (per action, per exact origin) before anything runs, checks
+  each again when it runs, keeps the task on its approved origins
+  (`SAFETY_STOP` otherwise), labels page text that tries to direct it
+  (`injection.ts`), cancels, stores tasks (migration 9) and publishes
+  `browser.*` events.
+- **Host** (`browser-host.ts`, host operation `host.browser.call`, Core
+  only): finds the browser (Edge, Chrome or Chromium), owns the profile,
+  quarantine, downloads, uploads and evidence folders, checks every download
+  before keeping it, and runs the browser runtime.
+- **Browser runtime** (`services/browser-runtime`, host service
+  `browser-runtime`): `playwright-core` bundled into `browser-runtime.cjs`, in
+  its own process on Electron's Node.js; isolated contexts; one validated call
+  at a time with deadlines, crash reporting and restart.
+- **Missions**: step type `browser.read_page` (navigate, read, screenshot);
+  its output reaches later steps only as fenced, labelled untrusted page text.
+  The Mission detail shows the agents a plan uses and each permission with
+  the person's answer.
+- **Setting**: `browser.persistentProfile` (off by default).
+- **Interface**: Diagnostics › Browser Agent (availability, browser, profile
+  kind, recent tasks with per-action method, observation, untrusted-content
+  and labelled-instruction badges, safety stops); Settings › Permissions ›
+  persistent profile; permission requests in the global dialog.
+
+## Not in SET 9
+
+Computer vision and drag and drop for the agents, CAPTCHA solving, filling
+payment details, attachments through the Artifact Manager (SET 10), identity
 verification (SET 14), plugins with their own runtime (SET 15), and everything
 after that. The five unfinished destinations are shown as _Coming later_ in
 the app, and none of them is presented as working.
