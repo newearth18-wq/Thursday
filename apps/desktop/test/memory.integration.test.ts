@@ -204,6 +204,7 @@ describe('SET 11 — Memory System and Obsidian, in the real application', () =>
       'SAVE'
     )
     expect(await reasons()).toContain('explicit-request')
+    await page.getByTestId('memory-decision').scrollIntoViewIfNeeded()
     await evidence('02-at1-saved')
     await openMemory('memories')
     await item('Solarized Dark').waitFor()
@@ -226,6 +227,9 @@ describe('SET 11 — Memory System and Obsidian, in the real application', () =>
     expect(KEY.length).toBeGreaterThan(20)
     expect(await propose(`My OpenAI key is ${KEY}`)).toBe('DO_NOT_SAVE')
     expect(await reasons()).toEqual(['credential'])
+    // The key does not stay in the form once Core has answered.
+    expect(await page.getByTestId('memory-add-content').inputValue()).toBe('')
+    await page.getByTestId('memory-decision').scrollIntoViewIfNeeded()
     await evidence('04-at3-do-not-save')
     // Nor a duplicate of what is already remembered.
     expect(await propose('My favourite editor theme is Solarized Dark.', 'preferences')).toBe(

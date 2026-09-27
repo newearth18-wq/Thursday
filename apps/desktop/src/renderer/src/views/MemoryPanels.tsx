@@ -572,7 +572,9 @@ export function AddMemoryPanel() {
               }),
             (proposal) => {
               setResult(proposal)
-              if (proposal.decision === 'SAVE') setContent('')
+              // Whatever was decided, the text leaves the form: Core has it (or refused it,
+              // as for a key, which must not stay in the interface after its request).
+              setContent('')
             }
           )
         }}

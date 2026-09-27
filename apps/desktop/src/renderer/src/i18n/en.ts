@@ -1358,7 +1358,7 @@ export const en = {
   'memory.semantic.model': 'Embedding model: {model} ({provider}, {where}).',
   'memory.semantic.none': 'Semantic search not available: {reason}',
   'memory.semantic.used': 'Ranked by meaning with {model} ({provider}, {where}).',
-  'memory.semantic.notUsed': 'Semantic search was not used, so this is a keyword search: {reason}',
+  'memory.semantic.notUsed': 'Semantic search was not used: {reason}',
   'memory.locality.this-device': 'on this computer',
   'memory.locality.cloud': 'in the cloud',
   'memory.tab.memories': 'Memories',

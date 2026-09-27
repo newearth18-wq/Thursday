@@ -129,7 +129,7 @@ describe('Jupiter desktop shell — healthy start', () => {
     expect(await page.getByTestId('nav-planned-heading').textContent()).toBe('Coming later')
     const planned = page.locator('[data-availability="COMING_LATER"].nav-link')
     expect(await planned.count()).toBe(3)
-    for (let i = 0; i < 4; i++) {
+    for (let i = 0; i < 3; i++) {
       expect(await planned.nth(i).getAttribute('aria-describedby')).toBe('nav-planned-heading')
     }
 

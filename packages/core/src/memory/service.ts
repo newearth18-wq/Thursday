@@ -354,7 +354,7 @@ export class MemoryService {
 
   async get(memoryId: string, reveal: boolean, context: MemoryContext): Promise<MemoryEntry> {
     this.permit('memory.read', MEMORY_TARGET, 'Show a memory', context)
-    const stored = this.require(memoryId)
+    const stored = this.memoryById(memoryId)
     if (!reveal || stored.sensitivity === 'normal') return this.entry(stored)
     if (context.actor !== 'user-interface')
       throw new JupiterError('PERMISSION_DENIED', 'Only you can see a sensitive memory.', {
@@ -459,7 +459,7 @@ export class MemoryService {
 
   async update(correction: MemoryCorrection, context: MemoryContext): Promise<MemoryEntry> {
     this.permit('memory.write', MEMORY_TARGET, 'Correct a memory', context)
-    const stored = this.require(correction.memoryId)
+    const stored = this.memoryById(correction.memoryId)
     let { content, sealed, contentKey } = stored
     if (correction.content !== undefined) {
       const kinds = sensitiveKindsOf(correction.content, correction.type ?? stored.type)
@@ -524,7 +524,7 @@ export class MemoryService {
       forgotten ? 'Forget a memory' : 'Restore a memory',
       context
     )
-    const stored = this.require(memoryId)
+    const stored = this.memoryById(memoryId)
     const updated: StoredMemory = {
       ...stored,
       state: forgotten ? 'forgotten' : 'active',
@@ -536,7 +536,7 @@ export class MemoryService {
   }
 
   delete(memoryId: string, context: MemoryContext): { deleted: boolean } {
-    const stored = this.require(memoryId)
+    const stored = this.memoryById(memoryId)
     this.permit('memory.delete', `memory:${memoryId}`, 'Delete a memory for good', context)
     const database = this.options.database()
     let deleted = false
@@ -785,7 +785,7 @@ export class MemoryService {
     return this.session.has(memoryId) || this.options.database().memories.get(memoryId) !== null
   }
 
-  private require(memoryId: string): StoredMemory {
+  private memoryById(memoryId: string): StoredMemory {
     const stored = this.session.get(memoryId) ?? this.options.database().memories.get(memoryId)
     if (!stored)
       throw new JupiterError('MEMORY_NOT_FOUND', 'Jupiter has no such memory.', {
@@ -860,7 +860,7 @@ export class MemoryService {
           userAction: null
         }
       )
-    const origin = this.require(relatedTo)
+    const origin = this.memoryById(relatedTo)
     const outgoing = new Map(
       origin.relationships.map((relation) => [relation.memoryId, relation.kind])
     )

@@ -1339,7 +1339,7 @@ export const th: Record<MessageKey, string> = {
   'memory.semantic.model': 'โมเดล embedding: {model} ({provider}, {where})',
   'memory.semantic.none': 'การค้นหาเชิงความหมายใช้ไม่ได้: {reason}',
   'memory.semantic.used': 'จัดลำดับตามความหมายด้วย {model} ({provider}, {where})',
-  'memory.semantic.notUsed': 'ไม่ได้ใช้การค้นหาเชิงความหมาย ผลนี้จึงเป็นการค้นหาด้วยคำ: {reason}',
+  'memory.semantic.notUsed': 'ไม่ได้ใช้การค้นหาเชิงความหมาย: {reason}',
   'memory.locality.this-device': 'ในคอมพิวเตอร์นี้',
   'memory.locality.cloud': 'บนคลาวด์',
   'memory.tab.memories': 'ความจำ',
