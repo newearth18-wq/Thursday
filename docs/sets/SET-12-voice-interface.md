@@ -4,7 +4,7 @@
   SQLite, the real system voice, speech models behind protocol test
   servers) and in the real Electron application (E2E, Chromium's fake
   microphone playing real speech recordings, with screenshots). Local
-  `npm run verify`: 13/13 steps PASS. CI: green on Linux, Windows and Legacy (`496b1af`, run 36326422414).
+  `npm run verify`: 13/13 steps PASS. CI: green on Linux, Windows and Legacy (`e0b391d`, run 36330879185).
   Evidence: §7 and §12.
 - SET 11 was checked first: green in CI on Linux, Windows and Legacy
   (`98ea150`, run 36318737753) and merged (PR #8, `ed234e8`). Its suites
@@ -226,7 +226,10 @@ The SET 12 suites:
 
 ### CI
 
-Evidence: commit `496b1af`, run 36326422414. All three jobs succeeded.
+Evidence: commit `e0b391d`, run 36330879185. All three jobs succeeded
+(Linux job 108652491102, Windows job 108652491220, Legacy job
+108652491218). The SET 12 code was also green at `496b1af` (run
+36326422414).
 
 | Job                                                                                                                                  | Result  | Notes                                                                                                                          |
 | ------------------------------------------------------------------------------------------------------------------------------------ | ------- | ------------------------------------------------------------------------------------------------------------------------------ |
@@ -241,6 +244,13 @@ Earlier run on this PR:
   voice controller (SET 12) keeps one for the whole interface. The test
   now expects five and names it (`496b1af`); it is not a leaked
   subscription (the old page's subscriptions are still released).
+- **Run 36327483372** (`a8a7f84`, the report only): Windows failed the SET 8
+  Notepad test (Notepad on the runner kept 12 of 13 typed characters; the
+  Computer Agent correctly reported it unverified), and on the one re-run
+  it passed that test but failed two SET 11 Memory E2E tests. Both are
+  fixed in `44aacbc` (see §12).
+- **Run 36330055167** (`44aacbc`): Linux failed the in-process SET 11
+  privacy test on the same four-digit search; fixed in `e0b391d`.
 
 ## 8. Manual tests
 
@@ -306,7 +316,8 @@ npx vitest run --project integration apps/desktop/test/voice-core.integration.te
 - `docs/sets/set-12/*.png`: the E2E screenshots (also written to
   `test-results/set-12/` on each run)
 - `packages/testing/fixtures/voice/*.wav`: the spoken test inputs
-- CI run 36326422414 (commit `496b1af`): Linux job 108639981192, Windows job 108639981073, Legacy job 108639981175; run 36325647400 (`10e59d3`): the failure fixed in `496b1af` (§7)
+- CI run 36330879185 (commit `e0b391d`): Linux job 108652491102, Windows job 108652491220, Legacy job 108652491218
+- Earlier runs 36325647400, 36326422414, 36327483372 and 36330055167: the failures and fixes in §7
 
 ## 12. Acceptance tests
 
