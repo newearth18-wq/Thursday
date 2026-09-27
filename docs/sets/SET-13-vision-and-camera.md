@@ -4,7 +4,9 @@
   SQLite and Permission Engine, the real vision host with real Tesseract
   and jsQR on real images, vision models behind protocol test servers) and
   in the real Electron application (E2E: real screen capture under Xvfb,
-  Chromium's fake camera, with screenshots). Evidence: §7 and §12.
+  Chromium's fake camera, with screenshots). Local `npm run verify`: 13/13
+  steps PASS. CI: green on Linux, Windows and Legacy (`17e238f`, run
+  36346576039). Evidence: §7 and §12.
 - SET 12 was checked first: green in CI on Linux, Windows and Legacy
   (`e0b391d`, run 36330879185) and merged (PR #9, `eb72f31`).
 - Choice the person made for this SET: analysis (describing an image,
@@ -224,7 +226,27 @@ The SET 13 suites:
 
 ### CI
 
-CI_RESULTS_PLACEHOLDER
+Evidence: commit `17e238f`, run 36346576039. All three jobs succeeded
+(Linux job 108696784418, Windows job 108696784344, Legacy job
+108696784459).
+
+| Job                                                                                                                                  | Result  | Notes                                                                                                   |
+| ------------------------------------------------------------------------------------------------------------------------------------ | ------- | ------------------------------------------------------------------------------------------------------- |
+| Linux — format, lint, typecheck, unit, build, integration + E2E, secret scan, dev smoke, Windows and Linux packages, packaged launch | success | Tesseract (English, Thai) installed; the SET 13 suites ran with the Xvfb screen and the fake camera     |
+| Windows — typecheck, unit, build, integration + E2E, NSIS installer, package validation, packaged launch                             | success | Tesseract from Chocolatey with the Thai model; the SET 13 suites (host, in-process, E2E) ran on Windows |
+| Legacy Thursday — build and acceptance suite                                                                                         | success |                                                                                                         |
+
+Earlier runs on this PR:
+
+- **Run 36342514725** (`1275cb8`): Linux failed the formatting check on this
+  report; fixed in `c0b1843`.
+- **Run 36342802747** (`3131f1f`, after the Diagnostics limit fix): Linux
+  and Legacy succeeded; the Windows job was cancelled by the next push.
+- **Run 36343797908** (`5c85ecc`): Windows failed the QR tests. The ZBar
+  build Chocolatey installs (0.10) cannot read an image from standard input,
+  so every QR code failed (and a later E2E test that counts uploads failed
+  with it). QR codes are now read by jsQR in the host process (`75c233a`,
+  `33a59c9`); Tesseract worked on Windows as it was.
 
 ## 8. Manual tests
 
@@ -287,7 +309,8 @@ npm ci && npm run dev
 - `docs/sets/set-13/*.png`: the E2E screenshots (also written to
   `test-results/set-13/` on each run)
 - `packages/testing/fixtures/vision/*.png`: the test images
-- CI: CI_PLACEHOLDER
+- CI run 36346576039 (commit `17e238f`): Linux job 108696784418, Windows job 108696784344, Legacy job 108696784459
+- Earlier runs 36342514725, 36342802747 and 36343797908: the failures and fixes in §7
 
 ## 12. Acceptance tests
 
