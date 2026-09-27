@@ -17,6 +17,7 @@ import { fakeCredentials } from '@jupiter/testing/fake-credentials'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { BrowserHost } from './browser-host'
 import { FileHost } from './file-host'
+import { NotesHost } from './notes-host'
 import { ComputerHost } from './computer-host'
 import { CredentialVault, type SafeStorageLike } from './credential-vault'
 import { HostCapabilities, type HostCall } from './host-capabilities'
@@ -85,6 +86,12 @@ function setup(
       openPath: open,
       showItemInFolder: () => undefined,
       trash: () => Promise.resolve()
+    }),
+    notes: new NotesHost({
+      logger,
+      stateFile: join(root, 'notes-vault.json'),
+      backupDirectory: join(root, 'notes-backups'),
+      chooseFolder: () => Promise.resolve(null)
     }),
     vault: new CredentialVault(credentialsDirectory, fakeSafeStorage(storage), platform, logger),
     logsDirectory,
@@ -382,5 +389,45 @@ describe('computer host operations (SET 8)', () => {
     expect(
       await host.call({ op: 'verifyFile', params: { fileName: 'hello.txt', expected: 'Hello' } })
     ).toMatchObject({ exists: true, matches: false })
+  })
+})
+
+describe('sealing sensitive memories (SET 11)', () => {
+  const core = { type: 'core' as const, id: 'core' }
+  const secret = 'My blood type is O negative and I take insulin daily.'
+
+  it('seals and opens text only for Jupiter Core, never storing or logging it', async () => {
+    const { capabilities, logs } = setup(() => Promise.resolve(''))
+    const sealed = await capabilities.execute(call('host.vault.seal', { text: secret }, core))
+    expect(sealed.ok).toBe(true)
+    const token = sealed.ok ? (sealed.data as { sealed: string }).sealed : ''
+    expect(token).not.toContain('insulin')
+    expect(Buffer.from(token, 'base64').toString('utf8')).not.toContain('insulin')
+    expect(await capabilities.execute(call('host.vault.unseal', { sealed: token }, core))).toEqual({
+      ok: true,
+      data: { text: secret }
+    })
+    for (const operation of ['host.vault.seal', 'host.vault.unseal', 'host.vault.status'])
+      expect(
+        await capabilities.execute(call(operation, { text: secret, sealed: token }))
+      ).toMatchObject({ ok: false, error: { code: 'PERMISSION_DENIED' } })
+    expect(JSON.stringify(logs.entries)).not.toContain('insulin')
+  })
+
+  it('refuses to seal when the system offers no real protection', async () => {
+    const { capabilities } = setup(() => Promise.resolve(''), undefined, {
+      available: true,
+      backend: 'basic_text'
+    })
+    expect(await capabilities.execute(call('host.vault.status', {}, core))).toMatchObject({
+      ok: true,
+      data: { available: false }
+    })
+    expect(
+      await capabilities.execute(call('host.vault.seal', { text: secret }, core))
+    ).toMatchObject({
+      ok: false,
+      error: { code: 'SECURE_STORAGE_UNAVAILABLE' }
+    })
   })
 })

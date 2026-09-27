@@ -48,7 +48,14 @@ export const SettingDefinitions = {
    * and sign-ins kept between sessions). Off: every session is a temporary
    * profile, removed when it closes. Never the person's own browser profile.
    */
-  'browser.persistentProfile': z.boolean()
+  'browser.persistentProfile': z.boolean(),
+  /**
+   * Memory search may also compare meanings with an embedding model (SET 11).
+   * Off: keyword, metadata and relationship search only. When on, the model
+   * is chosen by the router and obeys `ai.routingMode` — with `LOCAL_ONLY`,
+   * never a cloud model. Sensitive memories are never sent to any model.
+   */
+  'memory.semanticSearch': z.boolean()
 } as const satisfies Record<string, z.ZodType>
 
 export type SettingKey = keyof typeof SettingDefinitions
@@ -73,7 +80,8 @@ export const SettingDefaults: { readonly [K in SettingKey]: SettingValue<K> } = 
   'ai.preferredReasoningModel': null,
   'ai.preferredVisionModel': null,
   'ai.preferredEmbeddingModel': null,
-  'browser.persistentProfile': false
+  'browser.persistentProfile': false,
+  'memory.semanticSearch': false
 }
 
 export const SettingRecord = z

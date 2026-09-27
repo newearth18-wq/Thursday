@@ -586,5 +586,78 @@ export const JUPITER_MIGRATIONS: readonly Migration[] = [
         SELECT RAISE(ABORT, 'artifacts are never deleted; a removed file is marked deleted');
       END;
     `
+  },
+  {
+    version: 11,
+    name: '0011_memory',
+    sql: `
+      -- Long-term memory (SET 11). A normal memory keeps its content; a
+      -- sensitive one keeps only a sealed (OS-encrypted) form and no content
+      -- key, so nothing readable is on disk. A memory is removed only when the
+      -- person deletes it or its retention ends.
+      CREATE TABLE memories (
+        memory_id            TEXT PRIMARY KEY NOT NULL,
+        type                 TEXT NOT NULL CHECK (type IN ('preferences', 'people', 'projects', 'documents',
+                               'decisions', 'tasks', 'routines', 'facts', 'ideas', 'relationships')),
+        content              TEXT,
+        sealed               TEXT,
+        content_key          TEXT CHECK (content_key IS NULL OR length(content_key) = 64),
+        sensitivity          TEXT NOT NULL CHECK (sensitivity IN ('normal', 'sensitive')),
+        sensitive_kinds_json TEXT NOT NULL CHECK (json_valid(sensitive_kinds_json)),
+        source_json          TEXT NOT NULL CHECK (json_valid(source_json)),
+        tags_json            TEXT NOT NULL CHECK (json_valid(tags_json)),
+        relationships_json   TEXT NOT NULL CHECK (json_valid(relationships_json)),
+        retention_json       TEXT NOT NULL CHECK (json_valid(retention_json)),
+        expires_at           TEXT,
+        confidence           REAL NOT NULL CHECK (confidence >= 0 AND confidence <= 1),
+        importance           REAL NOT NULL CHECK (importance >= 0 AND importance <= 1),
+        state                TEXT NOT NULL CHECK (state IN ('active', 'forgotten')),
+        corrections          INTEGER NOT NULL CHECK (corrections >= 0),
+        created_at           TEXT NOT NULL,
+        updated_at           TEXT NOT NULL,
+        CHECK ((sensitivity = 'normal' AND content IS NOT NULL AND sealed IS NULL)
+            OR (sensitivity = 'sensitive' AND content IS NULL AND sealed IS NOT NULL AND content_key IS NULL))
+      ) STRICT;
+
+      CREATE INDEX memories_by_time ON memories (created_at);
+      CREATE INDEX memories_by_key ON memories (content_key);
+      CREATE INDEX memories_by_expiry ON memories (expires_at);
+
+      -- Embedding vectors for semantic search: normal memories only (a
+      -- trigger refuses one for a sensitive memory).
+      CREATE TABLE memory_embeddings (
+        memory_id    TEXT NOT NULL REFERENCES memories (memory_id) ON DELETE CASCADE,
+        model_key    TEXT NOT NULL,
+        content_key  TEXT NOT NULL,
+        vector_json  TEXT NOT NULL CHECK (json_valid(vector_json)),
+        PRIMARY KEY (memory_id, model_key)
+      ) STRICT;
+
+      CREATE TRIGGER memory_embeddings_normal_only BEFORE INSERT ON memory_embeddings
+      WHEN (SELECT sensitivity FROM memories WHERE memory_id = NEW.memory_id) <> 'normal'
+      BEGIN
+        SELECT RAISE(ABORT, 'sensitive memories are never embedded');
+      END;
+
+      -- The Memory Policy's decisions, without content; append-only.
+      CREATE TABLE memory_decisions (
+        decision_id  TEXT PRIMARY KEY NOT NULL,
+        decided_at   TEXT NOT NULL,
+        decision     TEXT NOT NULL CHECK (decision IN ('SAVE', 'DO_NOT_SAVE', 'ASK_USER')),
+        decided_by   TEXT NOT NULL CHECK (decided_by IN ('policy', 'person')),
+        record_json  TEXT NOT NULL CHECK (json_valid(record_json))
+      ) STRICT;
+
+      CREATE INDEX memory_decisions_by_time ON memory_decisions (decided_at);
+
+      CREATE TRIGGER memory_decisions_no_update BEFORE UPDATE ON memory_decisions
+      BEGIN
+        SELECT RAISE(ABORT, 'memory decisions are never changed');
+      END;
+      CREATE TRIGGER memory_decisions_no_delete BEFORE DELETE ON memory_decisions
+      BEGIN
+        SELECT RAISE(ABORT, 'memory decisions are never deleted');
+      END;
+    `
   }
 ]

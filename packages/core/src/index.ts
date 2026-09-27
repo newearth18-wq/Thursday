@@ -38,6 +38,8 @@ export type {
   BackupOptions,
   ChatStore,
   ArtifactStore,
+  MemoryStore,
+  StoredMemory,
   BrowserTaskStore,
   ComputerTaskStore,
   ExecutionRecord,

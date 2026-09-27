@@ -694,6 +694,11 @@ describe('Workflow Engine', () => {
       ['document.read_newest', false],
       ['document.read', false],
       ['document.create', false],
+      // SET 11: memory needs only the database, so recall runs here; there is no vault host.
+      ['memory.recall', true],
+      ['notes.search', false],
+      ['notes.read', false],
+      ['notes.create', false],
       ['checkpoint.identity', false],
       // SET 6: registered Skills are step types too. The harness Core has no build
       // metadata, so get_app_version fails its health check and cannot be a step.

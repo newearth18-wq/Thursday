@@ -2365,3 +2365,20 @@ kbd {
   flex-direction: column;
   gap: var(--jp-space-xs);
 }
+
+/* Memory and Obsidian notes (SET 11) */
+.view-memory > .card {
+  margin-bottom: var(--jp-space-lg);
+}
+
+.memory-counts {
+  display: flex;
+  flex-wrap: wrap;
+}
+
+.memory-panel {
+  display: flex;
+  flex-direction: column;
+  gap: var(--jp-space-md);
+  padding-top: var(--jp-space-md);
+}

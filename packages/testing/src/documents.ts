@@ -56,3 +56,22 @@ export function checkOffice(path: string, kind: 'docx' | 'pptx' | 'xlsx'): unkno
     )
   return JSON.parse(result.stdout) as unknown
 }
+
+/** Reads a note with an independent parser (PyYAML): valid frontmatter, body and [[links]]; throws if invalid. */
+export function checkMarkdown(path: string): {
+  bom: boolean
+  frontmatter: Record<string, unknown> | null
+  body: string
+  links: string[]
+  crlf: boolean
+} {
+  const result = spawnSync(PYTHON, [join(here, '..', 'scripts', 'check-markdown.py'), path], {
+    encoding: 'utf8',
+    env: { ...process.env, PYTHONIOENCODING: 'utf-8' },
+    timeout: 60_000
+  })
+  if (result.error) throw new Error(`Could not run ${PYTHON}: ${result.error.message}`)
+  if (result.status !== 0)
+    throw new Error(`The independent Markdown reader could not read ${path}:\n${result.stderr}`)
+  return JSON.parse(result.stdout) as ReturnType<typeof checkMarkdown>
+}

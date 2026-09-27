@@ -62,6 +62,28 @@ export const PERMISSION_CATALOGUE = {
     reversible: true,
     dataLeavesDevice: null
   },
+  'memory.delete': {
+    risk: 'HIGH',
+    summary: 'Delete a memory for good',
+    consequence: 'The memory and its content are erased; this cannot be undone.',
+    reversible: false,
+    dataLeavesDevice: null
+  },
+  'notes.read': {
+    risk: 'MEDIUM',
+    summary: 'Read notes in your Obsidian vault',
+    consequence: 'The text of the notes becomes part of the result.',
+    reversible: true,
+    dataLeavesDevice: null
+  },
+  'notes.write': {
+    risk: 'MEDIUM',
+    summary: 'Add a note or add to a note in your Obsidian vault',
+    consequence:
+      'A new note is created, or text and links are added to a note; a copy of a changed note is kept first.',
+    reversible: true,
+    dataLeavesDevice: null
+  },
   'files.read': {
     risk: 'MEDIUM',
     summary: 'Read a file',

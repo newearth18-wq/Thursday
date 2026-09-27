@@ -24,7 +24,7 @@ import {
  */
 
 const EVIDENCE = join(appDirectory, '..', '..', 'test-results', 'set-02')
-const UNFINISHED: readonly ViewId[] = ['memory', 'automations', 'devices', 'plugins']
+const UNFINISHED: readonly ViewId[] = ['automations', 'devices', 'plugins']
 /** The only labels the Global Contract allows for something that does not work yet. */
 const TRUTHFUL_LABELS = ['Coming later', 'Unavailable', 'Not configured', 'Experimental']
 

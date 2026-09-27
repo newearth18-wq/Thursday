@@ -13,6 +13,13 @@ import { PermissionDecision } from './permissions'
 import { BrowserActionType, BrowserMethod, BrowserTaskStatus, SuspiciousContent } from './browser'
 import { ComputerActionType, ComputerTaskStatus, InteractionMethod } from './computer'
 import { ArtifactVerificationStatus, DocumentFormat, FileRoot } from './files'
+import {
+  MemoryDecision,
+  MemorySensitivity,
+  MemorySourceKind,
+  MemoryType,
+  PolicyReasonCode
+} from './memory'
 
 /**
  * Versioned domain events (contract version 1).
@@ -40,7 +47,9 @@ export const StreamKind = z.enum([
   'computer',
   'browser',
   'files',
-  'artifact'
+  'artifact',
+  'memory',
+  'notes'
 ])
 export type StreamKind = z.infer<typeof StreamKind>
 
@@ -392,6 +401,55 @@ export const EventPayloads = {
       verificationStatus: ArtifactVerificationStatus
     })
     .strict(),
+  // The Memory System (SET 11), on the stream `memory/<memoryId>` or `memory/policy`.
+  // No memory content is ever in an event.
+  'memory.decided': z
+    .object({
+      decisionId: Uuidv7,
+      decision: MemoryDecision,
+      decidedBy: z.enum(['policy', 'person']),
+      reasons: z.array(PolicyReasonCode).min(1).max(10),
+      type: MemoryType,
+      sensitivity: MemorySensitivity,
+      memoryId: Uuidv7.nullable(),
+      candidateId: Uuidv7.nullable()
+    })
+    .strict(),
+  'memory.saved': z
+    .object({
+      memoryId: Uuidv7,
+      type: MemoryType,
+      sensitivity: MemorySensitivity,
+      layer: z.enum(['session', 'long-term']),
+      sourceKind: MemorySourceKind
+    })
+    .strict(),
+  'memory.changed': z
+    .object({
+      memoryId: Uuidv7,
+      change: z.enum(['corrected', 'forgotten', 'restored', 'deleted', 'expired', 'exported'])
+    })
+    .strict(),
+  // Obsidian notes (SET 11), on the stream `notes/<vaultId>`.
+  'notes.changed': z
+    .object({
+      vaultId: Uuidv7.nullable(),
+      op: z.enum([
+        'connected',
+        'disconnected',
+        'structure',
+        'created',
+        'appended',
+        'linked',
+        'read',
+        'searched'
+      ]),
+      path: z.string().max(1000),
+      outcome: z.enum(['done', 'failed', 'refused']),
+      errorCode: z.string().max(64).nullable(),
+      missionId: Uuidv7.nullable()
+    })
+    .strict(),
   'artifact.changed': z
     .object({
       artifactId: Uuidv7,
@@ -478,7 +536,11 @@ export const DomainEvent = z
     variant('browser.task_finished'),
     variant('file.operation'),
     variant('artifact.created'),
-    variant('artifact.changed')
+    variant('artifact.changed'),
+    variant('memory.decided'),
+    variant('memory.saved'),
+    variant('memory.changed'),
+    variant('notes.changed')
   ])
   .refine(
     (event) =>
