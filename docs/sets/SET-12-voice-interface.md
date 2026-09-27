@@ -4,7 +4,7 @@
   SQLite, the real system voice, speech models behind protocol test
   servers) and in the real Electron application (E2E, Chromium's fake
   microphone playing real speech recordings, with screenshots). Local
-  `npm run verify`: @@VERIFY@@. CI: @@CI@@.
+  `npm run verify`: 13/13 steps PASS. CI: green on Linux, Windows and Legacy (`496b1af`, run 36326422414).
   Evidence: §7 and §12.
 - SET 11 was checked first: green in CI on Linux, Windows and Legacy
   (`98ea150`, run 36318737753) and merged (PR #8, `ed234e8`). Its suites
@@ -193,7 +193,14 @@ npm run verify
 
 ### Local run
 
-@@LOCAL@@
+`npm run verify` on Linux (Node.js 22, Xvfb, a throwaway GNOME Keyring,
+espeak-ng): **13/13 steps PASS**, exit 0.
+
+- unit tests: 29 files, 275 tests
+- integration and Electron E2E: 44 files passed and 2 skipped; 335 tests
+  passed and 16 skipped (the Windows-only SET 8 suites and the Windows
+  installer check)
+- packaged-app launch: 5 tests
 
 The SET 12 suites:
 
@@ -219,7 +226,21 @@ The SET 12 suites:
 
 ### CI
 
-@@CIDETAIL@@
+Evidence: commit `496b1af`, run 36326422414. All three jobs succeeded.
+
+| Job                                                                                                                                  | Result  | Notes                                                                                                                          |
+| ------------------------------------------------------------------------------------------------------------------------------------ | ------- | ------------------------------------------------------------------------------------------------------------------------------ |
+| Linux — format, lint, typecheck, unit, build, integration + E2E, secret scan, dev smoke, Windows and Linux packages, packaged launch | success | espeak-ng installed; the SET 12 suites ran with Chromium's fake microphone                                                     |
+| Windows — typecheck, unit, build, integration + E2E, NSIS installer, package validation, packaged launch                             | success | The SET 12 suites ran on Windows with SAPI (7 in-process, 7 E2E); Thai spoken by the speech model where SAPI has no Thai voice |
+| Legacy Thursday — build and acceptance suite                                                                                         | success |                                                                                                                                |
+
+Earlier run on this PR:
+
+- **Run 36325647400** (`10e59d3`): Linux failed one SET 1 test. After a
+  reload it expected four live-event subscriptions and found five: the
+  voice controller (SET 12) keeps one for the whole interface. The test
+  now expects five and names it (`496b1af`); it is not a leaked
+  subscription (the old page's subscriptions are still released).
 
 ## 8. Manual tests
 
@@ -285,7 +306,7 @@ npx vitest run --project integration apps/desktop/test/voice-core.integration.te
 - `docs/sets/set-12/*.png`: the E2E screenshots (also written to
   `test-results/set-12/` on each run)
 - `packages/testing/fixtures/voice/*.wav`: the spoken test inputs
-- @@CIRUN@@
+- CI run 36326422414 (commit `496b1af`): Linux job 108639981192, Windows job 108639981073, Legacy job 108639981175; run 36325647400 (`10e59d3`): the failure fixed in `496b1af` (§7)
 
 ## 12. Acceptance tests
 
@@ -312,5 +333,6 @@ only where SET 12 changed facts:
 - **SET 1/2 app test:** the `voice` Core service is listed as running.
 - **SET 3:** _AI Models_ also lists preferred speech-to-text and
   text-to-speech models; the chat routing tests are unchanged.
-- **SET 1 gateway test:** unchanged; none of the new capabilities matches
-  its file, credential or shell pattern.
+- **SET 1 gateway test:** none of the new capabilities matches its file,
+  credential or shell pattern; after a reload five live-event subscriptions
+  are active, not four (the voice controller).
