@@ -41,7 +41,11 @@ export const ModelCapability = z.enum([
   'vision',
   'embeddings',
   'tools',
-  'structured-output'
+  'structured-output',
+  /** Speech-to-text (SET 12). */
+  'transcription',
+  /** Text-to-speech (SET 12). */
+  'speech'
 ])
 export type ModelCapability = z.infer<typeof ModelCapability>
 
@@ -52,6 +56,8 @@ export const AdapterOperation = z.enum([
   'reasoning',
   'vision',
   'embeddings',
+  'transcription',
+  'speech',
   'tool-calling',
   'structured-output',
   'cancellation',

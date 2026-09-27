@@ -11,6 +11,7 @@ import { SkillExecutionStatus, SkillHealthStatus, SkillVersion } from './skills'
 import { PermissionName, SkillId } from './plans'
 import { PermissionDecision } from './permissions'
 import { BrowserActionType, BrowserMethod, BrowserTaskStatus, SuspiciousContent } from './browser'
+import { SpokenLanguage, VoiceState } from './voice'
 import { ComputerActionType, ComputerTaskStatus, InteractionMethod } from './computer'
 import { ArtifactVerificationStatus, DocumentFormat, FileRoot } from './files'
 import {
@@ -49,7 +50,8 @@ export const StreamKind = z.enum([
   'files',
   'artifact',
   'memory',
-  'notes'
+  'notes',
+  'voice'
 ])
 export type StreamKind = z.infer<typeof StreamKind>
 
@@ -161,7 +163,7 @@ export const EventPayloads = {
       providerId: ProviderId.nullable(),
       locality: Locality,
       mode: RoutingMode,
-      operation: z.enum(['chat', 'check', 'validate-key', 'embeddings'])
+      operation: z.enum(['chat', 'check', 'validate-key', 'embeddings', 'transcription', 'speech'])
     })
     .strict(),
   'chat.conversation.changed': z
@@ -450,6 +452,31 @@ export const EventPayloads = {
       missionId: Uuidv7.nullable()
     })
     .strict(),
+  // Voice (SET 12), on the stream `voice/voice`. No event carries audio, a transcript or a reply.
+  /** Transient: the state the interface shows, tied to real audio and Core activity. */
+  'voice.state_changed': z
+    .object({
+      state: VoiceState,
+      previous: VoiceState,
+      reason: z.string().max(80),
+      sessionId: Uuidv7.nullable(),
+      utteranceId: Uuidv7.nullable()
+    })
+    .strict(),
+  /** A listening session began or ended (the microphone was on in between). */
+  'voice.session': z
+    .object({
+      sessionId: Uuidv7,
+      change: z.enum(['started', 'ended']),
+      mode: z.enum(['push-to-talk', 'wake-word']),
+      reason: z.string().max(80),
+      sttLocality: Locality.nullable()
+    })
+    .strict(),
+  /** Transient: speech is ready for the interface to play. */
+  'voice.utterance_ready': z
+    .object({ utteranceId: Uuidv7, language: SpokenLanguage, ttsLocality: Locality })
+    .strict(),
   'artifact.changed': z
     .object({
       artifactId: Uuidv7,
@@ -540,7 +567,10 @@ export const DomainEvent = z
     variant('memory.decided'),
     variant('memory.saved'),
     variant('memory.changed'),
-    variant('notes.changed')
+    variant('notes.changed'),
+    variant('voice.state_changed'),
+    variant('voice.session'),
+    variant('voice.utterance_ready')
   ])
   .refine(
     (event) =>

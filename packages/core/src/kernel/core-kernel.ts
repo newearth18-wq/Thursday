@@ -25,7 +25,9 @@ import {
   type SettingRecord,
   type SettingValue,
   type SubscribeReceipt,
-  type SubscribeRequest
+  type SubscribeRequest,
+  type SystemSpeech,
+  type SystemVoices
 } from '@jupiter/contracts'
 import { JupiterError, createErrorEnvelope, describeError, toErrorEnvelope } from '../errors'
 import { uuidv7 } from '../ids'
@@ -38,7 +40,9 @@ import {
   type RequestContext
 } from '../dispatch/dispatcher'
 import { EventBus, type EventDelivery, type PublishInput } from '../events/event-bus'
-import type { ProviderAdapter } from '../ai/adapter'
+import type { AdapterContext, ProviderAdapter } from '../ai/adapter'
+import { completeText } from '../ai/complete'
+import { VoiceService, type SpeechPlan, type VoiceCallContext } from '../voice/service'
 import { ChatService } from '../ai/chat'
 import { BrowserAgent } from '../browser/agent'
 import { checkedBrowserDriver } from '../browser/driver'
@@ -154,6 +158,7 @@ export class CoreKernel {
   readonly files: FileAgent
   readonly memory: MemoryService
   readonly notes: NotesAgent
+  readonly voice: VoiceService
   private readonly supervisor: ServiceSupervisor
   private readonly logger: Logger
   private readonly now: () => Date
@@ -370,6 +375,73 @@ export class CoreKernel {
         embed: (plan, texts, context) => this.embed(plan, texts, context)
       }
     })
+    // SET 12: the Voice System decides here; the interface captures and plays audio, the host
+    // owns the microphone gate and the operating system's voice.
+    this.voice = new VoiceService({
+      database: () => this.requireDatabase(),
+      bus: this.bus,
+      logger: this.logger.child({ component: 'voice' }),
+      now: this.now,
+      permissions: this.permissions,
+      setting: (key) => this.validSettingValue(key, this.database?.settings.get(key)?.value),
+      engines: {
+        sttPlan: () => this.speechPlan('transcription'),
+        transcribe: (plan, wav, language, context) =>
+          this.speechCall(plan, 'transcription', context, (adapter, adapterContext) => {
+            if (!adapter.transcribe) throw speechUnsupported(plan.providerName, 'transcription')
+            return adapter.transcribe(adapterContext, { model: plan.modelId, audio: wav, language })
+          }),
+        ttsPlan: () => this.speechPlan('speech'),
+        synthesize: (plan, input, context) =>
+          this.speechCall(plan, 'speech', context, (adapter, adapterContext) => {
+            if (!adapter.synthesize) throw speechUnsupported(plan.providerName, 'speech')
+            return adapter.synthesize(adapterContext, {
+              model: plan.modelId,
+              text: input.text,
+              voice: input.voice,
+              speed: input.speed
+            })
+          }),
+        systemVoices: async () => {
+          if (!this.options.config.hostCapabilities.includes('host.speech.voices'))
+            return {
+              available: false,
+              reason: 'This host offers no system voice.',
+              engine: null,
+              voices: []
+            }
+          return (await this.hostOperation('host.speech.voices', {}, uuidv7())) as SystemVoices
+        },
+        systemSpeak: async (input, signal) =>
+          (await this.hostOperation(
+            'host.speech.synthesize',
+            input,
+            uuidv7(),
+            signal
+          )) as SystemSpeech,
+        gate: async (input) => {
+          await this.hostOperation('host.microphone.gate', input, uuidv7())
+        },
+        answer: async (text, language, context) => {
+          const completion = await completeText(this.providers, {
+            messages: [
+              {
+                role: 'system',
+                text:
+                  language === 'th'
+                    ? 'คุณคือ Jupiter ผู้ช่วยที่ตอบด้วยเสียง ตอบเป็นภาษาไทย สั้นและชัดเจน ไม่เกินสามประโยค ไม่ใช้ Markdown'
+                    : 'You are Jupiter, answering by voice. Reply in English, briefly and clearly, in at most three sentences, without Markdown.'
+              },
+              { role: 'user', content: [{ type: 'text', text }] }
+            ],
+            signal: context.signal ?? new AbortController().signal,
+            correlationId: context.correlationId,
+            actor: { type: context.actor, id: context.actor }
+          })
+          return completion.text.trim()
+        }
+      }
+    })
     // SET 11: Obsidian notes: Core decides and checks permissions; the host owns the vault.
     this.notes = new NotesAgent({
       database: () => this.requireDatabase(),
@@ -510,6 +582,53 @@ export class CoreKernel {
     return result.vectors.map((vector) => [...vector])
   }
 
+  /** Which speech model the router would use (SET 12); it obeys the routing mode. */
+  private speechPlan(capability: 'transcription' | 'speech'): SpeechPlan {
+    if (!this.database) return { ok: false, reason: 'The database is not available.' }
+    const { result } = this.providers.route(capability, null)
+    if (!result.ok) return { ok: false, reason: result.error.message }
+    const { provider, model } = result.primary
+    const stored = this.database.providers.get(provider.providerId)
+    const adapter = stored ? this.providers.adapterFor(stored.adapterId) : null
+    const supported =
+      capability === 'transcription'
+        ? adapter?.transcribe !== undefined
+        : adapter?.synthesize !== undefined
+    if (!stored || !supported)
+      return {
+        ok: false,
+        reason: `${provider.displayName} cannot ${capability === 'transcription' ? 'turn speech into text' : 'speak'}.`
+      }
+    return {
+      ok: true,
+      providerId: provider.providerId,
+      providerName: provider.displayName,
+      modelId: model.modelId,
+      locality: provider.locality
+    }
+  }
+
+  private async speechCall<T>(
+    plan: Extract<SpeechPlan, { ok: true }>,
+    capability: 'transcription' | 'speech',
+    context: VoiceCallContext,
+    run: (adapter: ProviderAdapter, adapterContext: AdapterContext) => Promise<T>
+  ): Promise<T> {
+    const database = this.requireDatabase()
+    const stored = database.providers.get(plan.providerId)
+    const adapter = stored ? this.providers.adapterFor(stored.adapterId) : null
+    if (!stored || !adapter) throw speechUnsupported(plan.providerName, capability)
+    const signal = context.signal ?? new AbortController().signal
+    const { mode } = this.providers.route(capability, null)
+    const key = await this.providers.keyFor(stored.providerId, context.correlationId, signal)
+    // The transport enforces the privacy mode again for this very request.
+    const adapterContext = this.providers.adapterContext(stored, key, mode, capability, signal, {
+      correlationId: context.correlationId,
+      actor: { type: context.actor, id: context.actor }
+    })
+    return run(adapter, adapterContext)
+  }
+
   /** A memory proposal from chat failed; the chat itself goes on. Never logs content. */
   logMemoryProblem(error: unknown): void {
     this.logger.warn('memory.chat.failed', 'A remember request from chat could not be handled', {
@@ -525,6 +644,7 @@ export class CoreKernel {
 
   async stop(): Promise<void> {
     this.dispatcher.cancelAll()
+    await this.voice.shutdown()
     this.record({
       type: 'core.stopped',
       stream: { kind: 'system', id: 'core' },
@@ -581,6 +701,7 @@ export class CoreKernel {
         await this.supervisor.retry('browser-agent')
         await this.supervisor.retry('artifact-manager')
         await this.supervisor.retry('memory')
+        await this.supervisor.retry('voice')
         await this.supervisor.retry('skill-registry')
       }
       return null
@@ -1160,6 +1281,28 @@ export class CoreKernel {
       }
     })
 
+    // SET 12: the Voice System. It needs the database (settings, the session record).
+    this.supervisor.register({
+      id: 'voice',
+      version: null,
+      capabilities: ['voice.pipeline', 'voice.vad', 'voice.wake-word'],
+      critical: false,
+      retryable: true,
+      start: () => {
+        if (!this.database)
+          throw new JupiterError(
+            'DEPENDENCY_UNAVAILABLE',
+            'Voice needs the database, which is not available.',
+            {
+              category: 'dependency',
+              userAction: 'Fix the Database service, then press Retry on it.',
+              retryable: true
+            }
+          )
+        return undefined
+      }
+    })
+
     // SET 10: the Artifact Manager (with the File Agent). Its records live in the database.
     this.supervisor.register({
       id: 'artifact-manager',
@@ -1328,7 +1471,25 @@ export class CoreKernel {
     // Read when a browser session is opened.
     'browser.persistentProfile': () => undefined,
     // Read for every memory search.
-    'memory.semanticSearch': () => undefined
+    'memory.semanticSearch': () => undefined,
+    'ai.preferredTranscriptionModel': () => undefined,
+    'ai.preferredSpeechModel': () => undefined,
+    // Voice (SET 12): turning voice or the wake word off closes the microphone at once.
+    'voice.enabled': (value, correlationId) => {
+      this.voice.applyEnabled(value, correlationId)
+    },
+    'voice.wakeWordEnabled': (value, correlationId) => {
+      this.voice.applyWakeWord(value, correlationId)
+    },
+    // Read when they are used.
+    'voice.inputDevice': () => undefined,
+    'voice.outputDevice': () => undefined,
+    'voice.wakeWord': () => undefined,
+    'voice.speechSource': () => undefined,
+    'voice.voice': () => undefined,
+    'voice.language': () => undefined,
+    'voice.speakingRate': () => undefined,
+    'voice.interruptionSensitivity': () => undefined
   }
 
   private applyLogLevel(level: LogLevel, correlationId: string): void {
@@ -1512,4 +1673,15 @@ function defaultGrants(): DefaultGrant[] {
       })
     )
   ]
+}
+
+function speechUnsupported(
+  providerName: string,
+  capability: 'transcription' | 'speech'
+): JupiterError {
+  return new JupiterError(
+    capability === 'transcription' ? 'SPEECH_TO_TEXT_UNAVAILABLE' : 'TEXT_TO_SPEECH_UNAVAILABLE',
+    `${providerName} cannot ${capability === 'transcription' ? 'turn speech into text' : 'speak'}.`,
+    { category: 'unsupported', userAction: 'Choose another speech model in AI models.' }
+  )
 }

@@ -11,6 +11,8 @@ import {
   nonLoopbackAddress,
   startAnthropicServer,
   startOpenAiCompatibleServer,
+  toWav,
+  wavStats,
   type ProtocolServer
 } from '@jupiter/testing/protocol-servers'
 import { anthropicAdapter, toAnthropicMessages } from './anthropic'
@@ -235,6 +237,87 @@ describe('Local only, at the network boundary', () => {
         1
       )
       expect(cloud.connections()).toBe(1)
+    } finally {
+      await cloud.close()
+    }
+  })
+})
+
+describe('OpenAI-compatible speech (SET 12)', () => {
+  const tone = () => {
+    const samples = new Int16Array(16_000)
+    for (let index = 0; index < samples.length; index++)
+      samples[index] = Math.round(Math.sin((2 * Math.PI * 300 * index) / 16_000) * 6_000)
+    return toWav(samples, 16_000)
+  }
+
+  it('uploads the recording as multipart and returns the transcript', async () => {
+    openai.reset()
+    openai.requireKey(key)
+    openai.transcribe({ text: '  What is the largest planet?  ', language: 'english' })
+    const adapter = openAiCompatibleAdapter()
+    const result = await adapter.transcribe?.(context(openai.baseUrl, key), {
+      model: 'stt-model',
+      audio: tone(),
+      language: 'en'
+    })
+    expect(result).toEqual({ text: 'What is the largest planet?', language: 'english' })
+    expect(openai.audio).toEqual([
+      {
+        model: 'stt-model',
+        language: 'en',
+        bytes: 32_044,
+        wav: expect.objectContaining({ sampleRate: 16_000, durationMs: 1_000 }) as unknown
+      }
+    ])
+    openai.requireKey(null)
+  })
+
+  it('returns synthesized speech as WAV bytes, and refuses a reply that is not audio', async () => {
+    openai.reset()
+    openai.setSpeech(tone())
+    const adapter = openAiCompatibleAdapter()
+    const speech = await adapter.synthesize?.(context(openai.baseUrl, null), {
+      model: 'tts-model',
+      text: 'Hello',
+      voice: null,
+      speed: 1.25
+    })
+    expect(speech?.mediaType).toBe('audio/wav')
+    expect(wavStats(speech?.audio ?? new Uint8Array())?.durationMs).toBe(1_000)
+    const request = openai.requests.find((item) => item.path === '/v1/audio/speech')
+    expect(request?.body).toEqual({
+      model: 'tts-model',
+      input: 'Hello',
+      voice: 'alloy',
+      speed: 1.25,
+      response_format: 'wav'
+    })
+    openai.setSpeech(new TextEncoder().encode('not audio at all, just text'))
+    await expect(
+      adapter.synthesize?.(context(openai.baseUrl, null), {
+        model: 'tts-model',
+        text: 'Hello',
+        voice: null,
+        speed: 1
+      })
+    ).rejects.toMatchObject({ code: 'PROVIDER_RESPONSE_INVALID' })
+  })
+
+  it('never sends audio to the cloud under Local only', async () => {
+    const address = nonLoopbackAddress()
+    if (!address) throw new Error('This test needs a non-loopback network interface')
+    const cloud = await startOpenAiCompatibleServer({ host: address })
+    try {
+      const adapter = openAiCompatibleAdapter()
+      await expect(
+        adapter.transcribe?.(context(cloud.baseUrl, null, { mode: 'LOCAL_ONLY' }), {
+          model: 'stt-model',
+          audio: tone(),
+          language: null
+        })
+      ).rejects.toMatchObject({ code: 'PRIVACY_MODE_BLOCKED' })
+      expect(cloud.connections()).toBe(0)
     } finally {
       await cloud.close()
     }

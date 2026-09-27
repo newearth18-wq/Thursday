@@ -620,3 +620,48 @@ integrations (SET 12–13), identity verification (SET 14), plugins with their
 own runtime (SET 15), and everything after that. The three unfinished
 destinations are shown as _Coming later_ in the app, and none of them is
 presented as working.
+
+## Voice Interface (SET 12)
+
+Decisions and alternatives: [ADR 0013](decisions/0013-voice-interface.md).
+
+- **Contracts** (`packages/contracts/src/voice.ts`): the eight voice
+  states, engine and microphone status, `VoiceStatus` with the last
+  exchange, listening sessions, PCM chunks (16 kHz mono, base64), stop
+  reasons, utterances and playback reports, the system voice calls and the
+  microphone gate. `ModelCapability` gains `transcription` and `speech`;
+  settings `voice.*` and the preferred speech models; events
+  `voice.state_changed` and `voice.utterance_ready` (transient) and
+  `voice.session` (persistent, no content).
+- **Core** (`packages/core/src/voice/`, service `voice`): `VoiceService`
+  (state machine, sessions, the microphone gate, Push-to-Talk and wake word,
+  speech to text, the voice answer from the chat model, text to speech with
+  the system voice or a speech model, interruption, recovery), the voice
+  activity detector (`vad.ts`), WAV helpers (`audio.ts`) and the wake word,
+  stop and language helpers (`phrases.ts`, English and Thai). Engines come
+  from the router (`transcription`, `speech`).
+- **Providers**: the OpenAI-compatible adapter implements `transcribe`
+  (`/v1/audio/transcriptions`, multipart) and `synthesize`
+  (`/v1/audio/speech`, WAV); the transport accepts byte bodies.
+- **Host**: `SpeechHost` (`speech-host.ts`; Windows SAPI, espeak-ng
+  elsewhere; host operations `host.speech.voices` and
+  `host.speech.synthesize`, Core only) and `MicrophoneGate`
+  (`host.microphone.gate`, Core only), which the session's permission
+  handlers consult.
+- **Interface**: the Devices screen (voice status, engines and where they
+  run, Push-to-Talk, wake word, last exchange, microphone and speaker, voice,
+  language, speaking rate, interruption sensitivity, _Test voice_; the
+  camera stays _Coming later_), the _Microphone on_ indicator and voice
+  controls in the top bar, Ctrl+Shift+Space and Escape, audio capture
+  (`voice/capture.ts`) and playback (`voice/playback.ts`) with Web Audio, and
+  the preferred speech models in AI Models.
+
+## Not in SET 12
+
+Streaming speech to text (the transcription endpoint takes a whole
+recording), speaking an answer before it is complete, voice inside
+Missions, voice conversation history, speaker identification, the camera
+and vision (SET 13), identity verification (SET 14), plugins with their own
+runtime (SET 15), and everything after that. The two unfinished
+destinations are shown as _Coming later_ in the app, and none of them is
+presented as working.

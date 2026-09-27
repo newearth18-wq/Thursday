@@ -34,6 +34,98 @@ export interface ScriptedReply {
   readonly drop?: boolean
 }
 
+/** A scripted speech-to-text answer (SET 12). */
+export interface ScriptedTranscript {
+  readonly text?: string
+  readonly language?: string
+  /** HTTP status for an error reply. */
+  readonly status?: number
+  readonly errorMessage?: string
+  readonly delayMs?: number
+}
+
+/** What a transcription request carried, measured from the uploaded WAV. */
+export interface ReceivedAudio {
+  readonly model: string | null
+  readonly language: string | null
+  readonly bytes: number
+  readonly wav: WavStats | null
+}
+
+export interface WavStats {
+  readonly sampleRate: number
+  readonly channels: number
+  readonly bitsPerSample: number
+  readonly durationMs: number
+  /** Root mean square of the samples, 0–1. */
+  readonly rms: number
+  /** Largest absolute sample, 0–1. */
+  readonly peak: number
+}
+
+/** Reads a PCM WAV's format and measures its loudness (tests only). */
+export function wavStats(bytes: Uint8Array): WavStats | null {
+  const buffer = Buffer.from(bytes.buffer, bytes.byteOffset, bytes.byteLength)
+  if (buffer.byteLength < 44 || buffer.toString('ascii', 0, 4) !== 'RIFF') return null
+  if (buffer.toString('ascii', 8, 12) !== 'WAVE') return null
+  let offset = 12
+  let channels = 0
+  let sampleRate = 0
+  let bitsPerSample = 0
+  while (offset + 8 <= buffer.byteLength) {
+    const id = buffer.toString('ascii', offset, offset + 4)
+    const size = buffer.readUInt32LE(offset + 4)
+    if (id === 'fmt ') {
+      channels = buffer.readUInt16LE(offset + 10)
+      sampleRate = buffer.readUInt32LE(offset + 12)
+      bitsPerSample = buffer.readUInt16LE(offset + 22)
+    }
+    if (id === 'data') {
+      if (bitsPerSample !== 16 || !channels || !sampleRate) return null
+      const end = Math.min(buffer.byteLength, offset + 8 + size)
+      let sum = 0
+      let peak = 0
+      let count = 0
+      for (let at = offset + 8; at + 1 < end; at += 2) {
+        const sample = buffer.readInt16LE(at) / 32768
+        sum += sample * sample
+        peak = Math.max(peak, Math.abs(sample))
+        count++
+      }
+      return {
+        sampleRate,
+        channels,
+        bitsPerSample,
+        durationMs: Math.round((count / channels / sampleRate) * 1000),
+        rms: count ? Math.sqrt(sum / count) : 0,
+        peak
+      }
+    }
+    offset += 8 + size + (size % 2)
+  }
+  return null
+}
+
+/** A mono 16-bit PCM WAV (tests only). */
+export function toWav(samples: Int16Array, sampleRate: number): Buffer {
+  const data = Buffer.from(samples.buffer, samples.byteOffset, samples.byteLength)
+  const header = Buffer.alloc(44)
+  header.write('RIFF', 0, 'ascii')
+  header.writeUInt32LE(36 + data.byteLength, 4)
+  header.write('WAVE', 8, 'ascii')
+  header.write('fmt ', 12, 'ascii')
+  header.writeUInt32LE(16, 16)
+  header.writeUInt16LE(1, 20)
+  header.writeUInt16LE(1, 22)
+  header.writeUInt32LE(sampleRate, 24)
+  header.writeUInt32LE(sampleRate * 2, 28)
+  header.writeUInt16LE(2, 32)
+  header.writeUInt16LE(16, 34)
+  header.write('data', 36, 'ascii')
+  header.writeUInt32LE(data.byteLength, 40)
+  return Buffer.concat([header, data])
+}
+
 export interface RecordedRequest {
   readonly method: string
   readonly path: string
@@ -64,6 +156,12 @@ export interface ProtocolServer {
    * texts that share words are close. Off: `[index, 0.5, 1]` for each input.
    */
   embedByWords(on: boolean): void
+  /** Answers for the next speech-to-text requests, in order (SET 12). Without one: 404-free empty text. */
+  transcribe(...replies: ScriptedTranscript[]): void
+  /** Audio each transcription request carried, in order. */
+  readonly audio: ReceivedAudio[]
+  /** The WAV `/audio/speech` returns (default: a short test tone). */
+  setSpeech(wav: Uint8Array | null): void
   reset(): void
   close(): Promise<void>
 }
@@ -105,6 +203,9 @@ async function start(protocol: Protocol, host: string): Promise<ProtocolServer> 
   const requests: RecordedRequest[] = []
   let wordEmbeddings = false
   const queue: ScriptedReply[] = []
+  const transcripts: ScriptedTranscript[] = []
+  const audio: ReceivedAudio[] = []
+  let speech: Uint8Array | null = null
   const gates: (() => void)[] = []
   let pendingAdvances = 0
   let models: { id: string; name?: string }[] = [{ id: 'test-model' }]
@@ -131,8 +232,11 @@ async function start(protocol: Protocol, host: string): Promise<ProtocolServer> 
   })
 
   async function handle(request: IncomingMessage, response: ServerResponse): Promise<void> {
-    const text = await readBody(request)
-    const body = parseBody(text)
+    const raw = await readBody(request)
+    const multipartBody = isMultipart(request) ? parseMultipart(request, raw) : null
+    const body = multipartBody
+      ? { fields: multipartBody.fields, fileBytes: multipartBody.file?.byteLength ?? 0 }
+      : parseBody(raw.toString('utf8'))
     const recorded: RecordedRequest = {
       method: request.method ?? 'GET',
       path: request.url ?? '/',
@@ -182,6 +286,39 @@ async function start(protocol: Protocol, host: string): Promise<ProtocolServer> 
         })),
         usage: { prompt_tokens: inputs.length }
       })
+      return
+    }
+    if (request.method === 'POST' && protocol === 'openai' && path === '/v1/audio/transcriptions') {
+      const file = multipartBody?.file ?? null
+      audio.push({
+        model: multipartBody?.fields.model ?? null,
+        language: multipartBody?.fields.language ?? null,
+        bytes: file?.byteLength ?? 0,
+        wav: file ? wavStats(file) : null
+      })
+      const reply = transcripts.shift() ?? { text: '' }
+      if (reply.delayMs) await new Promise((resolve) => setTimeout(resolve, reply.delayMs))
+      if (reply.status) {
+        sendError(response, reply.status, reply.errorMessage ?? 'Test error')
+        return
+      }
+      if (!file) {
+        sendError(response, 400, 'No audio file')
+        return
+      }
+      sendJson(response, 200, {
+        text: reply.text ?? '',
+        ...(reply.language ? { language: reply.language } : {})
+      })
+      return
+    }
+    if (request.method === 'POST' && protocol === 'openai' && path === '/v1/audio/speech') {
+      const wav = speech ?? testTone()
+      response.writeHead(200, {
+        'content-type': 'audio/wav',
+        'content-length': String(wav.byteLength)
+      })
+      response.end(Buffer.from(wav))
       return
     }
     const chatPath = protocol === 'openai' ? '/v1/chat/completions' : '/v1/messages'
@@ -386,9 +523,19 @@ async function start(protocol: Protocol, host: string): Promise<ProtocolServer> 
     embedByWords: (on) => {
       wordEmbeddings = on
     },
+    transcribe: (...replies) => {
+      transcripts.push(...replies)
+    },
+    audio,
+    setSpeech: (wav) => {
+      speech = wav
+    },
     reset: () => {
       requests.length = 0
       queue.length = 0
+      transcripts.length = 0
+      audio.length = 0
+      speech = null
       connections = 0
       outage = null
       wordEmbeddings = false
@@ -407,15 +554,15 @@ async function start(protocol: Protocol, host: string): Promise<ProtocolServer> 
   }
 }
 
-function readBody(request: IncomingMessage): Promise<string> {
+function readBody(request: IncomingMessage): Promise<Buffer> {
   return new Promise((resolve) => {
     const parts: Buffer[] = []
     request.on('data', (part: Buffer) => parts.push(part))
     request.on('end', () => {
-      resolve(Buffer.concat(parts).toString('utf8'))
+      resolve(Buffer.concat(parts))
     })
     request.on('error', () => {
-      resolve('')
+      resolve(Buffer.alloc(0))
     })
   })
 }
@@ -427,6 +574,47 @@ function sendJson(response: ServerResponse, status: number, body: unknown): void
 
 function sendError(response: ServerResponse, status: number, message: string): void {
   sendJson(response, status, { error: { type: 'test_error', message } })
+}
+
+function isMultipart(request: IncomingMessage): boolean {
+  return (request.headers['content-type'] ?? '').toLowerCase().startsWith('multipart/form-data')
+}
+
+/** A minimal multipart/form-data reader: text fields and one file (tests only). */
+function parseMultipart(
+  request: IncomingMessage,
+  raw: Buffer
+): { fields: Record<string, string>; file: Buffer | null } {
+  const boundary = /boundary=([^;]+)/i.exec(request.headers['content-type'] ?? '')?.[1]
+  const fields: Record<string, string> = {}
+  let file: Buffer | null = null
+  if (!boundary) return { fields, file }
+  const marker = Buffer.from(`--${boundary}`)
+  let start = raw.indexOf(marker)
+  while (start !== -1) {
+    const next = raw.indexOf(marker, start + marker.byteLength)
+    if (next === -1) break
+    const part = raw.subarray(start + marker.byteLength + 2, next - 2)
+    const split = part.indexOf('\r\n\r\n')
+    if (split !== -1) {
+      const head = part.subarray(0, split).toString('utf8')
+      const content = part.subarray(split + 4)
+      const name = /name="([^"]+)"/.exec(head)?.[1]
+      if (head.includes('filename="')) file = Buffer.from(content)
+      else if (name) fields[name] = content.toString('utf8')
+    }
+    start = next
+  }
+  return { fields, file }
+}
+
+/** A 0.6 s, 440 Hz tone at 16 kHz: clearly a test sound, never speech. */
+function testTone(): Buffer {
+  const rate = 16_000
+  const samples = new Int16Array(Math.round(rate * 0.6))
+  for (let index = 0; index < samples.length; index++)
+    samples[index] = Math.round(Math.sin((2 * Math.PI * 440 * index) / rate) * 8_000)
+  return toWav(samples, rate)
 }
 
 function parseBody(text: string): unknown {

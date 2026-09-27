@@ -6,6 +6,7 @@ import {
   MemorySearchMode,
   POLICY_REASON_CODES,
   RELATIONSHIP_KINDS,
+  VOICE_STATES,
   AvailabilityStatus,
   CostLatencyPreference,
   CredentialInfo,
@@ -114,7 +115,7 @@ describe('keys built at runtime', () => {
       'keyValidation.': CredentialInfo.shape.validation.options,
       'models.keyRequirement.': ['required', 'optional', 'none'],
       'models.localityHint.': Locality.options,
-      'models.preferred.': ['chat', 'reasoning', 'vision', 'embeddings'],
+      'models.preferred.': ['chat', 'reasoning', 'vision', 'embeddings', 'transcription', 'speech'],
       'activity.provider.': EventPayloads['ai.provider.changed'].shape.change.options,
       'activity.conversation.': EventPayloads['chat.conversation.changed'].shape.change.options,
       'activity.answer.': MessageStatus.options,
@@ -178,7 +179,8 @@ describe('keys built at runtime', () => {
         'identity-gateway',
         'plugin-runtime',
         'secure-storage',
-        'memory'
+        'memory',
+        'voice'
       ],
       'memory.type.': MEMORY_TYPES,
       'memory.layer.': ['session', 'long-term'],
@@ -191,7 +193,12 @@ describe('keys built at runtime', () => {
       'memoryEvent.': EventPayloads['memory.changed'].shape.change.options,
       'notes.kind.': ['obsidian-vault', 'jupiter-brain'],
       'notesEvent.': EventPayloads['notes.changed'].shape.outcome.options,
-      'notesOp.': EventPayloads['notes.changed'].shape.op.options
+      'notesOp.': EventPayloads['notes.changed'].shape.op.options,
+      'voice.state.': VOICE_STATES,
+      'voice.engine.': ['wake-word', 'vad', 'stt', 'tts'],
+      'voice.sensitivity.': ['low', 'medium', 'high'],
+      'voice.locality.': ['local', 'cloud'],
+      'voiceMode.': ['push-to-talk', 'wake-word']
     }
     for (const [prefix, values] of Object.entries(families)) {
       for (const value of values) expect(has(`${prefix}${value}`), `${prefix}${value}`).toBe(true)

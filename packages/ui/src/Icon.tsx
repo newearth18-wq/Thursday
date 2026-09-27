@@ -159,7 +159,14 @@ const PATHS = {
   attach: (
     <path d="m20 11.5-7.8 7.8a5 5 0 0 1-7.1-7.1l8-8a3.3 3.3 0 0 1 4.7 4.7l-8 8a1.7 1.7 0 0 1-2.4-2.4l7.4-7.4" />
   ),
-  tool: <path d="M14.5 5.5a4 4 0 0 0 4.9 5.2L11 19a2.1 2.1 0 0 1-3-3l8.3-8.4a4 4 0 0 1-1.8-2.1z" />
+  tool: <path d="M14.5 5.5a4 4 0 0 0 4.9 5.2L11 19a2.1 2.1 0 0 1-3-3l8.3-8.4a4 4 0 0 1-1.8-2.1z" />,
+  microphone: (
+    <>
+      <rect x="9" y="3" width="6" height="11" rx="3" />
+      <path d="M5 11a7 7 0 0 0 14 0M12 18v3M9 21h6" />
+    </>
+  ),
+  speaker: <path d="M4 9h4l5-4v14l-5-4H4zM16 9.5a3.5 3.5 0 0 1 0 5M18.5 7a7 7 0 0 1 0 10" />
 } as const satisfies Record<string, ReactElement>
 
 export type IconName = keyof typeof PATHS

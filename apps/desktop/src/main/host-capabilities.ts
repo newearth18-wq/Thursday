@@ -12,6 +12,7 @@ import type { FileHost } from './file-host'
 import type { NotesHost } from './notes-host'
 import type { ComputerHost } from './computer-host'
 import type { CredentialVault } from './credential-vault'
+import type { MicrophoneGate, SpeechHost } from './speech-host'
 
 /**
  * Privileged host functions, executed only when Jupiter Core's capability
@@ -53,6 +54,10 @@ export interface HostCapabilityDependencies {
   readonly files: FileHost
   /** Obsidian notes' host side (SET 11). */
   readonly notes: NotesHost
+  /** The operating system's voice (SET 12). */
+  readonly speech: SpeechHost
+  /** The microphone gate (SET 12): the interface gets the microphone only while it is open. */
+  readonly microphone: MicrophoneGate
   readonly now?: () => number
 }
 
@@ -70,7 +75,10 @@ export const HOST_CAPABILITIES = [
   'host.vault.status',
   'host.vault.seal',
   'host.vault.unseal',
-  'host.notes.call'
+  'host.notes.call',
+  'host.speech.voices',
+  'host.speech.synthesize',
+  'host.microphone.gate'
 ] as const
 
 /** Desktop notifications the interface may show per minute. */
@@ -111,6 +119,10 @@ export class HostCapabilities {
       case 'host.vault.seal':
       case 'host.vault.unseal':
         return this.vaultOperation(call, call.capability, log)
+      case 'host.speech.voices':
+      case 'host.speech.synthesize':
+      case 'host.microphone.gate':
+        return this.voiceOperation(call, call.capability, log)
       default:
         log.warn('host-capability.unknown', `Refused unknown host capability ${call.capability}`)
         return this.failure(
@@ -383,6 +395,63 @@ export class HostCapabilities {
         'dependency',
         `Secure storage failed: ${describeError(error)}`,
         null
+      )
+    }
+  }
+
+  /** Voice (SET 12): Jupiter Core only. Text to speak is never logged. */
+  private async voiceOperation(
+    call: HostCall,
+    operation: 'host.speech.voices' | 'host.speech.synthesize' | 'host.microphone.gate',
+    log: Logger
+  ): Promise<HostOutcome> {
+    if (call.actor.type !== 'core') {
+      log.warn('host-capability.denied', `Refused ${operation} for ${call.actor.type}`)
+      return this.failure(
+        'PERMISSION_DENIED',
+        'permission',
+        `Only Jupiter Core may use ${operation}.`,
+        null
+      )
+    }
+    const input = HostOperations[operation].input.safeParse(call.input)
+    if (!input.success) return this.invalid(operation)
+    try {
+      switch (operation) {
+        case 'host.speech.voices':
+          return { ok: true, data: await this.deps.speech.voices() }
+        case 'host.speech.synthesize': {
+          const request = HostOperations['host.speech.synthesize'].input.parse(call.input)
+          return { ok: true, data: await this.deps.speech.synthesize(request) }
+        }
+        case 'host.microphone.gate': {
+          const request = HostOperations['host.microphone.gate'].input.parse(call.input)
+          const open = this.deps.microphone.set(request)
+          log.info(
+            open ? 'voice.gate.opened' : 'voice.gate.closed',
+            open ? `Microphone gate opened (${request.purpose})` : 'Microphone gate closed',
+            { sessionId: request.sessionId }
+          )
+          return { ok: true, data: { open } }
+        }
+      }
+    } catch (error) {
+      if (error instanceof JupiterError)
+        return {
+          ok: false,
+          error: createErrorEnvelope({
+            code: error.code,
+            category: error.category,
+            message: error.message,
+            userAction: error.userAction,
+            retryable: error.retryable
+          })
+        }
+      return this.failure(
+        'SYSTEM_VOICE_FAILED',
+        'dependency',
+        `The system voice failed: ${describeError(error)}`,
+        'Try again, or choose a speech model as the voice source.'
       )
     }
   }

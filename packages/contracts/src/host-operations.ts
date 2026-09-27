@@ -5,6 +5,7 @@ import { AutomationCall } from './computer'
 import { FileCall } from './files'
 import { NoteCall } from './notes'
 import { Uuidv7 } from './primitives'
+import { MicrophoneGateInput, SystemSpeech, SystemSpeechInput, SystemVoices } from './voice'
 
 /**
  * Host operations Jupiter Core uses internally (SET 3).
@@ -58,6 +59,18 @@ export const HostOperations = {
    * sensitive memories the person chose to keep. The sealed form is
    * meaningless without this user account on this computer.
    */
+  /**
+   * SET 12: the operating system's voice (Windows SAPI; espeak-ng where it is
+   * installed), and the microphone gate. The host refuses the microphone to
+   * the interface unless Core has opened the gate for a session the person
+   * started, and closes it when the session ends or its time runs out.
+   */
+  'host.speech.voices': { input: z.object({}).strict(), output: SystemVoices },
+  'host.speech.synthesize': { input: SystemSpeechInput, output: SystemSpeech },
+  'host.microphone.gate': {
+    input: MicrophoneGateInput,
+    output: z.object({ open: z.boolean() }).strict()
+  },
   'host.vault.status': {
     input: z.object({}).strict(),
     output: z.object({ available: z.boolean(), reason: z.string().max(500).nullable() }).strict()

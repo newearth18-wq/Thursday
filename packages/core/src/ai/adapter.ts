@@ -21,7 +21,8 @@ import { sanitizeProviderText } from './sanitize'
 export interface TransportRequest {
   readonly method: 'GET' | 'POST'
   readonly headers: Readonly<Record<string, string>>
-  readonly body?: string
+  /** Text (JSON) or bytes (a multipart upload of audio, SET 12). */
+  readonly body?: string | Uint8Array
   readonly signal: AbortSignal
   /** True when the headers carry the API key. */
   readonly carriesSecret: boolean
@@ -102,6 +103,36 @@ export interface EmbeddingResult {
   readonly usage: TokenUsage | null
 }
 
+/** Speech-to-text (SET 12): one recording, held in memory only. */
+export interface TranscriptionRequest {
+  readonly model: string
+  /** A WAV file (16 kHz mono PCM). */
+  readonly audio: Uint8Array
+  /** `null`: the model detects the language. */
+  readonly language: 'en' | 'th' | null
+}
+
+export interface TranscriptionResult {
+  readonly text: string
+  /** What the provider says it heard, when it says (`en`, `th`, `english`, …). */
+  readonly language: string | null
+}
+
+/** Text-to-speech (SET 12). */
+export interface SpeechRequest {
+  readonly model: string
+  readonly text: string
+  /** A voice the provider offers; `null`: the adapter's default. */
+  readonly voice: string | null
+  /** 0.5–2, 1 is normal speed. */
+  readonly speed: number
+}
+
+export interface SpeechResult {
+  readonly audio: Uint8Array
+  readonly mediaType: 'audio/wav' | 'audio/mpeg'
+}
+
 export interface ProviderAdapter {
   readonly info: AdapterInfo
   /** The provider's model list. Throws a ProviderError on failure (for example a rejected key). */
@@ -110,6 +141,10 @@ export interface ProviderAdapter {
   streamChat(context: AdapterContext, request: ChatRequest): AsyncIterable<ChatChunk>
   /** Only for adapters that list `embeddings` among their operations. */
   embed?(context: AdapterContext, request: EmbeddingRequest): Promise<EmbeddingResult>
+  /** Only for adapters that list `transcription` among their operations. */
+  transcribe?(context: AdapterContext, request: TranscriptionRequest): Promise<TranscriptionResult>
+  /** Only for adapters that list `speech` among their operations. */
+  synthesize?(context: AdapterContext, request: SpeechRequest): Promise<SpeechResult>
 }
 
 // ---- provider errors -----------------------------------------------------------------------

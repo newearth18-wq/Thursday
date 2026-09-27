@@ -77,6 +77,92 @@ export async function send(context: AdapterContext, request: JsonRequest): Promi
   return response
 }
 
+export interface BytesRequest {
+  readonly url: URL
+  readonly headers: Record<string, string>
+  readonly contentType: string
+  readonly body: Uint8Array
+  readonly providerName: string
+  readonly accept?: string
+}
+
+/** POST bytes (for example a multipart audio upload); same error handling as `send`. */
+export async function sendBytes(context: AdapterContext, request: BytesRequest): Promise<Response> {
+  const response = await context.transport.request(request.url, {
+    method: 'POST',
+    headers: {
+      accept: request.accept ?? 'application/json',
+      'content-type': request.contentType,
+      ...request.headers
+    },
+    body: request.body,
+    signal: context.signal,
+    carriesSecret: context.apiKey !== null
+  })
+  if (!response.ok) {
+    const message = await errorMessageOf(response)
+    throw providerErrorFromStatus(response.status, message, context.apiKey, request.providerName)
+  }
+  return response
+}
+
+const MAX_AUDIO_BODY = 8 * 1024 * 1024
+
+/** Read a binary body (audio), with a size limit. */
+export async function readBytes(
+  response: Response,
+  providerName: string,
+  signal: AbortSignal
+): Promise<Uint8Array> {
+  const length = Number(response.headers.get('content-length') ?? '0')
+  if (length > MAX_AUDIO_BODY) throw invalidResponse(providerName, 'the audio is too large')
+  let bytes: Uint8Array
+  try {
+    bytes = new Uint8Array(await response.arrayBuffer())
+  } catch (error) {
+    throw interrupted(providerName, signal, error)
+  }
+  if (bytes.byteLength > MAX_AUDIO_BODY)
+    throw invalidResponse(providerName, 'the audio is too large')
+  if (bytes.byteLength === 0) throw invalidResponse(providerName, 'the audio is empty')
+  return bytes
+}
+
+/** A multipart/form-data body from text fields and one file, built in memory. */
+export function multipart(
+  fields: Readonly<Record<string, string>>,
+  file: {
+    readonly name: string
+    readonly filename: string
+    readonly type: string
+    readonly bytes: Uint8Array
+  }
+): { readonly contentType: string; readonly body: Uint8Array } {
+  const boundary = `----jupiter${Math.random().toString(16).slice(2)}${Date.now().toString(16)}`
+  const encoder = new TextEncoder()
+  const parts: Uint8Array[] = []
+  for (const [name, value] of Object.entries(fields))
+    parts.push(
+      encoder.encode(
+        `--${boundary}\r\nContent-Disposition: form-data; name="${name}"\r\n\r\n${value}\r\n`
+      )
+    )
+  parts.push(
+    encoder.encode(
+      `--${boundary}\r\nContent-Disposition: form-data; name="${file.name}"; filename="${file.filename}"\r\nContent-Type: ${file.type}\r\n\r\n`
+    ),
+    file.bytes,
+    encoder.encode(`\r\n--${boundary}--\r\n`)
+  )
+  const body = new Uint8Array(parts.reduce((total, part) => total + part.byteLength, 0))
+  let offset = 0
+  for (const part of parts) {
+    body.set(part, offset)
+    offset += part.byteLength
+  }
+  return { contentType: `multipart/form-data; boundary=${boundary}`, body }
+}
+
 /** Read a JSON body, with a size limit and a clear error for anything that is not JSON. */
 export async function readJson(
   response: Response,

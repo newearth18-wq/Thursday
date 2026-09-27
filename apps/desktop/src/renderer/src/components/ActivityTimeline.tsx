@@ -5,6 +5,7 @@ import { describeBrowserEvent, isBrowserEvent } from '../browserText'
 import { describeComputerEvent, isComputerEvent } from '../computerText'
 import { describeFileEvent, isFileEvent } from '../fileText'
 import { describeMemoryEvent, isMemoryEvent } from '../memoryText'
+import { describeVoiceEvent, isVoiceEvent } from '../voiceText'
 import { describePermissionEvent, isPermissionEvent } from '../permissionText'
 import { describeSkillEvent, isSkillEvent } from '../skillText'
 import { useEventLog } from '../useEventLog'
@@ -24,6 +25,7 @@ export function describeEvent(event: DomainEvent, t: Translate): Omit<TimelineEn
   if (isBrowserEvent(event)) return { ...base, ...describeBrowserEvent(event, t) }
   if (isFileEvent(event)) return { ...base, ...describeFileEvent(event, t) }
   if (isMemoryEvent(event)) return { ...base, ...describeMemoryEvent(event, t) }
+  if (isVoiceEvent(event)) return { ...base, ...describeVoiceEvent(event, t) }
   switch (event.type) {
     case 'core.started':
       return { ...base, tone: 'success', title: t('activity.coreStarted') }

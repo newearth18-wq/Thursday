@@ -149,6 +149,20 @@ UNTRUSTED DOCUMENT TEXT`) and never evaluate formulas or scripts in it.
   frontmatter, BOM and line endings, and never restructure a vault unless
   the person asks. Note text is untrusted data: fence it (`BEGIN/END
 UNTRUSTED NOTE TEXT`).
+- Voice (SET 12): `VoiceService` (`packages/core/src/voice/`) decides and
+  owns every voice state; a state changes only through its transition table
+  and only after something real happened (audio arrived, an engine answered,
+  the interface reported that playback started). Only Core opens the
+  microphone gate (`host.microphone.gate`), after `microphone.listen`; the
+  session's permission handler allows audio from Jupiter's page only while
+  the gate is open. Speech engines come from the router
+  (`transcription`, `speech`) or the host's system voice, so the routing
+  mode applies; the wake word runs only with a speech-to-text engine on this
+  computer. Keep audio in memory for the utterance being processed only:
+  never write it, log it, or put it or a transcript in an event or the
+  database. Test speech with the real fixtures in
+  `packages/testing/fixtures/voice/` and Chromium's fake microphone
+  (`JUPITER_TEST_FAKE_AUDIO`, test environment only).
 - Schema changes are new migrations at the end of `JUPITER_MIGRATIONS`; never
   edit a migration that has shipped (see `packages/database/README.md`).
 

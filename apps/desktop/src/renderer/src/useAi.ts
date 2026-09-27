@@ -33,7 +33,9 @@ export const AI_SETTING_KEYS = [
   'ai.preferredChatModel',
   'ai.preferredReasoningModel',
   'ai.preferredVisionModel',
-  'ai.preferredEmbeddingModel'
+  'ai.preferredEmbeddingModel',
+  'ai.preferredTranscriptionModel',
+  'ai.preferredSpeechModel'
 ] as const satisfies readonly SettingKey[]
 
 export type AiSettingKey = (typeof AI_SETTING_KEYS)[number]

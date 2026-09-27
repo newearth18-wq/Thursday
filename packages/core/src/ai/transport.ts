@@ -77,7 +77,10 @@ export function createTransport(options: TransportOptions): Transport {
         return await options.fetch(url, {
           method: init.method,
           headers: init.headers,
-          ...(init.body === undefined ? {} : { body: init.body }),
+          ...(init.body === undefined
+            ? {}
+            : // Bytes are copied into a plain ArrayBuffer, which fetch accepts on every platform.
+              { body: typeof init.body === 'string' ? init.body : new Uint8Array(init.body) }),
           signal: init.signal,
           redirect: 'error'
         })

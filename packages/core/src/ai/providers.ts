@@ -466,7 +466,7 @@ export class ProviderService {
     provider: Pick<StoredProvider, 'providerId' | 'displayName' | 'baseUrl'>,
     apiKey: string | null,
     mode: RoutingMode,
-    operation: 'chat' | 'check' | 'validate-key' | 'embeddings',
+    operation: 'chat' | 'check' | 'validate-key' | 'embeddings' | 'transcription' | 'speech',
     signal: AbortSignal,
     context: Pick<OperationContext, 'correlationId' | 'actor'>
   ): AdapterContext {
@@ -494,7 +494,7 @@ export class ProviderService {
   private transport(
     provider: Pick<StoredProvider, 'providerId' | 'displayName'>,
     mode: RoutingMode,
-    operation: 'chat' | 'check' | 'validate-key' | 'embeddings',
+    operation: 'chat' | 'check' | 'validate-key' | 'embeddings' | 'transcription' | 'speech',
     context: Pick<OperationContext, 'correlationId' | 'actor'>
   ): Transport {
     // Local only on the whole of Jupiter always wins, whatever the conversation says.
@@ -512,7 +512,7 @@ export class ProviderService {
   private recordBlocked(
     providerId: string,
     mode: RoutingMode,
-    operation: 'chat' | 'check' | 'validate-key' | 'embeddings',
+    operation: 'chat' | 'check' | 'validate-key' | 'embeddings' | 'transcription' | 'speech',
     context: Pick<OperationContext, 'correlationId' | 'actor'>
   ): void {
     try {
@@ -613,12 +613,16 @@ const PREFERRED_MODEL_SETTING: Partial<
     | 'ai.preferredReasoningModel'
     | 'ai.preferredVisionModel'
     | 'ai.preferredEmbeddingModel'
+    | 'ai.preferredTranscriptionModel'
+    | 'ai.preferredSpeechModel'
   >
 > = {
   chat: 'ai.preferredChatModel',
   reasoning: 'ai.preferredReasoningModel',
   vision: 'ai.preferredVisionModel',
-  embeddings: 'ai.preferredEmbeddingModel'
+  embeddings: 'ai.preferredEmbeddingModel',
+  transcription: 'ai.preferredTranscriptionModel',
+  speech: 'ai.preferredSpeechModel'
 }
 
 const fallbackEnvelope = {

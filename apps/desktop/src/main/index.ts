@@ -52,6 +52,7 @@ import { HOST_CAPABILITIES, HostCapabilities } from './host-capabilities'
 import { CredentialVault } from './credential-vault'
 import { createMainLogging, type MainLogging } from './logging'
 import { hardenSession, hardenWebContents } from './security'
+import { MicrophoneGate, SpeechHost } from './speech-host'
 import { registerServices } from './services'
 import { createMainWindow, type RendererSource } from './window'
 import { WindowStateStore } from './window-state'
@@ -79,6 +80,8 @@ const here = fileURLToPath(new URL('.', import.meta.url))
 let env: MainEnvironment | null = null
 let logging: MainLogging | null = null
 let mainWindow: BrowserWindow | null = null
+/** SET 12: closed unless Core opens it for a listening session the person started. */
+const microphoneGate = new MicrophoneGate()
 let supervisor: ServiceSupervisor | null = null
 let windowState: WindowStateStore | null = null
 
@@ -118,7 +121,7 @@ function isAppUrl(environment: MainEnvironment, raw: string): boolean {
 async function start(environment: MainEnvironment, mainLogging: MainLogging): Promise<void> {
   const { logger, fileSink } = mainLogging
   if (process.platform === 'win32') app.setAppUserModelId(APP_USER_MODEL_ID)
-  hardenSession(session.defaultSession, logger)
+  hardenSession(session.defaultSession, logger, microphoneGate, (url) => isAppUrl(environment, url))
   if (!environment.devServerUrl) {
     handleAppProtocol(session.defaultSession, join(here, '../renderer'), PRODUCTION_CSP, logger)
   }
@@ -237,8 +240,12 @@ async function start(environment: MainEnvironment, mainLogging: MainLogging): Pr
       return result.canceled ? null : (result.filePaths[0] ?? null)
     }
   })
+  // SET 12: the operating system's voice (Windows SAPI, or espeak-ng where installed).
+  const speech = new SpeechHost({ logger: logger.child({ component: 'speech-host' }) })
   const hostCapabilities = new HostCapabilities({
     logger,
+    speech,
+    microphone: microphoneGate,
     computer,
     browser,
     files,
@@ -561,6 +568,15 @@ function main(): void {
   }
 
   registerAppScheme()
+  const fakeAudio =
+    environment.resolution.environment === 'test' ? process.env.JUPITER_TEST_FAKE_AUDIO : undefined
+  if (fakeAudio) {
+    // Tests only: Chromium's fake microphone plays this WAV file (and fake audio devices exist),
+    // so the real capture path (permission, gate, getUserMedia) runs without a sound card.
+    app.commandLine.appendSwitch('use-fake-device-for-media-stream')
+    app.commandLine.appendSwitch('use-file-for-fake-audio-capture', fakeAudio)
+    logger.warn('voice.fake-audio', 'Test microphone: a fake device plays a WAV file')
+  }
   if (app.commandLine.hasSwitch('no-sandbox')) {
     // Only for containers and CI where Chromium's OS sandbox cannot start.
     // Renderer isolation (contextIsolation, no Node) is unaffected; Diagnostics shows the state.
