@@ -14,7 +14,13 @@ export const VOICE_FIXTURES = {
   'en-question': { voice: 'en-us', text: 'What is the largest planet?' },
   'en-wake': { voice: 'en-us', text: 'Jupiter. What is the largest planet?' },
   'en-stop': { voice: 'en-us', text: 'Stop.' },
-  'th-question': { voice: 'th', text: 'ดาวเคราะห์ดวงใหญ่ที่สุดคืออะไร' }
+  'th-question': { voice: 'th', text: 'ดาวเคราะห์ดวงใหญ่ที่สุดคืออะไร' },
+  // SET 14 Voice Identity: the owner's three enrollment phrases and a check, and someone else.
+  'id-owner-1': { voice: 'en-us', text: 'Jupiter, this is my voice.' },
+  'id-owner-2': { voice: 'en-us', text: 'The quick brown fox jumps over the lazy dog.' },
+  'id-owner-3': { voice: 'en-us', text: 'My voice is my own, and I keep it here.' },
+  'id-owner-check': { voice: 'en-us', text: 'Jupiter, it is me again. Please let me in.' },
+  'id-other-check': { voice: 'en-us+f4', text: 'Jupiter, it is me again. Please let me in.' }
 }
 
 function pad(wav, beforeMs, afterMs) {

@@ -13,6 +13,7 @@ import type { NotesHost } from './notes-host'
 import type { ComputerHost } from './computer-host'
 import type { CredentialVault } from './credential-vault'
 import type { MicrophoneGate, SpeechHost } from './speech-host'
+import type { IdentityHost } from './identity-host'
 import type { VisionHost } from './vision-host'
 
 /**
@@ -62,6 +63,8 @@ export interface HostCapabilityDependencies {
   /** SET 13: screen capture, OCR, QR and image processing; the camera gate. */
   readonly vision: VisionHost
   readonly camera: MicrophoneGate
+  /** SET 14: the face engine (identity runtime) and Windows Hello. */
+  readonly identity: IdentityHost
   readonly now?: () => number
 }
 
@@ -89,7 +92,10 @@ export const HOST_CAPABILITIES = [
   'host.vision.qr',
   'host.vision.redact',
   'host.vision.compare',
-  'host.camera.gate'
+  'host.camera.gate',
+  'host.identity.engines',
+  'host.identity.face',
+  'host.identity.hello'
 ] as const
 
 /** Desktop notifications the interface may show per minute. */
@@ -142,6 +148,10 @@ export class HostCapabilities {
       case 'host.vision.compare':
       case 'host.camera.gate':
         return this.visionOperation(call, call.capability, log)
+      case 'host.identity.engines':
+      case 'host.identity.face':
+      case 'host.identity.hello':
+        return this.identityOperation(call, call.capability, log)
       default:
         log.warn('host-capability.unknown', `Refused unknown host capability ${call.capability}`)
         return this.failure(
@@ -471,6 +481,65 @@ export class HostCapabilities {
         'dependency',
         `The system voice failed: ${describeError(error)}`,
         'Try again, or choose a speech model as the voice source.'
+      )
+    }
+  }
+
+  /**
+   * Identity (SET 14): Jupiter Core only. Images, descriptors and Windows
+   * Hello's answers are never logged — only that a check happened.
+   */
+  private async identityOperation(
+    call: HostCall,
+    operation: 'host.identity.engines' | 'host.identity.face' | 'host.identity.hello',
+    log: Logger
+  ): Promise<HostOutcome> {
+    if (call.actor.type !== 'core') {
+      log.warn('host-capability.denied', `Refused ${operation} for ${call.actor.type}`)
+      return this.failure(
+        'PERMISSION_DENIED',
+        'permission',
+        `Only Jupiter Core may use ${operation}.`,
+        null
+      )
+    }
+    const input = HostOperations[operation].input.safeParse(call.input)
+    if (!input.success) return this.invalid(operation)
+    const identity = this.deps.identity
+    try {
+      switch (operation) {
+        case 'host.identity.engines':
+          return { ok: true, data: await identity.engines() }
+        case 'host.identity.face':
+          return {
+            ok: true,
+            data: await identity.face(HostOperations['host.identity.face'].input.parse(call.input))
+          }
+        case 'host.identity.hello': {
+          const result = await identity.hello(
+            HostOperations['host.identity.hello'].input.parse(call.input)
+          )
+          log.info('identity.hello.asked', `Windows Hello answered: ${result.outcome}`)
+          return { ok: true, data: result }
+        }
+      }
+    } catch (error) {
+      if (error instanceof JupiterError)
+        return {
+          ok: false,
+          error: createErrorEnvelope({
+            code: error.code,
+            category: error.category,
+            message: error.message,
+            userAction: error.userAction,
+            retryable: error.retryable
+          })
+        }
+      return this.failure(
+        'IDENTITY_HOST_FAILED',
+        'internal',
+        'The identity engine failed unexpectedly.',
+        'Try again.'
       )
     }
   }

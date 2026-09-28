@@ -151,7 +151,7 @@ async function images() {
 }
 
 describe('SET 13 — Vision and Camera, in the real application', () => {
-  it('shows each engine and where it runs; face detection is Coming later; the camera is refused while off', async () => {
+  it('shows each engine and where it runs; face detection is Unavailable (faces are for Identity only); the camera is refused while off', async () => {
     await openTab('vision')
     const engines = page.getByTestId('vision-engines')
     await expect
@@ -166,7 +166,7 @@ describe('SET 13 — Vision and Camera, in the real application', () => {
     expect(
       await engines
         .getByTestId('vision-engine-faces')
-        .locator('[data-availability="COMING_LATER"]')
+        .locator('[data-availability="UNAVAILABLE"]')
         .count()
     ).toBe(1)
     expect(

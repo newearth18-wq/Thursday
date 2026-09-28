@@ -1,6 +1,7 @@
 import { resolve } from 'node:path'
 import { bundleBrowserRuntime } from '@jupiter/browser-runtime/build'
 import { bundleDocumentRuntime } from '@jupiter/document-runtime/build'
+import { bundleIdentityRuntime } from '@jupiter/identity-runtime/build'
 import react from '@vitejs/plugin-react'
 import { defineConfig } from 'electron-vite'
 import type { BuildOptions, Plugin } from 'vite'
@@ -48,6 +49,23 @@ function documentRuntime(): Plugin {
   }
 }
 
+/**
+ * The identity runtime (SET 14): the face engine in a process of its own, with the face
+ * models and TensorFlow.js's WebAssembly files copied next to it (nothing is downloaded).
+ */
+function identityRuntime(): Plugin {
+  return {
+    name: 'jupiter-identity-runtime',
+    apply: 'build',
+    async closeBundle() {
+      await bundleIdentityRuntime(
+        resolve(__dirname, 'out/main/identity-runtime.cjs'),
+        resolve(__dirname, 'out/main/identity')
+      )
+    }
+  }
+}
+
 /** zod ships comments Rollup cannot place; the warning is noise, not a defect. */
 const onwarn: NonNullable<NonNullable<BuildOptions['rollupOptions']>['onwarn']> = (
   warning,
@@ -63,7 +81,7 @@ export default defineConfig(({ command }) => {
   return {
     main: {
       define: { __JUPITER_BUILD_METADATA__: JSON.stringify(metadata) },
-      plugins: [browserRuntime(), documentRuntime()],
+      plugins: [browserRuntime(), documentRuntime(), identityRuntime()],
       build: {
         // Everything is bundled: the packaged app ships no node_modules.
         externalizeDeps: false,

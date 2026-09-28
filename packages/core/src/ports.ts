@@ -1,5 +1,7 @@
 import type {
   Actor,
+  EnrollableMethod,
+  IdentityMethod,
   Artifact,
   AuditEvent,
   BackupInfo,
@@ -467,6 +469,38 @@ export interface BackupOptions {
   readonly onProgress?: (copiedPages: number, totalPages: number) => void
 }
 
+/** An identity method as stored (SET 14): its template only sealed by the operating system. */
+export interface StoredIdentityMethod {
+  readonly method: EnrollableMethod
+  readonly enabled: boolean
+  readonly sealedTemplate: string
+  readonly templateVersion: number
+  readonly samples: number
+  readonly enrolledAt: string
+  readonly updatedAt: string
+}
+
+export interface IdentityAttempts {
+  readonly method: IdentityMethod
+  readonly failures: number
+  readonly lockouts: number
+  readonly lockedUntil: string | null
+}
+
+export interface IdentityStore {
+  method(method: EnrollableMethod): StoredIdentityMethod | null
+  methods(): StoredIdentityMethod[]
+  putMethod(method: StoredIdentityMethod): void
+  setEnabled(method: EnrollableMethod, enabled: boolean, at: string): void
+  deleteMethod(method: EnrollableMethod): boolean
+  /** Removes old copies of deleted rows from the write-ahead log. */
+  eraseRemnants(): void
+  attempts(method: IdentityMethod): IdentityAttempts
+  putAttempts(attempts: IdentityAttempts, at: string): void
+  protection(): boolean
+  setProtection(enabled: boolean, at: string): void
+}
+
 export interface DatabasePort {
   readonly transactions: TransactionRunner
   readonly events: EventStore
@@ -482,6 +516,7 @@ export interface DatabasePort {
   readonly browser: BrowserTaskStore
   readonly artifacts: ArtifactStore
   readonly memories: MemoryStore
+  readonly identity: IdentityStore
   info(): DatabaseInfo
   backup(reason: BackupInfo['reason'], options?: BackupOptions): Promise<BackupInfo>
   close(): void

@@ -17,7 +17,7 @@ import { JupiterError, createErrorEnvelope, describeError } from '../errors'
 import type { EventBus } from '../events/event-bus'
 import { uuidv7 } from '../ids'
 import type { Logger } from '../logging/logger'
-import type { PermissionEngine } from '../permissions/engine'
+import { permissionUserAction, type PermissionEngine } from '../permissions/engine'
 import type { DatabasePort, SkillStateRecord } from '../ports'
 import type { SkillImplementation } from './builtin'
 import { ResourceDenied, type SkillSandbox } from './sandbox'
@@ -363,7 +363,7 @@ export class SkillRegistry {
     request.signal?.addEventListener('abort', forward, { once: true })
     if (request.signal?.aborted) forward()
     const violations: string[] = []
-    const waiting: { requestId: string | null; message: string }[] = []
+    const waiting: { code: string; requestId: string | null; message: string }[] = []
     const timeoutMs = Math.min(request.timeoutMs ?? definition.timeoutMs, definition.timeoutMs)
     let status: SkillResultStatus
     let output: unknown = null
@@ -489,10 +489,13 @@ export class SkillRegistry {
       status = 'WAITING_APPROVAL'
       output = null
       error = createErrorEnvelope({
-        code: 'PERMISSION_REQUIRED',
+        code: first.code,
         category: 'permission',
         message: first.message,
-        userAction: 'Answer the permission request, then run it again.',
+        userAction:
+          first.code === 'IDENTITY_REQUIRED'
+            ? permissionUserAction(first.code)
+            : 'Answer the permission request, then run it again.',
         retryable: true,
         missionId: request.missionId ?? null,
         details: first.requestId ? { requestId: first.requestId } : null,
@@ -626,7 +629,7 @@ export class SkillRegistry {
     args: unknown,
     definition: SkillDefinition,
     violations: string[],
-    waiting: { requestId: string | null; message: string }[],
+    waiting: { code: string; requestId: string | null; message: string }[],
     context: {
       readonly execution: ResourceContext
       readonly actor: Actor['type']
@@ -673,7 +676,8 @@ export class SkillRegistry {
     if (!outcome.allowed) {
       if (outcome.code === 'PERMISSION_UNKNOWN')
         violations.push(`"${resource}" (unknown capability)`)
-      else waiting.push({ requestId: outcome.requestId, message: outcome.message })
+      else
+        waiting.push({ code: outcome.code, requestId: outcome.requestId, message: outcome.message })
       throw new ResourceDenied(outcome.code, outcome.message)
     }
     return await Promise.resolve(provided.handler(args, context.execution))
@@ -704,7 +708,7 @@ export class SkillRegistry {
         detail: 'Definition and runtime checked; this Skill has no test run.'
       }
     const violations: string[] = []
-    const waiting: { requestId: string | null; message: string }[] = []
+    const waiting: { code: string; requestId: string | null; message: string }[] = []
     try {
       const outcome = await this.options.sandbox.run({
         source: implementation.source,

@@ -1,0 +1,26 @@
+{
+  "name": "@jupiter/identity-runtime",
+  "version": "0.1.0",
+  "private": true,
+  "description": "The identity runtime (SET 14): finds faces and describes them (a 128-number face descriptor) with face-api on TensorFlow.js (WebAssembly) in its own process, behind a narrow, typed contract. Every image is untrusted input.",
+  "license": "MIT",
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts",
+    "./build": "./src/build.ts"
+  },
+  "scripts": {
+    "typecheck": "tsc -p tsconfig.json"
+  },
+  "dependencies": {
+    "@jupiter/contracts": "0.1.0",
+    "@tensorflow/tfjs": "^4.22.0",
+    "@tensorflow/tfjs-backend-wasm": "^4.22.0",
+    "@vladmandic/face-api": "^1.7.15",
+    "zod": "^4.6.5"
+  },
+  "devDependencies": {
+    "@jupiter/testing": "0.1.0",
+    "esbuild": "^0.25.12"
+  }
+}

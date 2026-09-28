@@ -54,12 +54,13 @@ export async function sendImage(
   source: 'camera' | 'upload',
   sessionId: string | null
 ): Promise<ImageRef> {
-  const uploadId = crypto.randomUUID()
+  // One id for every part: it carries the time, so it is made once, not per part.
+  const uploadId = uuidv7Like(crypto.randomUUID())
   const total = Math.max(1, Math.ceil(png.length / IMAGE_PART_CHARS))
   let image: ImageRef | null = null
   for (let index = 0; index < total; index++) {
     const result = await request('vision.image.part', {
-      uploadId: uuidv7Like(uploadId),
+      uploadId,
       source,
       sessionId,
       index,

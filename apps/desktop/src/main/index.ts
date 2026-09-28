@@ -10,6 +10,7 @@ import {
   Menu,
   nativeTheme,
   Notification,
+  powerMonitor,
   safeStorage,
   session,
   shell,
@@ -56,6 +57,8 @@ import { hardenSession, hardenWebContents } from './security'
 import { MicrophoneGate, SpeechHost } from './speech-host'
 import { electronScreenCapturer } from './screen-capture'
 import { VisionHost } from './vision-host'
+import { IdentityHost } from './identity-host'
+import { IdentityRuntime } from '@jupiter/identity-runtime'
 import { registerServices } from './services'
 import { createMainWindow, type RendererSource } from './window'
 import { WindowStateStore } from './window-state'
@@ -269,12 +272,39 @@ async function start(environment: MainEnvironment, mainLogging: MainLogging): Pr
           : null
     })
   })
+  // SET 14: the face engine runs in the identity runtime (its own process), with the models
+  // and WebAssembly files the build put next to it; Windows Hello is asked through Windows.
+  const identityEntry = join(here, 'identity-runtime.cjs')
+  const identityAssets = join(here, 'identity')
+  const identity = new IdentityHost({
+    logger: logger.child({ component: 'identity-host' }),
+    runtime:
+      existsSync(identityEntry) && existsSync(identityAssets)
+        ? new IdentityRuntime({
+            launch: {
+              command: process.execPath,
+              entry: identityEntry,
+              memoryLimitMb: 1024,
+              env: { ELECTRON_RUN_AS_NODE: '1', JUPITER_IDENTITY_ASSETS: identityAssets }
+            },
+            callTimeoutMs: 60_000,
+            onEvent: (event) => {
+              logger.info(
+                `identity.runtime.${event.kind}`,
+                `Identity runtime ${event.kind}: ${event.detail}`,
+                { pid: event.pid }
+              )
+            }
+          })
+        : null
+  })
   const hostCapabilities = new HostCapabilities({
     logger,
     speech,
     microphone: microphoneGate,
     vision,
     camera: cameraGate,
+    identity,
     computer,
     browser,
     files,
@@ -494,6 +524,39 @@ async function start(environment: MainEnvironment, mainLogging: MainLogging): Pr
     reportHostStatus()
   }
 
+  // SET 14: locking, suspending or shutting down the computer ends any identity verification.
+  function reportSecurityEvent(
+    event: 'lock-screen' | 'unlock-screen' | 'suspend' | 'resume' | 'shutdown'
+  ): void {
+    logger.info('identity.security-event', `The computer reported ${event}`)
+    if (!core.running) return
+    void core
+      .dispatch(
+        {
+          v: CONTRACT_VERSION,
+          requestId: uuidv7(),
+          kind: 'command',
+          type: 'identity.security-event',
+          payload: { event },
+          missionId: null,
+          executionId: null,
+          sentAt: new Date().toISOString()
+        },
+        { type: 'host', id: 'host' }
+      )
+      .then((result) => {
+        if (!result.ok)
+          logger.warn(
+            'identity.security-event.failed',
+            `Reporting ${event} to Core failed: ${result.error.message}`
+          )
+      })
+  }
+  for (const event of ['lock-screen', 'unlock-screen', 'suspend', 'resume', 'shutdown'] as const)
+    powerMonitor.on(event as 'lock-screen', () => {
+      reportSecurityEvent(event)
+    })
+
   services.onChange(() => {
     publishStatus()
     reportHostStatus()
@@ -606,13 +669,15 @@ function main(): void {
     app.commandLine.appendSwitch('use-file-for-fake-audio-capture', fakeAudio)
     logger.warn('voice.fake-audio', 'Test microphone: a fake device plays a WAV file')
   }
-  if (
-    environment.resolution.environment === 'test' &&
-    process.env.JUPITER_TEST_FAKE_CAMERA === '1'
-  ) {
-    // Tests only: Chromium's fake cameras (a moving test pattern), so the real camera path
-    // (permission, gate, getUserMedia, the track) runs without a camera.
+  const fakeCamera =
+    environment.resolution.environment === 'test' ? process.env.JUPITER_TEST_FAKE_CAMERA : undefined
+  if (fakeCamera) {
+    // Tests only: Chromium's fake cameras (a moving test pattern, or a Y4M video file when a
+    // path is given), so the real camera path (permission, gate, getUserMedia, the track) runs
+    // without a camera.
     if (!fakeAudio) app.commandLine.appendSwitch('use-fake-device-for-media-stream')
+    if (fakeCamera !== '1')
+      app.commandLine.appendSwitch('use-file-for-fake-video-capture', fakeCamera)
     logger.warn('vision.fake-camera', 'Test camera: Chromium’s fake camera devices')
   }
   if (app.commandLine.hasSwitch('no-sandbox')) {

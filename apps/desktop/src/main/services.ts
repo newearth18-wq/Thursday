@@ -33,12 +33,6 @@ interface ServiceDependencies {
 /** Jupiter Core modules and isolated runtimes that later SETs deliver. Never started, never shown as working. */
 export const PLANNED_SERVICES = [
   {
-    id: 'identity-gateway',
-    availability: 'COMING_LATER',
-    plannedSet: 14,
-    capabilities: ['identity.verify']
-  },
-  {
     id: 'plugin-runtime',
     availability: 'COMING_LATER',
     plannedSet: 15,

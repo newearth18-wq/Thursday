@@ -181,6 +181,25 @@ UNTRUSTED NOTE TEXT`).
   targets, as verified. Test with the fixtures in
   `packages/testing/fixtures/vision/` and Chromium's fake camera
   (`JUPITER_TEST_FAKE_CAMERA`, test environment only).
+- Identity (SET 14): `IdentityService` (`packages/core/src/identity/`)
+  decides every level; recognition never allows anything by itself — with
+  protection on it is one more condition inside `PermissionEngine.check`
+  (CRITICAL needs `STRONG_VERIFIED`, which only Windows Hello gives; the
+  `IDENTITY_REQUIREMENTS` list needs `VERIFIED`), and the permission is still
+  checked. Face is `VERIFIED` at most, voice `RECOGNIZED` at most; never
+  raise them, and keep their liveness and limits labelled Experimental.
+  Face runs only in the identity runtime (`services/identity-runtime`) on
+  frames from a running camera session; the host
+  (`apps/desktop/src/main/identity-host.ts`) decodes and scales them and asks
+  Windows Hello, and takes no path or image from anywhere else. Seal every
+  template through `host.vault.seal` before it is stored; never put a
+  template, descriptor, score, image or audio in an event, a log, an error
+  or the database unsealed. Assurance lives in memory only and ends on its
+  timeout and on lock, suspend or shutdown (`identity.security-event`, host
+  actor only). Only the `user-interface` actor enrolls, verifies, deletes or
+  changes protection. Test with `packages/testing/fixtures/identity/` and
+  the `id-*` voice fixtures, and the fake camera with a video
+  (`JUPITER_TEST_FAKE_CAMERA=<file.y4m>`, test environment only).
 - Schema changes are new migrations at the end of `JUPITER_MIGRATIONS`; never
   edit a migration that has shipped (see `packages/database/README.md`).
 

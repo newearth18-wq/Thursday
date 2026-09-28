@@ -3,13 +3,25 @@
 Jupiter is a Windows desktop AI agent, built in stages (SET 0–24). This
 repository is the Jupiter monorepo.
 
-**Current stage: SET 13 — Vision and Camera** (on top of SET 12, Voice
-Interface; SET 11, Memory System and Obsidian Knowledge Base; SET 10, File,
+**Current stage: SET 14 — Identity: Windows Security, Face and Voice** (on
+top of SET 13, Vision and Camera; SET 12, Voice Interface; SET 11, Memory System and Obsidian Knowledge Base; SET 10, File,
 Document, Office and Artifact System; SET 9, Browser Agent; SET 8, Windows
 Computer Agent; SET 7, Permission and Security Engine; SET 6, Skill System;
 SET 5, Planner and Workflow Engine; SET 4, Mission System; SET 3, AI
 providers, Model Router and Chat; SET 2, the product shell; SET 1, Core
-architecture; and SET 0, the repository foundation). The **Devices** screen
+architecture; and SET 0, the repository foundation). **Settings → Identity**
+shows how sure Jupiter is that you are at the computer (_Unknown_,
+_Recognized_, _Verified_ or _Strongly verified_), until when, and why.
+Windows Hello (face, fingerprint or PIN, checked by Windows) is the strong
+method; Face Identity (Experimental, on this computer, with a liveness check
+whose limits are stated) can verify you, and Voice Identity (Experimental)
+can only recognize you. Each is set up only with your consent, kept only as
+numbers sealed by the operating system, and can be turned off, set up again
+or deleted. Identity protection is off until you turn it on; then private
+notes, memory, sending and writing files need you to be verified, and
+critical actions need Windows Hello — always in addition to their
+permission, never instead of it. Verification ends after a timeout and when
+the computer is locked or goes to sleep. The **Devices** screen
 now has _Voice_, _Vision_ and _Camera_. _Vision_ captures the screen, the
 active window or a region (with a delay), or takes an image you choose, and
 reads its text and QR codes on this computer (Tesseract and jsQR); a vision
@@ -78,7 +90,7 @@ Running as root in a container? Chromium's sandbox cannot start as root, so use
 ```text
 apps/desktop/            Jupiter desktop app: host (Electron main + gateway), Core utility process, preload, React renderer
 packages/contracts/      Versioned zod schemas for every trust boundary
-packages/core/           Core kernel: capability dispatcher, event bus, service supervisor, logger, IDs; model router, chat, adapter port; Mission Manager, planner and workflow engine; Skill Registry and sandbox; Permission Engine; Computer Agent; Browser Agent; File Agent and Artifact Manager; Memory System and Notes agent; voice pipeline (VAD, wake word, speech to text, spoken answers)
+packages/core/           Core kernel: capability dispatcher, event bus, service supervisor, logger, IDs; model router, chat, adapter port; Mission Manager, planner and workflow engine; Skill Registry and sandbox; Permission Engine; Computer Agent; Browser Agent; File Agent and Artifact Manager; Memory System and Notes agent; voice pipeline (VAD, wake word, speech to text, spoken answers); vision and camera; Identity Engine (levels, enrollment, assurance, protection)
 packages/providers/      Provider adapters (OpenAI-compatible, Anthropic), reached only through Core's guarded transport
 packages/database/       SQLite (node:sqlite): migrations, transactions, backups, repositories
 packages/security/       Secret patterns and redaction
@@ -87,6 +99,7 @@ packages/testing/        Launch the real app with Playwright; credential-shaped 
 services/agent-runtime/  Windows UI Automation runtime (PowerShell) behind a validated JSON-lines RPC; its Node client
 services/browser-runtime/ Browser runtime: playwright-core bundled into one file, in its own process; its Node client
 services/document-runtime/ Document runtime: readers, OOXML writers and validators in their own process; its Node client
+services/identity-runtime/ Identity runtime: face-api on TensorFlow.js (WebAssembly) in its own process; its Node client
 services/plugin-runtime/ Coming later (SET 15)
 plugins/                 Coming later (SET 15)
 docs/                    Architecture, decisions, definition of done, SET reports
@@ -179,6 +192,7 @@ is shown as _Not configured_. QR codes need nothing installed.
 - [docs/sets/SET-11-memory-and-obsidian.md](docs/sets/SET-11-memory-and-obsidian.md) — SET 11 report and acceptance results
 - [docs/sets/SET-12-voice-interface.md](docs/sets/SET-12-voice-interface.md) — SET 12 report and acceptance results
 - [docs/sets/SET-13-vision-and-camera.md](docs/sets/SET-13-vision-and-camera.md) — SET 13 report and acceptance results
+- [docs/sets/SET-14-identity.md](docs/sets/SET-14-identity.md) — SET 14 report and acceptance results
 - [docs/decisions/](docs/decisions/) — architecture decision records
 
 ## License

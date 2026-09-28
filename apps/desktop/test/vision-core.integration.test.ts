@@ -287,7 +287,7 @@ describe('SET 13 — Vision and Camera in Jupiter Core', () => {
       tasks: [
         { task: 'text', status: 'done' },
         { task: 'qr', status: 'done', reason: 'No QR code was found in the image.' },
-        { task: 'faces', status: 'coming-later' },
+        { task: 'faces', status: 'unavailable' },
         { task: 'describe', status: 'done' },
         { task: 'elements', status: 'done' }
       ]

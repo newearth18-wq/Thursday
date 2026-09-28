@@ -64,10 +64,27 @@ export type PermissionOutcome =
   | { readonly allowed: true; readonly grantId: string; readonly singleUse: boolean }
   | {
       readonly allowed: false
-      readonly code: 'PERMISSION_UNKNOWN' | 'PERMISSION_REQUIRED'
+      readonly code: 'PERMISSION_UNKNOWN' | 'PERMISSION_REQUIRED' | 'IDENTITY_REQUIRED'
       readonly message: string
       readonly requestId: string | null
     }
+
+/**
+ * Identity (SET 14): while identity protection is on, is Jupiter sure enough
+ * of who you are for this action? Null means yes (or protection is off).
+ */
+export type IdentityGate = (
+  capability: string,
+  risk: RiskLevel
+) => { readonly required: string; readonly current: string; readonly message: string } | null
+
+/** The next step for a refused action, for the error the caller raises. */
+export function permissionUserAction(code: string): string | null {
+  if (code === 'PERMISSION_REQUIRED') return 'Answer the permission request, then try again.'
+  if (code === 'IDENTITY_REQUIRED')
+    return 'Verify who you are in Settings › Identity, then try again. The permission is still asked for.'
+  return null
+}
 
 export interface DefaultGrant {
   readonly capability: string
@@ -89,11 +106,17 @@ const PERSON: ActorType = 'user-interface'
 
 export class PermissionEngine {
   private readonly listeners = new Set<(request: PermissionRequest) => void>()
+  private identityGate: IdentityGate | null = null
 
   constructor(private readonly options: PermissionEngineOptions) {}
 
   get sessionId(): string {
     return this.options.sessionId
+  }
+
+  /** Identity (SET 14) is one more condition on actions; it never allows anything by itself. */
+  useIdentity(gate: IdentityGate): void {
+    this.identityGate = gate
   }
 
   /** Notified after the person answers a request (the Mission Manager resumes or fails a step). */
@@ -195,6 +218,29 @@ export class PermissionEngine {
         allowed: false,
         code: 'PERMISSION_UNKNOWN',
         message: `"${check.capability}" is not a capability Jupiter knows, so it is denied.`,
+        requestId: null
+      }
+    }
+    // Identity first, so a single-use grant is not used up by an action that cannot happen yet.
+    const shortfall =
+      check.evaluateOnly === true ? null : this.identityGate?.(check.capability, info.risk)
+    if (shortfall) {
+      database.transactions.run(() => {
+        this.audit({
+          action: 'refused',
+          capability: check.capability,
+          subject: check.subject,
+          target: check.target,
+          outcome: 'DENIED',
+          detail: `Identity protection: needs ${shortfall.required}, is ${shortfall.current}.`,
+          actor: check.actor,
+          missionId: check.missionId ?? null
+        })
+      })
+      return {
+        allowed: false,
+        code: 'IDENTITY_REQUIRED',
+        message: shortfall.message,
         requestId: null
       }
     }

@@ -35,7 +35,7 @@ import { JupiterError, toErrorEnvelope } from '../errors'
 import type { EventBus } from '../events/event-bus'
 import { uuidv7 } from '../ids'
 import type { Logger } from '../logging/logger'
-import type { PermissionEngine } from '../permissions/engine'
+import { permissionUserAction, type PermissionEngine } from '../permissions/engine'
 import type { DatabasePort } from '../ports'
 import {
   findLine,
@@ -201,7 +201,8 @@ export class VisionService {
         faces: {
           kind: 'faces',
           available: false,
-          reason: 'Coming later: face detection belongs to the Identity Engine (SET 14).',
+          reason:
+            'Unavailable: Vision does not look for faces in images. Faces are used only by Face Identity (Settings → Identity), to check that it is you.',
           name: null,
           locality: null,
           languages: [],
@@ -370,8 +371,9 @@ export class VisionService {
     if (tasks.includes('faces'))
       outcomes.push({
         task: 'faces',
-        status: 'coming-later',
-        reason: 'Coming later: face detection belongs to the Identity Engine (SET 14).'
+        status: 'unavailable',
+        reason:
+          'Unavailable: Vision does not look for faces in images. Faces are used only by Face Identity (Settings → Identity), to check that it is you.'
       })
 
     const modelTasks = tasks.filter(
@@ -910,11 +912,8 @@ export class VisionService {
     if (outcome.allowed) return
     throw new JupiterError(outcome.code, outcome.message, {
       category: 'permission',
-      userAction:
-        outcome.code === 'PERMISSION_REQUIRED'
-          ? 'Answer the permission request, then try again.'
-          : null,
-      retryable: outcome.code === 'PERMISSION_REQUIRED',
+      userAction: permissionUserAction(outcome.code),
+      retryable: outcome.code !== 'PERMISSION_UNKNOWN',
       ...(outcome.requestId ? { details: { requestId: outcome.requestId } } : {})
     })
   }

@@ -278,3 +278,41 @@ export function changedFraction(a: Bitmap, b: Bitmap): number | null {
   }
   return pixels ? changed / pixels : 0
 }
+
+/** A smaller copy whose longer side is at most `maxSide` (area-averaged), or the bitmap itself. */
+export function downscale(bitmap: Bitmap, maxSide: number): Bitmap {
+  const scale = Math.max(bitmap.width, bitmap.height) / maxSide
+  if (scale <= 1) return bitmap
+  const width = Math.max(1, Math.round(bitmap.width / scale))
+  const height = Math.max(1, Math.round(bitmap.height / scale))
+  const rgba = new Uint8Array(width * height * 4)
+  for (let y = 0; y < height; y++) {
+    const y0 = Math.floor(y * scale)
+    const y1 = Math.min(bitmap.height, Math.max(y0 + 1, Math.floor((y + 1) * scale)))
+    for (let x = 0; x < width; x++) {
+      const x0 = Math.floor(x * scale)
+      const x1 = Math.min(bitmap.width, Math.max(x0 + 1, Math.floor((x + 1) * scale)))
+      const sum = [0, 0, 0, 0]
+      for (let sy = y0; sy < y1; sy++)
+        for (let sx = x0; sx < x1; sx++) {
+          const i = (sy * bitmap.width + sx) * 4
+          for (let c = 0; c < 4; c++) sum[c] = (sum[c] ?? 0) + (bitmap.rgba[i + c] ?? 0)
+        }
+      const count = (y1 - y0) * (x1 - x0)
+      const o = (y * width + x) * 4
+      for (let c = 0; c < 4; c++) rgba[o + c] = Math.round((sum[c] ?? 0) / count)
+    }
+  }
+  return { width, height, rgba }
+}
+
+/** The pixels without alpha: width × height × 3 bytes. */
+export function rgbOf(bitmap: Bitmap): Buffer {
+  const rgb = Buffer.alloc(bitmap.width * bitmap.height * 3)
+  for (let i = 0, o = 0; i < bitmap.rgba.length; i += 4) {
+    rgb[o++] = bitmap.rgba[i] ?? 0
+    rgb[o++] = bitmap.rgba[i + 1] ?? 0
+    rgb[o++] = bitmap.rgba[i + 2] ?? 0
+  }
+  return rgb
+}

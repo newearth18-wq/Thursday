@@ -16,7 +16,7 @@ import {
 import { JupiterError } from '../errors'
 import type { EventBus } from '../events/event-bus'
 import type { Logger } from '../logging/logger'
-import type { PermissionEngine } from '../permissions/engine'
+import { permissionUserAction, type PermissionEngine } from '../permissions/engine'
 import type { DatabasePort } from '../ports'
 import {
   addLink,
@@ -459,11 +459,8 @@ export class NotesAgent {
     if (outcome.allowed) return
     throw new JupiterError(outcome.code, outcome.message, {
       category: 'permission',
-      userAction:
-        outcome.code === 'PERMISSION_REQUIRED'
-          ? 'Answer the permission request, then try again.'
-          : null,
-      retryable: outcome.code === 'PERMISSION_REQUIRED',
+      userAction: permissionUserAction(outcome.code),
+      retryable: outcome.code !== 'PERMISSION_UNKNOWN',
       ...(outcome.requestId ? { details: { requestId: outcome.requestId } } : {})
     })
   }

@@ -13,6 +13,7 @@ import { PermissionDecision } from './permissions'
 import { BrowserActionType, BrowserMethod, BrowserTaskStatus, SuspiciousContent } from './browser'
 import { SpokenLanguage, VoiceState } from './voice'
 import { CameraState, VisionSource, VisionTask } from './vision'
+import { EnrollableMethod, IdentityLevel, IdentityMethod, LivenessState } from './identity'
 import { ComputerActionType, ComputerTaskStatus, InteractionMethod } from './computer'
 import { ArtifactVerificationStatus, DocumentFormat, FileRoot } from './files'
 import {
@@ -53,7 +54,8 @@ export const StreamKind = z.enum([
   'memory',
   'notes',
   'voice',
-  'vision'
+  'vision',
+  'identity'
 ])
 export type StreamKind = z.infer<typeof StreamKind>
 
@@ -508,6 +510,42 @@ export const EventPayloads = {
       frames: z.number().int().nonnegative()
     })
     .strict(),
+  /** Persistent (SET 14): a verification attempt and its outcome — never a score or a template. */
+  'identity.verification': z
+    .object({
+      method: IdentityMethod,
+      outcome: z.enum([
+        'verified',
+        'recognized',
+        'not-recognized',
+        'no-face',
+        'cancelled',
+        'locked-out',
+        'unavailable'
+      ]),
+      level: IdentityLevel,
+      liveness: LivenessState.nullable()
+    })
+    .strict(),
+  /** Persistent: a method was set up, turned on or off, or its data deleted. */
+  'identity.enrollment': z
+    .object({
+      method: EnrollableMethod,
+      change: z.enum(['enrolled', 're-enrolled', 'enabled', 'disabled', 'deleted']),
+      samples: z.number().int().min(0).max(20)
+    })
+    .strict(),
+  /** Persistent: identity protection for sensitive actions was turned on or off. */
+  'identity.protection_changed': z.object({ enabled: z.boolean() }).strict(),
+  /** Transient: how sure Jupiter is now, and why it changed. */
+  'identity.assurance_changed': z
+    .object({
+      level: IdentityLevel,
+      previous: IdentityLevel,
+      method: IdentityMethod.nullable(),
+      reason: z.string().max(120)
+    })
+    .strict(),
   'artifact.changed': z
     .object({
       artifactId: Uuidv7,
@@ -604,7 +642,11 @@ export const DomainEvent = z
     variant('voice.utterance_ready'),
     variant('vision.observed'),
     variant('camera.state_changed'),
-    variant('camera.session')
+    variant('camera.session'),
+    variant('identity.verification'),
+    variant('identity.enrollment'),
+    variant('identity.protection_changed'),
+    variant('identity.assurance_changed')
   ])
   .refine(
     (event) =>

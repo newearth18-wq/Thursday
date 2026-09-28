@@ -97,7 +97,9 @@ export const SettingDefinitions = {
    * Before an image goes to a vision model, black out lines that OCR (on this
    * computer) recognises as passwords, keys or tokens.
    */
-  'vision.redactSecrets': z.boolean()
+  'vision.redactSecrets': z.boolean(),
+  /** How long a verification lasts before Jupiter asks again (SET 14). */
+  'identity.timeoutMinutes': z.number().int().min(1).max(60)
 } as const satisfies Record<string, z.ZodType>
 
 export type SettingKey = keyof typeof SettingDefinitions
@@ -137,7 +139,8 @@ export const SettingDefaults: { readonly [K in SettingKey]: SettingValue<K> } = 
   'voice.speakingRate': 1,
   'voice.interruptionSensitivity': 'medium',
   'vision.cameraDevice': null,
-  'vision.redactSecrets': true
+  'vision.redactSecrets': true,
+  'identity.timeoutMinutes': 10
 }
 
 export const SettingRecord = z

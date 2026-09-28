@@ -92,7 +92,7 @@ export const VisionEngineInfo = z
   .object({
     kind: VisionEngineKind,
     available: z.boolean(),
-    /** Why it cannot be used, when it cannot (for example Coming later, SET 14). */
+    /** Why it cannot be used, when it cannot (for example Unavailable). */
     reason: z.string().max(500).nullable(),
     name: z.string().max(200).nullable(),
     locality: Locality.nullable(),

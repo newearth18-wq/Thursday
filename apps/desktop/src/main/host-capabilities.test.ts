@@ -22,6 +22,7 @@ import { ComputerHost } from './computer-host'
 import { CredentialVault, type SafeStorageLike } from './credential-vault'
 import { HostCapabilities, type HostCall } from './host-capabilities'
 import { MicrophoneGate, SpeechHost, wavDurationMs } from './speech-host'
+import { IdentityHost } from './identity-host'
 import { VisionHost } from './vision-host'
 
 /** Stands in for Electron's safeStorage: reversible, and never stores the plaintext. */
@@ -60,6 +61,7 @@ function setup(
     // No screen or engines here (an empty PATH), so nothing depends on the machine.
     vision: new VisionHost({ logger, capturer: null, platform: 'linux', env: { PATH: '' } }),
     camera,
+    identity: new IdentityHost({ logger, runtime: null, platform: 'linux' }),
     // No system voice here (an empty PATH), so nothing depends on the machine's engines.
     speech: new SpeechHost({ logger, platform: 'linux', env: { PATH: '' } }),
     microphone,

@@ -12,7 +12,8 @@
     "./web-fixtures": "./src/web-fixtures.ts",
     "./documents": "./src/documents.ts",
     "./voice": "./src/voice.ts",
-    "./vision": "./src/vision.ts"
+    "./vision": "./src/vision.ts",
+    "./identity": "./src/identity.ts"
   },
   "scripts": {
     "typecheck": "tsc -p tsconfig.json"

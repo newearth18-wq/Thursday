@@ -365,6 +365,7 @@ describe('SET 2 — navigation, persistence and language (real app)', () => {
       'accessibility',
       'notifications',
       'permissions',
+      'identity',
       'advanced',
       'general'
     ]) {

@@ -134,6 +134,15 @@ describe.skipIf(!executablePath)('packaged Jupiter build', () => {
     expect(serviceStatus(await gatewayStatus(page), 'document-runtime')).toBe('HEALTHY')
   })
 
+  it('runs the bundled face engine (models and WebAssembly) from the package (SET 14)', async () => {
+    const page = jupiter.window
+    const face = (await query(page, 'identity.status', {})).methods.find(
+      (method) => method.method === 'face'
+    )
+    expect(face).toMatchObject({ available: true, experimental: true, maxLevel: 'VERIFIED' })
+    expect(face?.engine).toMatch(/^face-api /)
+  })
+
   it('keeps DevTools unavailable in the packaged production build', async () => {
     const devTools = await jupiter.evaluateMain<boolean | null>(`(() => {
       const contents = require('electron').BrowserWindow.getAllWindows()[0]?.webContents
