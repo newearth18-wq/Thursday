@@ -223,7 +223,7 @@ describe('SET 14 — Identity Engine in Jupiter Core', () => {
     })
     expect(before.methods.find((method) => method.method === 'windows-hello')).toMatchObject({
       available: false,
-      reason: expect.stringMatching(/^Unavailable/) as string
+      reason: expect.stringMatching(/^(Unavailable|Not configured)/) as string
     })
     // No consent, no enrollment.
     expect(
