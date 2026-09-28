@@ -7,7 +7,7 @@
   application (E2E: Chromium's fake camera playing the owner's
   photographs, the real permission and camera gate, a Windows lock
   reported by Electron's `powerMonitor`, with screenshots). Local
-  `npm run verify`: VERIFY_RESULT. CI: CI_RESULT. Evidence: §7 and §12.
+  `npm run verify`: 13/13 steps PASS (on `8649f0c`). CI: green on Linux, Windows and Legacy (`8649f0c`, run 36376766617). Evidence: §7 and §12.
 - SET 13 was checked first: green in CI and merged (PR #10, `ca708c5`).
 - Choices the person made for this SET:
   - **Face**: on this computer with face-api (TensorFlow.js,
@@ -193,7 +193,18 @@ npm run verify
 
 ### Local run
 
-LOCAL_RESULTS
+`npm run verify` on Linux (Node.js 22, Xvfb, a throwaway GNOME Keyring,
+Tesseract 5.3.4 with English and Thai), on commit `8649f0c`: **13/13 steps
+PASS**, exit 0.
+
+- unit tests: 33 files, 295 tests
+- integration and Electron E2E: 50 files passed and 2 skipped; 377 tests
+  passed and 17 skipped (the Windows-only SET 8 suites, the Windows
+  installer check and the packaged-app suite, which runs as its own step)
+- secret scan, development-mode launch, Windows and Linux unpacked builds
+  and their validation: PASS
+- packaged-app launch: 6 tests, including the face engine loading its
+  models and WebAssembly from inside the package
 
 The SET 14 suites:
 
@@ -216,11 +227,37 @@ The SET 14 suites:
 | "Moved closer" (first against last frame) depended on where the camera's video happened to be                                                       | The largest face against the smallest                                                                           |
 | Vision still said face detection was _Coming later (SET 14)_; a SET 2 dialog said identity was "planned for SET 14"                                 | Vision's face detection is _Unavailable_ (faces are used only by Face Identity); the placeholder dialog removed |
 | The Mission identity checkpoint promised SET 14                                                                                                     | It stays _Unavailable_ and says that protected steps check identity when they run                               |
+| ESLint ran out of Node's default heap in CI once the identity runtime's TensorFlow.js types were added (one type program per tsconfig)              | The lint script runs ESLint with an 8 GB heap                                                                   |
+| On the Windows runner the real Windows Hello check answered _Not configured_ (no Hello device), and a test expected only _Unavailable_              | The test accepts both honest labels                                                                             |
+| The SET 2 keyboard test walked the Settings tabs without the new Identity tab                                                                       | The tab order in the test includes Identity                                                                     |
 | The Vision service had no name in the activity timeline                                                                                             | `service.vision` added in English and Thai                                                                      |
 
 ### CI
 
-CI_SECTION
+Evidence: commit `8649f0c`, run 36376766617. All three jobs succeeded
+(Linux job 108784099830, Windows job 108784099772, Legacy job
+108784099703).
+
+| Job                                                                                                                                  | Result  | Notes                                                                                                                        |
+| ------------------------------------------------------------------------------------------------------------------------------------ | ------- | ---------------------------------------------------------------------------------------------------------------------------- |
+| Linux — format, lint, typecheck, unit, build, integration + E2E, secret scan, dev smoke, Windows and Linux packages, packaged launch | success | The SET 14 suites ran with the fake camera and a real, throwaway GNOME Keyring; the packaged app loaded the face engine      |
+| Windows — typecheck, unit, build, integration + E2E, NSIS installer, package validation, packaged launch                             | success | The identity runtime ran on Windows; the real Windows Hello check answered _Not configured_ (the runner has no Hello device) |
+| Legacy Thursday — build and acceptance suite                                                                                         | success |                                                                                                                              |
+
+Earlier runs on this PR:
+
+- **Run 36374216420** (`9686685`): Linux failed at lint — ESLint ran out of
+  Node's default heap (about 4 GB): typed linting builds one program per
+  tsconfig, `main` was already close, and the identity runtime's
+  TensorFlow.js types pushed it over (reproduced locally: `main` fits,
+  this branch did not, and without the runtime it fits again). The lint
+  script now gives ESLint 8 GB (`cbc3865`).
+- **Run 36375330918** (`cbc3865`): Windows failed one test — the real
+  Windows Hello check on the runner answered "Not configured: this
+  computer has no Windows Hello device", and the in-process test expected
+  only "Unavailable" (the Linux answer). The test now accepts both honest
+  labels (`8649f0c`). Everything else passed on Windows (385 tests,
+  including the SET 14 E2E).
 
 ## 8. Manual tests
 
@@ -282,7 +319,8 @@ npm ci && npm run dev
 - `packages/testing/fixtures/identity/*.png`, `fixtures/voice/id-*.wav`:
   the test photographs and recordings
 - `test-results/package-validation-linux.json`: package validation
-- EVIDENCE_CI
+- CI run 36376766617 (commit `8649f0c`): Linux job 108784099830, Windows job 108784099772, Legacy job 108784099703
+- Earlier runs 36374216420 and 36375330918: the failures and fixes in §7
 
 ## 12. Acceptance tests
 
