@@ -26,7 +26,7 @@
     "test:unit": "vitest run --project unit",
     "test:integration": "npm run build && node scripts/with-display.mjs vitest run --project integration",
     "test:dev-smoke": "node scripts/with-display.mjs node scripts/dev-smoke.mjs",
-    "lint": "eslint . --max-warnings 0",
+    "lint": "node --max-old-space-size=8192 node_modules/eslint/bin/eslint.js . --max-warnings 0",
     "typecheck": "npm run typecheck --workspaces --if-present && tsc -p tsconfig.json",
     "format": "prettier --write .",
     "format:check": "prettier --check .",
