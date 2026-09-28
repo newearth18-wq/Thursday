@@ -287,7 +287,7 @@ export const STEP_TYPES: readonly StepTypeDefinition[] = [
     skillId: 'checkpoint.identity',
     name: 'Confirm identity',
     description:
-      'Coming later: identity verification arrives with the Identity and Authorization Engine (SET 14). A plan that needs it cannot run yet.',
+      'Unavailable: a Mission does not pause to confirm identity. With identity protection on (Settings → Identity), each protected step checks your identity when it runs. A plan with this step cannot run.',
     inputs: [
       {
         name: 'reason',

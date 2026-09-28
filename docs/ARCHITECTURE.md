@@ -708,3 +708,56 @@ Linux, video recording, face detection and recognition and identity
 verification (SET 14), plugins with their own runtime (SET 15), and
 everything after that. The two unfinished destinations are shown as
 _Coming later_ in the app, and none of them is presented as working.
+
+## Identity (SET 14)
+
+Decisions and alternatives: [ADR 0015](decisions/0015-identity.md).
+
+- **Contracts** (`packages/contracts/src/identity.ts`): the levels
+  (`UNKNOWN` < `RECOGNIZED` < `VERIFIED` < `STRONG_VERIFIED`), the methods
+  (Windows Hello, face, voice) and the most each can prove, the
+  requirements (`requiredIdentityLevel`: CRITICAL needs `STRONG_VERIFIED`,
+  the `IDENTITY_REQUIREMENTS` list needs `VERIFIED`), assurance, the
+  liveness check, method status, enrollment and verification inputs, and
+  the host shapes. Capabilities `identity.*` (status, face enroll and
+  verify, Windows Hello, voice sessions, enable, delete, protection, forget,
+  and the host-only `identity.security-event`); host operations
+  `host.identity.engines`, `host.identity.face`, `host.identity.hello`;
+  events `identity.verification`, `identity.enrollment`,
+  `identity.protection_changed` (persistent, no scores) and
+  `identity.assurance_changed` (transient); setting
+  `identity.timeoutMinutes`.
+- **Core** (`packages/core/src/identity/`, service `identity`):
+  `IdentityService` (enrollment from camera frames with consent, sealed
+  templates, verification, assurance in memory with its timer, security
+  events, rate limiting kept in the database, voice sessions through the
+  microphone gate, protection), `face.ts` (matching and the liveness check),
+  `voice.ts` (MFCC features). The Permission Engine asks the identity gate
+  (`useIdentity`) before any grant; a shortfall is `IDENTITY_REQUIRED`.
+- **Database**: migration 12 (`identity_methods` with sealed templates
+  only, `identity_attempts`, `identity_state`), `SqliteIdentityStore`.
+- **Identity runtime** (`services/identity-runtime`): face-api 1.7.15 on
+  TensorFlow.js with the WebAssembly backend, in its own process
+  (`ELECTRON_RUN_AS_NODE`, 1 GB memory limit), models and `.wasm` files
+  copied next to the bundle; one validated call at a time (`describe` →
+  faces with boxes and 128-number descriptors).
+- **Host**: `IdentityHost` (`identity-host.ts`; PNG decode and downscale,
+  the runtime, Windows Hello through `UserConsentVerifier` in Windows
+  PowerShell; Core only) and `powerMonitor` lock, unlock, suspend, resume
+  and shutdown reported to Core as `identity.security-event`.
+- **Interface**: Settings → _Identity_: the level and why, until when, the
+  liveness checks and their limitation, ending the verification,
+  protection and the timeout with what each action needs, and a card per
+  method (availability, what it can prove, consent, camera preview, set up,
+  check, turn off, delete with confirmation, lockout). Identity events in
+  the activity timeline.
+
+## Not in SET 14
+
+A Mission step that pauses for identity (protected steps check identity
+when they run instead), face detection in Vision (faces are used only by
+Face Identity), device identity beyond the Windows account, presentation
+attack detection beyond the Experimental liveness check, a speaker
+verification model, plugins with their own runtime (SET 15), and
+everything after that. The two unfinished destinations are shown as
+_Coming later_ in the app, and none of them is presented as working.

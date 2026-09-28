@@ -19,7 +19,7 @@ import { redactString } from '@jupiter/security'
 import { JupiterError, createErrorEnvelope, toErrorEnvelope } from '../errors'
 import type { EventBus } from '../events/event-bus'
 import type { Logger } from '../logging/logger'
-import type { PermissionEngine } from '../permissions/engine'
+import { permissionUserAction, type PermissionEngine } from '../permissions/engine'
 import type { DatabasePort } from '../ports'
 import { ADAPTERS, waitFor, type AdapterContext } from './adapters'
 import type { ComputerDriver } from './driver'
@@ -319,10 +319,12 @@ export class ComputerAgent {
           action,
           startedAt,
           envelope(
-            'PERMISSION_REQUIRED',
+            allowed.code,
             'permission',
             allowed.message,
-            'Give the permission again, then run the task again.'
+            allowed.code === 'IDENTITY_REQUIRED'
+              ? permissionUserAction(allowed.code)
+              : 'Give the permission again, then run the task again.'
           )
         )
       } else {

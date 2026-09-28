@@ -65,8 +65,8 @@ function EngineBadge({ engine }: { readonly engine: VisionEngineInfo }) {
   const { t } = useI18n()
   if (engine.kind === 'faces')
     return (
-      <span className="badge badge-muted" data-availability="COMING_LATER">
-        {t('availability.COMING_LATER')}
+      <span className="badge badge-muted" data-availability="UNAVAILABLE">
+        {t('availability.UNAVAILABLE')}
       </span>
     )
   if (!engine.available || !engine.locality)
@@ -492,13 +492,14 @@ export function AnalyzeCard({
       <fieldset className="vision-tasks">
         <legend>{t('vision.tasks')}</legend>
         {TASKS.map((task) => {
-          const later = task === 'faces'
+          // Vision never looks for faces: they are used only by Face Identity (SET 14).
+          const unavailable = task === 'faces'
           return (
             <label key={task} className="field-inline">
               <input
                 type="checkbox"
                 checked={tasks.includes(task)}
-                disabled={later}
+                disabled={unavailable}
                 data-testid={`vision-want-${task}`}
                 onChange={(event) => {
                   setTasks((previous) =>
@@ -509,9 +510,9 @@ export function AnalyzeCard({
                 }}
               />{' '}
               {t(`vision.task.${task}` as MessageKey)}
-              {later ? (
-                <span className="badge badge-muted" data-availability="COMING_LATER">
-                  {t('availability.COMING_LATER')}
+              {unavailable ? (
+                <span className="badge badge-muted" data-availability="UNAVAILABLE">
+                  {t('availability.UNAVAILABLE')}
                 </span>
               ) : null}
             </label>
@@ -743,7 +744,7 @@ export function VisionPanel() {
 }
 
 /** A live preview of the camera, drawn from the real track while it runs. */
-function CameraPreview() {
+export function CameraPreview() {
   const { t } = useI18n()
   const camera = useCamera()
   const canvas = useRef<HTMLCanvasElement>(null)

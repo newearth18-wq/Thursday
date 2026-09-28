@@ -41,6 +41,7 @@ const RUNNING = [
   'memory',
   'voice',
   'vision',
+  'identity',
   'capability-dispatcher'
 ] as const
 const PLANNED = ['plugin-runtime'] as const

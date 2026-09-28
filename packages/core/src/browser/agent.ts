@@ -25,7 +25,7 @@ import { JupiterError, createErrorEnvelope, toErrorEnvelope } from '../errors'
 import type { EventBus } from '../events/event-bus'
 import { uuidv7 } from '../ids'
 import type { Logger } from '../logging/logger'
-import type { PermissionEngine } from '../permissions/engine'
+import { permissionUserAction, type PermissionEngine } from '../permissions/engine'
 import type { DatabasePort } from '../ports'
 import type { BrowserDriver } from './driver'
 import { findSuspiciousInstructions } from './injection'
@@ -430,10 +430,12 @@ export class BrowserAgent {
           startedAt,
           current,
           envelope(
-            'PERMISSION_REQUIRED',
+            denied.code,
             'permission',
             denied.message,
-            'Give the permission, then run the task again.'
+            denied.code === 'IDENTITY_REQUIRED'
+              ? permissionUserAction(denied.code)
+              : 'Give the permission, then run the task again.'
           )
         )
       } else {
@@ -1037,11 +1039,14 @@ export class BrowserAgent {
     })
     if (!outcome.allowed)
       throw new JupiterError(
-        'PERMISSION_REQUIRED',
+        outcome.code === 'IDENTITY_REQUIRED' ? outcome.code : 'PERMISSION_REQUIRED',
         `This ${kind === 'login' ? 'sends a sign-in form' : 'sends a form'} on ${origin}, which needs "${capability}"; nothing was sent. ${outcome.message}`,
         {
           category: 'permission',
-          userAction: 'Answer the permission request, then run the task again.'
+          userAction:
+            outcome.code === 'IDENTITY_REQUIRED'
+              ? permissionUserAction(outcome.code)
+              : 'Answer the permission request, then run the task again.'
         }
       )
   }

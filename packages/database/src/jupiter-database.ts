@@ -16,6 +16,7 @@ import { SqliteMissionStore } from './repositories/missions'
 import { SqliteSkillStore } from './repositories/skills'
 import { SqliteArtifactStore } from './repositories/artifacts'
 import { SqliteMemoryStore } from './repositories/memories'
+import { SqliteIdentityStore } from './repositories/identity'
 import { SqliteBrowserTaskStore } from './repositories/browser'
 import { SqliteComputerTaskStore } from './repositories/computer'
 import { SqlitePermissionStore } from './repositories/permissions'
@@ -73,6 +74,7 @@ export class JupiterDatabase implements DatabasePort {
   readonly browser: SqliteBrowserTaskStore
   readonly artifacts: SqliteArtifactStore
   readonly memories: SqliteMemoryStore
+  readonly identity: SqliteIdentityStore
   private integrity = 'not checked'
   private closed = false
 
@@ -107,6 +109,7 @@ export class JupiterDatabase implements DatabasePort {
     this.browser = new SqliteBrowserTaskStore(db)
     this.artifacts = new SqliteArtifactStore(db)
     this.memories = new SqliteMemoryStore(db)
+    this.identity = new SqliteIdentityStore(db)
   }
 
   static async open(input: OpenDatabaseOptions): Promise<OpenedDatabase> {

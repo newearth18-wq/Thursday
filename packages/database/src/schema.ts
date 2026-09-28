@@ -659,5 +659,39 @@ export const JUPITER_MIGRATIONS: readonly Migration[] = [
         SELECT RAISE(ABORT, 'memory decisions are never deleted');
       END;
     `
+  },
+  {
+    version: 12,
+    name: '0012_identity',
+    sql: `
+      -- The Identity Engine (SET 14). A method's template is kept only sealed
+      -- by the operating system (never readable on disk); deleting a method
+      -- removes the row, and secure_delete overwrites it.
+      CREATE TABLE identity_methods (
+        method            TEXT PRIMARY KEY NOT NULL CHECK (method IN ('face', 'voice')),
+        enabled           INTEGER NOT NULL CHECK (enabled IN (0, 1)),
+        sealed_template   TEXT NOT NULL CHECK (length(sealed_template) > 0),
+        template_version  INTEGER NOT NULL CHECK (template_version >= 1),
+        samples           INTEGER NOT NULL CHECK (samples >= 1 AND samples <= 20),
+        enrolled_at       TEXT NOT NULL,
+        updated_at        TEXT NOT NULL
+      ) STRICT;
+
+      -- Failed attempts and lockouts per method, so a restart does not reset them.
+      CREATE TABLE identity_attempts (
+        method        TEXT PRIMARY KEY NOT NULL CHECK (method IN ('windows-hello', 'face', 'voice')),
+        failures      INTEGER NOT NULL CHECK (failures >= 0),
+        lockouts      INTEGER NOT NULL CHECK (lockouts >= 0),
+        locked_until  TEXT,
+        updated_at    TEXT NOT NULL
+      ) STRICT;
+
+      -- Whether identity protection for sensitive actions is on (one row).
+      CREATE TABLE identity_state (
+        id          INTEGER PRIMARY KEY NOT NULL CHECK (id = 1),
+        protection  INTEGER NOT NULL CHECK (protection IN (0, 1)),
+        updated_at  TEXT NOT NULL
+      ) STRICT;
+    `
   }
 ]

@@ -8,6 +8,9 @@ import {
   type HostOcrResult,
   type HostQrResult,
   type HostVisionEngines,
+  type HostIdentityEngines,
+  type HostFaceResult,
+  type HostHelloResult,
   type AuditEvent,
   type BackupInfo,
   type CapabilityOutput,
@@ -49,6 +52,7 @@ import type { AdapterContext, ProviderAdapter } from '../ai/adapter'
 import { completeText } from '../ai/complete'
 import { VoiceService, type SpeechPlan, type VoiceCallContext } from '../voice/service'
 import { VisionService, type CameraTimings, type VisionPlan } from '../vision/service'
+import { IdentityService } from '../identity/service'
 import { ChatService } from '../ai/chat'
 import { BrowserAgent } from '../browser/agent'
 import { checkedBrowserDriver } from '../browser/driver'
@@ -163,6 +167,7 @@ export class CoreKernel {
   readonly permissions: PermissionEngine
   readonly computer: ComputerAgent
   readonly vision: VisionService
+  readonly identity: IdentityService
   readonly browser: BrowserAgent
   readonly files: FileAgent
   readonly memory: MemoryService
@@ -544,6 +549,56 @@ export class CoreKernel {
         }
       }
     })
+    // SET 14: the Identity Engine. The face engine and Windows Hello are the host's; templates
+    // are sealed by the host's vault; camera frames come from the vision service's memory.
+    this.identity = new IdentityService({
+      database: () => this.requireDatabase(),
+      bus: this.bus,
+      logger: this.logger.child({ component: 'identity' }),
+      now: this.now,
+      permissions: this.permissions,
+      setting: (key) => this.validSettingValue(key, this.database?.settings.get(key)?.value),
+      images: this.vision.images,
+      voiceBusy: () => this.voice.busy,
+      engines: {
+        engines: async () =>
+          (await this.hostOperation('host.identity.engines', {}, uuidv7())) as HostIdentityEngines,
+        face: async (png, signal) =>
+          (await this.hostOperation(
+            'host.identity.face',
+            { mediaType: 'image/png', data: png },
+            uuidv7(),
+            signal
+          )) as HostFaceResult,
+        hello: async (message) =>
+          (await this.hostOperation(
+            'host.identity.hello',
+            { message },
+            uuidv7()
+          )) as HostHelloResult,
+        seal: async (text) => {
+          if (!this.options.config.hostCapabilities.includes('host.vault.seal'))
+            throw new JupiterError(
+              'VAULT_UNAVAILABLE',
+              'Not configured: this computer has no secure storage, so no identity template can be kept.',
+              { category: 'dependency', userAction: null }
+            )
+          return (
+            (await this.hostOperation('host.vault.seal', { text }, uuidv7())) as { sealed: string }
+          ).sealed
+        },
+        unseal: async (sealed) =>
+          (
+            (await this.hostOperation('host.vault.unseal', { sealed }, uuidv7())) as {
+              text: string
+            }
+          ).text,
+        microphone: async (input) => {
+          await this.hostOperation('host.microphone.gate', input, uuidv7())
+        }
+      }
+    })
+    this.permissions.useIdentity((capability, risk) => this.identity.shortfall(capability, risk))
     // SET 11: Obsidian notes: Core decides and checks permissions; the host owns the vault.
     this.notes = new NotesAgent({
       database: () => this.requireDatabase(),
@@ -763,6 +818,7 @@ export class CoreKernel {
     this.dispatcher.cancelAll()
     await this.voice.shutdown()
     await this.vision.shutdown()
+    await this.identity.shutdown()
     this.record({
       type: 'core.stopped',
       stream: { kind: 'system', id: 'core' },
@@ -821,6 +877,7 @@ export class CoreKernel {
         await this.supervisor.retry('memory')
         await this.supervisor.retry('voice')
         await this.supervisor.retry('vision')
+        await this.supervisor.retry('identity')
         await this.supervisor.retry('skill-registry')
       }
       return null
@@ -1056,10 +1113,14 @@ export class CoreKernel {
       )
     }
     // A browser operation may wait for a slow page, a download or a control (up to two minutes).
+    // The face engine loads its models on first use; Windows Hello waits for the person.
     const deadlineMs =
       operation === 'host.browser.call' ||
       operation === 'host.files.call' ||
-      operation === 'host.notes.call'
+      operation === 'host.notes.call' ||
+      operation === 'host.identity.face' ||
+      operation === 'host.identity.hello' ||
+      operation === 'host.identity.engines'
         ? BROWSER_OPERATION_TIMEOUT_MS
         : HOST_OPERATION_TIMEOUT_MS
     const controller = new AbortController()
@@ -1444,6 +1505,33 @@ export class CoreKernel {
       }
     })
 
+    // SET 14: the Identity Engine. It needs the database (methods, attempts, protection).
+    this.supervisor.register({
+      id: 'identity',
+      version: null,
+      capabilities: [
+        'identity.face',
+        'identity.windows-hello',
+        'identity.voice',
+        'identity.assurance'
+      ],
+      critical: false,
+      retryable: true,
+      start: () => {
+        if (!this.database)
+          throw new JupiterError(
+            'DEPENDENCY_UNAVAILABLE',
+            'Identity needs the database, which is not available.',
+            {
+              category: 'dependency',
+              userAction: 'Fix the Database service, then press Retry on it.',
+              retryable: true
+            }
+          )
+        return undefined
+      }
+    })
+
     // SET 10: the Artifact Manager (with the File Agent). Its records live in the database.
     this.supervisor.register({
       id: 'artifact-manager',
@@ -1632,7 +1720,8 @@ export class CoreKernel {
     'voice.speakingRate': () => undefined,
     'voice.interruptionSensitivity': () => undefined,
     'vision.cameraDevice': () => undefined,
-    'vision.redactSecrets': () => undefined
+    'vision.redactSecrets': () => undefined,
+    'identity.timeoutMinutes': () => undefined
   }
 
   private applyLogLevel(level: LogLevel, correlationId: string): void {

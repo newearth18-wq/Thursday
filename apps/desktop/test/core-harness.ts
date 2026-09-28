@@ -4,6 +4,7 @@ import type {
   CapabilityOutput,
   DomainEvent,
   ErrorEnvelope,
+  HostHelloResult,
   MissionDetail,
   MissionStatus,
   ResultEnvelope
@@ -29,6 +30,7 @@ import { startOpenAiCompatibleServer, type ProtocolServer } from '@jupiter/testi
 import { afterAll, afterEach, beforeAll, beforeEach, expect } from 'vitest'
 import { envelope } from './helpers'
 import type { MicrophoneGate, SpeechHost } from '../src/main/speech-host'
+import type { IdentityHost } from '../src/main/identity-host'
 import type { VisionHost } from '../src/main/vision-host'
 
 /**
@@ -108,6 +110,16 @@ export async function startCore(
      * the test's) and the real camera gate, serving host.vision.* and host.camera.gate.
      */
     vision?: { host: VisionHost; camera: MicrophoneGate; timings?: CameraTimings }
+    /**
+     * SET 14: the real identity host (the face engine in the real identity runtime). Windows
+     * Hello does not exist on Linux: `hello`, when given, is a test double of Windows' answer.
+     */
+    identity?: {
+      host: IdentityHost
+      hello?: (message: string) => Promise<HostHelloResult>
+    }
+    /** Core's clock (to test assurance that expires). */
+    now?: () => Date
   } = {}
 ): Promise<Running> {
   const sessionId = uuidv7()
@@ -225,6 +237,31 @@ export async function startCore(
           }
           break
         }
+        case 'host.identity.engines':
+        case 'host.identity.face':
+        case 'host.identity.hello': {
+          const identity = knowledge.identity
+          if (!identity) return Promise.reject(new Error(`unexpected host call ${capability}`))
+          const request = HostOperations[capability].input.parse(input)
+          switch (capability) {
+            case 'host.identity.engines':
+              return identity.host.engines().then((engines) =>
+                identity.hello
+                  ? {
+                      ...engines,
+                      hello: { available: true, reason: null, name: 'Windows Hello (test double)' }
+                    }
+                  : engines
+              )
+            case 'host.identity.face':
+              return identity.host.face(request as HostOperationInput<'host.identity.face'>)
+            case 'host.identity.hello': {
+              const message = (request as HostOperationInput<'host.identity.hello'>).message
+              return identity.hello ? identity.hello(message) : identity.host.hello({ message })
+            }
+          }
+          break
+        }
         default:
           return Promise.reject(new Error(`unexpected host call ${capability}`))
       }
@@ -265,6 +302,9 @@ export async function startCore(
               'host.vision.compare',
               'host.camera.gate'
             ]
+          : []),
+        ...(knowledge.identity
+          ? ['host.identity.engines', 'host.identity.face', 'host.identity.hello']
           : [])
       ]
     },
@@ -290,7 +330,8 @@ export async function startCore(
     skillSandbox: new WorkerSkillSandbox(),
     extraSkills,
     extraResources,
-    ...(knowledge.vision?.timings ? { cameraTimings: knowledge.vision.timings } : {})
+    ...(knowledge.vision?.timings ? { cameraTimings: knowledge.vision.timings } : {}),
+    ...(knowledge.now ? { now: knowledge.now } : {})
   })
   await core.start()
   // As the Core entry does once Core is running (SET 8).

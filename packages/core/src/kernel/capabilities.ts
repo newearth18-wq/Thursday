@@ -149,6 +149,20 @@ const VISION_ANALYZE: Policy = {
   audit: 'always',
   timeoutMs: 180_000
 }
+/**
+ * Identity (SET 14): only the person enrolls, verifies and changes identity data; every
+ * change and check is audited. Face checks look at several frames (seconds each on a slow
+ * computer); Windows Hello waits for the person.
+ */
+const IDENTITY_READ: Policy = { ...UI_READ, requires: ['database', 'identity'], timeoutMs: 30_000 }
+const IDENTITY_WRITE: Policy = {
+  ...IDENTITY_READ,
+  requires: ['database', 'permission-engine', 'identity'],
+  risk: 'HIGH',
+  audit: 'always',
+  timeoutMs: 180_000
+}
+const IDENTITY_SAMPLE: Policy = { ...IDENTITY_READ, timeoutMs: 15_000 }
 /** Commands that plan or run a workflow (SET 5) also need the workflow engine. */
 const WORKFLOW_WRITE: Policy = {
   ...MISSION_WRITE,
@@ -858,6 +872,50 @@ export function coreCapabilities(kernel: CoreKernel): CapabilityDefinition<never
     ),
     define('vision.compare', VISION_ANALYZE, (input, context) =>
       kernel.vision.compare(input, visionContext(context))
+    ),
+    // ---- Identity (SET 14) ----
+    define('identity.status', IDENTITY_READ, () => kernel.identity.status()),
+    define('identity.face.enroll', IDENTITY_WRITE, (input, context) =>
+      kernel.identity.enrollFace(input.frames, visionContext(context))
+    ),
+    define('identity.face.verify', IDENTITY_WRITE, (input, context) =>
+      kernel.identity.verifyFace(input.frames, visionContext(context))
+    ),
+    define('identity.hello.verify', IDENTITY_WRITE, (input, context) =>
+      kernel.identity.verifyHello(input.reason, visionContext(context))
+    ),
+    define('identity.voice.start', IDENTITY_WRITE, (input, context) =>
+      kernel.identity.startVoice(input.purpose, input.consent, visionContext(context))
+    ),
+    define('identity.voice.sample', IDENTITY_SAMPLE, (input) =>
+      kernel.identity.sampleVoice(input.sessionId, input.phrase, input.pcm)
+    ),
+    define('identity.voice.finish', IDENTITY_WRITE, (input, context) =>
+      kernel.identity.finishVoice(input.sessionId, input.outcome, visionContext(context))
+    ),
+    define('identity.method.enable', IDENTITY_WRITE, (input, context) =>
+      kernel.identity.enableMethod(input.method, input.enabled, visionContext(context))
+    ),
+    define('identity.method.delete', { ...IDENTITY_WRITE, risk: 'CRITICAL' }, (input, context) =>
+      kernel.identity.deleteMethod(input.method, visionContext(context))
+    ),
+    define('identity.protection.set', IDENTITY_WRITE, (input, context) =>
+      kernel.identity.setProtection(input.enabled, visionContext(context))
+    ),
+    define('identity.forget', { ...IDENTITY_READ, audit: 'always' }, (_input, context) =>
+      kernel.identity.forget(visionContext(context))
+    ),
+    define(
+      'identity.security-event',
+      {
+        allowedActors: ['host'],
+        risk: 'MEDIUM',
+        provider: 'core',
+        audit: 'always',
+        timeoutMs: 10_000,
+        requires: ['identity']
+      },
+      (input, context) => kernel.identity.securityEvent(input.event, visionContext(context))
     ),
     define('camera.status', VISION_READ, () => kernel.vision.cameraStatus()),
     define('camera.start', VISION_CAPTURE, (_input, context) =>

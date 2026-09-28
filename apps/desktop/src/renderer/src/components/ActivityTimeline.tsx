@@ -7,6 +7,7 @@ import { describeFileEvent, isFileEvent } from '../fileText'
 import { describeMemoryEvent, isMemoryEvent } from '../memoryText'
 import { describeVoiceEvent, isVoiceEvent } from '../voiceText'
 import { describeVisionEvent, isVisionEvent } from '../visionText'
+import { describeIdentityEvent, isIdentityEvent } from '../identityText'
 import { describePermissionEvent, isPermissionEvent } from '../permissionText'
 import { describeSkillEvent, isSkillEvent } from '../skillText'
 import { useEventLog } from '../useEventLog'
@@ -28,6 +29,7 @@ export function describeEvent(event: DomainEvent, t: Translate): Omit<TimelineEn
   if (isMemoryEvent(event)) return { ...base, ...describeMemoryEvent(event, t) }
   if (isVoiceEvent(event)) return { ...base, ...describeVoiceEvent(event, t) }
   if (isVisionEvent(event)) return { ...base, ...describeVisionEvent(event, t) }
+  if (isIdentityEvent(event)) return { ...base, ...describeIdentityEvent(event, t) }
   switch (event.type) {
     case 'core.started':
       return { ...base, tone: 'success', title: t('activity.coreStarted') }

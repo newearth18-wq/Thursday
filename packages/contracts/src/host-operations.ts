@@ -3,6 +3,7 @@ import { ApiKeyInput } from './ai'
 import { BrowserCall } from './browser'
 import { AutomationCall } from './computer'
 import { FileCall } from './files'
+import { HostFaceResult, HostHelloResult, HostIdentityEngines } from './identity'
 import { NoteCall } from './notes'
 import { Uuidv7 } from './primitives'
 import { MicrophoneGateInput, SystemSpeech, SystemSpeechInput, SystemVoices } from './voice'
@@ -99,6 +100,16 @@ export const HostOperations = {
   'host.camera.gate': {
     input: CameraGateInput,
     output: z.object({ open: z.boolean() }).strict()
+  },
+  /**
+   * Identity (SET 14), Core only. The face engine runs in the identity
+   * runtime (its own process); Windows Hello is asked through Windows.
+   */
+  'host.identity.engines': { input: z.object({}).strict(), output: HostIdentityEngines },
+  'host.identity.face': { input: HostImageInput, output: HostFaceResult },
+  'host.identity.hello': {
+    input: z.object({ message: z.string().min(1).max(200) }).strict(),
+    output: HostHelloResult
   },
   'host.vault.status': {
     input: z.object({}).strict(),

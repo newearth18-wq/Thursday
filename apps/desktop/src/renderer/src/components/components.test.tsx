@@ -8,7 +8,7 @@ import { Dialog } from './Dialog'
 import { MissionCard, formatElapsed } from './MissionCard'
 import { Menu } from './Menu'
 import { ProgressIndicator, isMeasurable } from './Progress'
-import { IdentityCheckDialog, PermissionRequestDialog } from './SecurityDialogs'
+import { PermissionRequestDialog } from './SecurityDialogs'
 import { Tabs } from './Tabs'
 
 ;(globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true
@@ -265,7 +265,7 @@ describe('MissionCard', () => {
   })
 })
 
-describe('permission and identity shells', () => {
+describe('permission shells', () => {
   const requestOf = (risk: RiskLevel, offered: PermissionDecision[]): PermissionRequest => ({
     requestId: '01900000-0000-7000-8000-000000000001',
     capability: 'computer.delete_file',
@@ -340,15 +340,5 @@ describe('permission and identity shells', () => {
     expect(container.querySelector('[data-testid="permission-always-allow"]')).toBeNull()
     expect(byTestId('permission-critical').textContent).toContain('asked every time')
     expect(byTestId('permission-more').textContent).toBe('2 more requests are waiting.')
-  })
-
-  it('states that identity verification is unavailable and offers only Cancel', () => {
-    const cancel = vi.fn()
-    render(<IdentityCheckDialog open reason="Delete the vault" onCancel={cancel} />)
-    expect(byTestId('identity-availability').textContent).toBe('Unavailable')
-    const buttons = [...byTestId('identity-dialog').querySelectorAll('.dialog-footer button')].map(
-      (button) => button.textContent
-    )
-    expect(buttons).toEqual(['Cancel'])
   })
 })

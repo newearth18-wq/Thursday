@@ -83,6 +83,23 @@ import {
 import { BackupInfo, DatabaseInfo } from './database'
 import { ErrorEnvelope } from './errors'
 import { DomainEvent, EventFilter } from './events'
+import {
+  Assurance,
+  FaceEnrollInput,
+  FaceVerifyInput,
+  HelloVerifyInput,
+  IdentityStatus,
+  MethodDeleteInput,
+  MethodEnableInput,
+  MethodStatus,
+  ProtectionInput,
+  SecurityEventInput,
+  IdentityVerification,
+  VoiceFinishInput,
+  VoiceSampleInput,
+  VoiceSession,
+  VoiceStartInput
+} from './identity'
 import { UtcTimestamp, Uuidv7 } from './primitives'
 import { CapabilityId, RequestKind } from './request'
 import { ServiceHealth } from './service-health'
@@ -251,7 +268,8 @@ export const SettingUpdate = z.discriminatedUnion('key', [
   settingUpdate('voice.speakingRate'),
   settingUpdate('voice.interruptionSensitivity'),
   settingUpdate('vision.cameraDevice'),
-  settingUpdate('vision.redactSecrets')
+  settingUpdate('vision.redactSecrets'),
+  settingUpdate('identity.timeoutMinutes')
 ])
 export type SettingUpdate = z.infer<typeof SettingUpdate>
 
@@ -1052,7 +1070,43 @@ export const Capabilities = {
   /** The interface reports what really happened to the camera track. */
   'camera.report': { kind: 'command', input: CameraReportInput, output: CameraStatus },
   /** Closes the camera and releases the device. */
-  'camera.stop': { kind: 'command', input: CameraStopInput, output: CameraStatus }
+  'camera.stop': { kind: 'command', input: CameraStopInput, output: CameraStatus },
+  // ---- Identity Engine (SET 14) ----
+  /** How sure Jupiter is that you are its owner, each method, and what needs which level. */
+  'identity.status': { kind: 'query', input: Empty, output: IdentityStatus },
+  /** Sets up Face Identity from frames of a camera session, with your consent. */
+  'identity.face.enroll': { kind: 'command', input: FaceEnrollInput, output: MethodStatus },
+  /** Checks your face (with the liveness check) against the enrolled template. */
+  'identity.face.verify': { kind: 'command', input: FaceVerifyInput, output: IdentityVerification },
+  /** Asks Windows Hello (face, fingerprint or PIN, handled by Windows). */
+  'identity.hello.verify': {
+    kind: 'command',
+    input: HelloVerifyInput,
+    output: IdentityVerification
+  },
+  /** Starts recording phrases for Voice Identity (Experimental). */
+  'identity.voice.start': { kind: 'command', input: VoiceStartInput, output: VoiceSession },
+  'identity.voice.sample': {
+    kind: 'command',
+    input: VoiceSampleInput,
+    output: z.object({ seconds: z.number().min(0) }).strict()
+  },
+  'identity.voice.finish': {
+    kind: 'command',
+    input: VoiceFinishInput,
+    output: z
+      .object({ method: MethodStatus.nullable(), verification: IdentityVerification.nullable() })
+      .strict()
+  },
+  'identity.method.enable': { kind: 'command', input: MethodEnableInput, output: MethodStatus },
+  /** Deletes a method's template for good. */
+  'identity.method.delete': { kind: 'command', input: MethodDeleteInput, output: IdentityStatus },
+  /** Turns identity protection for sensitive actions on or off. */
+  'identity.protection.set': { kind: 'command', input: ProtectionInput, output: IdentityStatus },
+  /** Ends the current verification now. */
+  'identity.forget': { kind: 'command', input: Empty, output: IdentityStatus },
+  /** The host reports that the computer was locked, suspended or is shutting down. */
+  'identity.security-event': { kind: 'command', input: SecurityEventInput, output: Assurance }
 } as const satisfies Record<string, { kind: RequestKind; input: z.ZodType; output: z.ZodType }>
 
 export type CapabilityName = keyof typeof Capabilities

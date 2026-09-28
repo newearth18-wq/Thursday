@@ -13,7 +13,13 @@ export const VOICE_FIXTURES = {
   'en-question': 'What is the largest planet?',
   'en-wake': 'Jupiter. What is the largest planet?',
   'en-stop': 'Stop.',
-  'th-question': 'ดาวเคราะห์ดวงใหญ่ที่สุดคืออะไร'
+  'th-question': 'ดาวเคราะห์ดวงใหญ่ที่สุดคืออะไร',
+  /** SET 14 Voice Identity: the owner's enrollment phrases, a check, and another voice. */
+  'id-owner-1': 'Jupiter, this is my voice.',
+  'id-owner-2': 'The quick brown fox jumps over the lazy dog.',
+  'id-owner-3': 'My voice is my own, and I keep it here.',
+  'id-owner-check': 'Jupiter, it is me again. Please let me in.',
+  'id-other-check': 'Jupiter, it is me again. Please let me in.'
 } as const
 export type VoiceFixture = keyof typeof VOICE_FIXTURES
 

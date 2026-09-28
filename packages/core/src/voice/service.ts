@@ -21,7 +21,7 @@ import { JupiterError, toErrorEnvelope } from '../errors'
 import type { EventBus } from '../events/event-bus'
 import { uuidv7 } from '../ids'
 import type { Logger } from '../logging/logger'
-import type { PermissionEngine } from '../permissions/engine'
+import { permissionUserAction, type PermissionEngine } from '../permissions/engine'
 import type { DatabasePort } from '../ports'
 import {
   SAMPLE_RATE,
@@ -155,6 +155,11 @@ export class VoiceService {
   private systemVoicesCache: SystemVoices | null = null
   /** Serializes the pipeline: one utterance is handled at a time. */
   private queue: Promise<void> = Promise.resolve()
+
+  /** A listening session holds the microphone (Voice Identity waits for it, SET 14). */
+  get busy(): boolean {
+    return this.session !== null
+  }
 
   constructor(private readonly options: VoiceServiceOptions) {
     this.state = options.setting('voice.enabled') ? 'IDLE' : 'DISABLED'
@@ -958,11 +963,8 @@ export class VoiceService {
     if (outcome.allowed) return
     throw new JupiterError(outcome.code, outcome.message, {
       category: 'permission',
-      userAction:
-        outcome.code === 'PERMISSION_REQUIRED'
-          ? 'Answer the permission request, then try again.'
-          : null,
-      retryable: outcome.code === 'PERMISSION_REQUIRED',
+      userAction: permissionUserAction(outcome.code),
+      retryable: outcome.code !== 'PERMISSION_UNKNOWN',
       ...(outcome.requestId ? { details: { requestId: outcome.requestId } } : {})
     })
   }

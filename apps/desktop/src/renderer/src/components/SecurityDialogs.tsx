@@ -5,15 +5,14 @@ import { RISK_TONE, subjectText } from '../permissionText'
 import { Dialog } from './Dialog'
 
 /**
- * The permission request (SET 7) and identity (SET 14) dialogs.
+ * The permission request dialog (SET 7).
  *
  * A permission request shows everything the person needs to decide: what,
  * why, the exact target, the risk, who asks and for which Mission and step,
  * what leaves the computer, the consequence and whether it can be undone.
  * Only the answers the request offers are shown (a critical request never
  * offers "Always allow"), there is no close button, Escape does not answer,
- * and Deny has the first focus. The identity dialog states truthfully that
- * verification is unavailable.
+ * and Deny has the first focus.
  */
 
 export function PermissionRequestDialog({
@@ -161,39 +160,6 @@ export function PermissionRequestDialog({
           ) : null}
         </>
       ) : null}
-    </Dialog>
-  )
-}
-
-export function IdentityCheckDialog({
-  open,
-  reason,
-  onCancel
-}: {
-  readonly open: boolean
-  readonly reason: string
-  readonly onCancel: () => void
-}) {
-  const { t } = useI18n()
-  return (
-    <Dialog
-      open={open}
-      onClose={onCancel}
-      title={t('identity.title')}
-      description={reason}
-      testId="identity-dialog"
-      footer={
-        <button type="button" className="button" data-testid="identity-cancel" onClick={onCancel}>
-          {t('identity.cancel')}
-        </button>
-      }
-    >
-      <p>
-        <span className="badge badge-muted" data-testid="identity-availability">
-          {t('availability.UNAVAILABLE')}
-        </span>{' '}
-        {t('identity.unavailable')}
-      </p>
     </Dialog>
   )
 }
