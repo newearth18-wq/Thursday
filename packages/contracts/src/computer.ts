@@ -36,7 +36,8 @@ export const COMPUTER_ACTION_TYPES = [
   'SELECT_ELEMENT',
   'SCREENSHOT',
   'SAVE_FILE',
-  'CLICK_POINT'
+  'CLICK_POINT',
+  'CHECK_SCREEN'
 ] as const
 export const ComputerActionType = z.enum(COMPUTER_ACTION_TYPES)
 export type ComputerActionType = z.infer<typeof ComputerActionType>
@@ -199,6 +200,25 @@ export const ComputerAction = z.discriminatedUnion('type', [
     .object({ type: z.literal('SELECT_ELEMENT'), window: WindowRef, element: ElementQuery })
     .strict(),
   z.object({ type: z.literal('SCREENSHOT'), window: WindowRef.nullable() }).strict(),
+  /**
+   * SET 13: checks that the window shows a text, with Vision (a capture of
+   * that very window, read by OCR on this computer). Only a confident reading
+   * verifies it; a low-confidence or missing one fails the action. When Vision
+   * cannot run at all, the agent reads the control's text through UI
+   * Automation instead (the semantic path) and says so — it never invents a
+   * visual result.
+   */
+  z
+    .object({
+      type: z.literal('CHECK_SCREEN'),
+      window: WindowRef,
+      expectText: z.string().trim().min(1).max(500),
+      /** The control to read on the semantic path; by default the application's editor. */
+      element: ElementQuery.optional(),
+      /** The OCR confidence a reading needs to count (default 0.8). */
+      minConfidence: z.number().min(0.5).max(1).optional()
+    })
+    .strict(),
   z
     .object({
       type: z.literal('SAVE_FILE'),
@@ -223,7 +243,14 @@ export const ComputerAction = z.discriminatedUnion('type', [
 export type ComputerAction = z.infer<typeof ComputerAction>
 
 /** How an action reached the application. */
-export const InteractionMethod = z.enum(['semantic', 'keyboard', 'coordinate', 'system', 'none'])
+export const InteractionMethod = z.enum([
+  'semantic',
+  'keyboard',
+  'coordinate',
+  'system',
+  'vision',
+  'none'
+])
 export type InteractionMethod = z.infer<typeof InteractionMethod>
 
 export const ComputerEvidence = z.discriminatedUnion('kind', [

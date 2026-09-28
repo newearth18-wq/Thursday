@@ -22,6 +22,7 @@ import { ComputerHost } from './computer-host'
 import { CredentialVault, type SafeStorageLike } from './credential-vault'
 import { HostCapabilities, type HostCall } from './host-capabilities'
 import { MicrophoneGate, SpeechHost, wavDurationMs } from './speech-host'
+import { VisionHost } from './vision-host'
 
 /** Stands in for Electron's safeStorage: reversible, and never stores the plaintext. */
 function fakeSafeStorage(state: { available: boolean; backend?: string }): SafeStorageLike {
@@ -53,8 +54,12 @@ function setup(
   const logger = Logger.create({ sessionId: uuidv7(), level: 'debug', sinks: [logs] })
   const credentialsDirectory = join(root, 'credentials')
   const microphone = new MicrophoneGate(() => now)
+  const camera = new MicrophoneGate(() => now)
   const capabilities = new HostCapabilities({
     logger,
+    // No screen or engines here (an empty PATH), so nothing depends on the machine.
+    vision: new VisionHost({ logger, capturer: null, platform: 'linux', env: { PATH: '' } }),
+    camera,
     // No system voice here (an empty PATH), so nothing depends on the machine's engines.
     speech: new SpeechHost({ logger, platform: 'linux', env: { PATH: '' } }),
     microphone,
@@ -110,6 +115,7 @@ function setup(
   return {
     capabilities,
     microphone,
+    camera,
     credentialsDirectory,
     logs,
     logsDirectory,
@@ -469,6 +475,47 @@ describe('voice host operations (SET 12)', () => {
     expect(microphone.mayCapture()).toBe(true)
     advance(5_001)
     expect(microphone.mayCapture()).toBe(false)
+  })
+
+  it('opens the camera gate only for Jupiter Core, and keeps vision operations for Core only', async () => {
+    const { capabilities, camera, advance } = setup(() => Promise.resolve(''))
+    const until = new Date(1_000_000 + 5_000).toISOString()
+    const ui = { type: 'user-interface' as const, id: 'ui' }
+    expect(
+      await capabilities.execute(
+        call('host.camera.gate', { sessionId: session, open: true, until }, ui)
+      )
+    ).toMatchObject({ ok: false, error: { code: 'PERMISSION_DENIED' } })
+    expect(camera.mayCapture()).toBe(false)
+    for (const [operation, input] of [
+      ['host.vision.capture', { source: 'desktop', region: null, handle: null }],
+      ['host.vision.ocr', { mediaType: 'image/png', data: '' }],
+      ['host.vision.engines', {}]
+    ] as const)
+      expect(await capabilities.execute(call(operation, input, ui))).toMatchObject({
+        ok: false,
+        error: { code: 'PERMISSION_DENIED' }
+      })
+    expect(
+      await capabilities.execute(
+        call('host.camera.gate', { sessionId: session, open: true, until }, core)
+      )
+    ).toEqual({ ok: true, data: { open: true } })
+    expect(camera.mayCapture()).toBe(true)
+    advance(5_001)
+    expect(camera.mayCapture()).toBe(false)
+    // Without a screen or Tesseract, the host says so rather than pretending; QR codes are
+    // read in this process and need nothing installed.
+    expect(
+      await capabilities.execute(
+        call('host.vision.capture', { source: 'desktop', region: null, handle: null }, core)
+      )
+    ).toMatchObject({ ok: false, error: { code: 'CAPTURE_UNAVAILABLE' } })
+    const engines = await capabilities.execute(call('host.vision.engines', {}, core))
+    expect(engines).toMatchObject({
+      ok: true,
+      data: { capture: { available: false }, ocr: { available: false }, qr: { available: true } }
+    })
   })
 
   it('opens for naming devices without allowing a capture, and closes on request', async () => {

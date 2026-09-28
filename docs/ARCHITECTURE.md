@@ -665,3 +665,46 @@ and vision (SET 13), identity verification (SET 14), plugins with their own
 runtime (SET 15), and everything after that. The two unfinished
 destinations are shown as _Coming later_ in the app, and none of them is
 presented as working.
+
+## Vision and Camera (SET 13)
+
+Decisions and alternatives: [ADR 0014](decisions/0014-vision-and-camera.md).
+
+- **Contracts** (`packages/contracts/src/vision.ts`): sources (screen,
+  active window, region, camera, upload), PNG image references held in
+  memory, OCR lines with confidences, elements, QR codes, the analysis, the
+  observation schema (`untrusted: true`, `privacyHandling`), comparisons,
+  camera states and sessions, and the host shapes. Capabilities
+  `vision.*` and `camera.*`; host operations `host.vision.*` and
+  `host.camera.gate`; events `vision.observed` and `camera.session`
+  (persistent, no content) and `camera.state_changed` (transient); settings
+  `vision.cameraDevice` and `vision.redactSecrets`; the Computer Agent's
+  `CHECK_SCREEN` action and interaction method `vision`.
+- **Core** (`packages/core/src/vision/`, service `vision`): `VisionService`
+  (captures, uploads in parts, analysis — text and QR codes on this
+  computer, description and elements by the routed vision model after
+  secrets are blacked out — comparison, the confidence rule `decide`, the
+  camera's states and sessions, the Computer Agent's visual check),
+  `ImageStore` (memory only) and `analysis.ts` (prompts, the strict answer
+  schema, finding text). `completeText` takes `capability: 'vision'` so the
+  router picks a vision model.
+- **Host**: `VisionHost` (`vision-host.ts`; capture through
+  `desktopCapturer` (`screen-capture.ts`), Tesseract, jsQR, blacking out,
+  comparison; Core only), the PNG codec (`png.ts`), and the camera gate
+  (`MicrophoneGate`, `host.camera.gate`, Core only) that the session's
+  permission handlers consult for video.
+- **Interface**: the Devices screen has three tabs — _Voice_, _Vision_
+  (engines and where they run, capture with a delay and a region, choosing
+  an image, analysis with the observation and its privacy handling,
+  comparison) and _Camera_ (device, start, preview on a canvas, capture,
+  pause, close); the _Camera on_ indicator in the top bar; the camera
+  controller (`vision/CameraProvider.tsx`) for the whole interface.
+
+## Not in SET 13
+
+Keeping a capture as a file (an artifact), Windows OCR (Tesseract is used:
+it reports confidences), capturing another application's active window on
+Linux, video recording, face detection and recognition and identity
+verification (SET 14), plugins with their own runtime (SET 15), and
+everything after that. The two unfinished destinations are shown as
+_Coming later_ in the app, and none of them is presented as working.

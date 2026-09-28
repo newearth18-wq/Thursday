@@ -3,6 +3,7 @@ import { Icon } from '@jupiter/ui'
 import type { ViewId } from '../../../shared/views'
 import { destinationOf } from '../destinations'
 import { MicrophoneIndicator, PushToTalkButton, StopSpeakingButton } from './VoiceControls'
+import { CameraIndicator } from './CameraIndicator'
 import { useVoice } from '../voice/VoiceProvider'
 import { useI18n, type MessageKey } from '../i18n'
 import { useNetworkStatus } from '../useNetworkStatus'
@@ -64,6 +65,7 @@ export function TopBar({ view, status, onNavigate, onShowShortcuts, onShowAbout 
           <span>{t(`indicators.core.${core}` as MessageKey)}</span>
         </li>
         <MicrophoneIndicator />
+        <CameraIndicator />
       </ul>
       <VoiceTopControls />
       <AppMenu

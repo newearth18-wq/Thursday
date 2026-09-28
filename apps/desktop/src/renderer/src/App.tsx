@@ -22,6 +22,7 @@ import { MemoryView } from './views/MemoryView'
 import { DevicesView } from './views/DevicesView'
 import { useVoiceShortcuts } from './components/VoiceControls'
 import { VoiceProvider } from './voice/VoiceProvider'
+import { CameraProvider } from './vision/CameraProvider'
 import { SkillsView } from './views/SkillsView'
 import { HomeView } from './views/HomeView'
 import { MissionsView } from './views/MissionsView'
@@ -107,76 +108,78 @@ export function App() {
 
   return (
     <VoiceProvider coreSession={coreSessionOf(status)}>
-      <VoiceShortcuts />
-      <div className="app">
-        <button
-          type="button"
-          className="skip-link"
-          data-testid="skip-link"
-          onClick={() => {
-            main.current?.focus()
-          }}
-        >
-          {t('app.skipToContent')}
-        </button>
-        <div className="shell" data-compact={prefs.values['ui.compact']}>
-          <div ref={sidebarRegion} className="sidebar-region">
-            <Sidebar
-              view={view}
-              onNavigate={navigate}
-              compact={prefs.values['ui.compact']}
-              onToggleCompact={() => {
-                void prefs.update('ui.compact', !prefs.values['ui.compact'])
-              }}
-            />
-          </div>
-          <div className="workspace">
-            <div ref={topRegion}>
-              <TopBar
+      <CameraProvider coreSession={coreSessionOf(status)}>
+        <VoiceShortcuts />
+        <div className="app">
+          <button
+            type="button"
+            className="skip-link"
+            data-testid="skip-link"
+            onClick={() => {
+              main.current?.focus()
+            }}
+          >
+            {t('app.skipToContent')}
+          </button>
+          <div className="shell" data-compact={prefs.values['ui.compact']}>
+            <div ref={sidebarRegion} className="sidebar-region">
+              <Sidebar
                 view={view}
-                status={status}
                 onNavigate={navigate}
-                onShowShortcuts={() => {
-                  setDialog('shortcuts')
-                }}
-                onShowAbout={() => {
-                  setDialog('about')
+                compact={prefs.values['ui.compact']}
+                onToggleCompact={() => {
+                  void prefs.update('ui.compact', !prefs.values['ui.compact'])
                 }}
               />
             </div>
-            <main
-              id="main"
-              className="content"
-              ref={main}
-              tabIndex={-1}
-              aria-label={t(destinationOf(view).label)}
-              data-testid={`view-${view}`}
-            >
-              <ViewContent
-                view={view}
-                status={status}
-                coreRunning={coreRunning}
-                onRetry={retry}
-                onNavigate={navigate}
-              />
-            </main>
+            <div className="workspace">
+              <div ref={topRegion}>
+                <TopBar
+                  view={view}
+                  status={status}
+                  onNavigate={navigate}
+                  onShowShortcuts={() => {
+                    setDialog('shortcuts')
+                  }}
+                  onShowAbout={() => {
+                    setDialog('about')
+                  }}
+                />
+              </div>
+              <main
+                id="main"
+                className="content"
+                ref={main}
+                tabIndex={-1}
+                aria-label={t(destinationOf(view).label)}
+                data-testid={`view-${view}`}
+              >
+                <ViewContent
+                  view={view}
+                  status={status}
+                  coreRunning={coreRunning}
+                  onRetry={retry}
+                  onNavigate={navigate}
+                />
+              </main>
+            </div>
           </div>
+          <ShortcutsDialog
+            open={dialog === 'shortcuts'}
+            onClose={() => {
+              setDialog(null)
+            }}
+          />
+          <AboutDialog
+            open={dialog === 'about'}
+            status={status}
+            onClose={() => {
+              setDialog(null)
+            }}
+          />
+          <PermissionPrompt coreSession={coreSessionOf(status)} />
         </div>
-        <ShortcutsDialog
-          open={dialog === 'shortcuts'}
-          onClose={() => {
-            setDialog(null)
-          }}
-        />
-        <AboutDialog
-          open={dialog === 'about'}
-          status={status}
-          onClose={() => {
-            setDialog(null)
-          }}
-        />
-        <PermissionPrompt coreSession={coreSessionOf(status)} />
-      </div>
+      </CameraProvider>
     </VoiceProvider>
   )
 }

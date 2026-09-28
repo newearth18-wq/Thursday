@@ -19,7 +19,8 @@ import {
   CONTRACT_VERSION,
   type AuditEvent,
   type GatewayStatus,
-  type ServiceHealth
+  type ServiceHealth,
+  type WindowInfo
 } from '@jupiter/contracts'
 import {
   JupiterError,
@@ -53,6 +54,8 @@ import { CredentialVault } from './credential-vault'
 import { createMainLogging, type MainLogging } from './logging'
 import { hardenSession, hardenWebContents } from './security'
 import { MicrophoneGate, SpeechHost } from './speech-host'
+import { electronScreenCapturer } from './screen-capture'
+import { VisionHost } from './vision-host'
 import { registerServices } from './services'
 import { createMainWindow, type RendererSource } from './window'
 import { WindowStateStore } from './window-state'
@@ -82,6 +85,8 @@ let logging: MainLogging | null = null
 let mainWindow: BrowserWindow | null = null
 /** SET 12: closed unless Core opens it for a listening session the person started. */
 const microphoneGate = new MicrophoneGate()
+/** SET 13: the camera gate works like the microphone's; only Core opens it. */
+const cameraGate = new MicrophoneGate()
 let supervisor: ServiceSupervisor | null = null
 let windowState: WindowStateStore | null = null
 
@@ -121,7 +126,13 @@ function isAppUrl(environment: MainEnvironment, raw: string): boolean {
 async function start(environment: MainEnvironment, mainLogging: MainLogging): Promise<void> {
   const { logger, fileSink } = mainLogging
   if (process.platform === 'win32') app.setAppUserModelId(APP_USER_MODEL_ID)
-  hardenSession(session.defaultSession, logger, microphoneGate, (url) => isAppUrl(environment, url))
+  hardenSession(
+    session.defaultSession,
+    logger,
+    microphoneGate,
+    (url) => isAppUrl(environment, url),
+    cameraGate
+  )
   if (!environment.devServerUrl) {
     handleAppProtocol(session.defaultSession, join(here, '../renderer'), PRODUCTION_CSP, logger)
   }
@@ -242,10 +253,28 @@ async function start(environment: MainEnvironment, mainLogging: MainLogging): Pr
   })
   // SET 12: the operating system's voice (Windows SAPI, or espeak-ng where installed).
   const speech = new SpeechHost({ logger: logger.child({ component: 'speech-host' }) })
+  // SET 13: screen capture, OCR (Tesseract), QR (jsQR) and image processing, in memory only.
+  const vision = new VisionHost({
+    logger: logger.child({ component: 'vision-host' }),
+    capturer: electronScreenCapturer({
+      platform: process.platform,
+      windows:
+        process.platform === 'win32'
+          ? async () =>
+              (
+                (await computer.call({ op: 'listWindows', params: {} })) as {
+                  windows: WindowInfo[]
+                }
+              ).windows
+          : null
+    })
+  })
   const hostCapabilities = new HostCapabilities({
     logger,
     speech,
     microphone: microphoneGate,
+    vision,
+    camera: cameraGate,
     computer,
     browser,
     files,
@@ -576,6 +605,15 @@ function main(): void {
     app.commandLine.appendSwitch('use-fake-device-for-media-stream')
     app.commandLine.appendSwitch('use-file-for-fake-audio-capture', fakeAudio)
     logger.warn('voice.fake-audio', 'Test microphone: a fake device plays a WAV file')
+  }
+  if (
+    environment.resolution.environment === 'test' &&
+    process.env.JUPITER_TEST_FAKE_CAMERA === '1'
+  ) {
+    // Tests only: Chromium's fake cameras (a moving test pattern), so the real camera path
+    // (permission, gate, getUserMedia, the track) runs without a camera.
+    if (!fakeAudio) app.commandLine.appendSwitch('use-fake-device-for-media-stream')
+    logger.warn('vision.fake-camera', 'Test camera: Chromium’s fake camera devices')
   }
   if (app.commandLine.hasSwitch('no-sandbox')) {
     // Only for containers and CI where Chromium's OS sandbox cannot start.

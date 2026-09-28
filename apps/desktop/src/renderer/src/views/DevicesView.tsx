@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react'
+import { Tabs } from '../components/Tabs'
 import type { SettingKey, VoiceEngineInfo, VoiceOption, VoiceStatus } from '@jupiter/contracts'
 import { request } from '../api'
 import { Select, Switch } from '../components/FormControls'
@@ -11,13 +12,16 @@ import { audioDevices } from '../voice/capture'
 import { useVoice, type VoiceSettingsView } from '../voice/VoiceProvider'
 import { LoadFailure } from './LoadFailure'
 import { ViewHeader } from './ViewHeader'
+import { CameraPanel, VisionPanel } from './VisionPanels'
 
 /**
- * Devices (SET 12): the voice pipeline — whether it is on, each engine and
- * where it runs (on this computer or in the cloud), Push-to-Talk and the
- * wake word, the last exchange, and every voice setting. The camera arrives
- * in SET 13 and is labelled Coming later, with no controls.
+ * Devices: voice (SET 12) — whether it is on, each engine and where it runs,
+ * Push-to-Talk and the wake word, the last exchange and every voice setting;
+ * Vision (SET 13) — captures of the screen, what Vision reads in them and how
+ * privacy was handled; and the camera (SET 13), with its preview.
  */
+
+type DevicesTab = 'voice' | 'vision' | 'camera'
 
 const RATES = ['0.5', '0.75', '1', '1.25', '1.5', '1.75', '2'] as const
 
@@ -26,32 +30,46 @@ export function DevicesView() {
   const { status: runtime } = useRuntimeContext()
   const voice = useVoice()
   const coreSession = coreSessionOf(runtime)
+  const [tab, setTab] = useState<DevicesTab>('voice')
   return (
     <section className="view view-devices" aria-labelledby="devices-title">
       <ViewHeader id="devices-title" title={t('nav.devices')} />
-      <p className="muted">{t('voice.intro')}</p>
+      <p className="muted">{t('devices.intro')}</p>
       {coreSession === null ? (
         <StateMessage kind="unavailable" title={t('voice.coreDown')} testId="voice-core-down" />
       ) : null}
-      {voice.status.state === 'error' ? (
-        <LoadFailure title={t('voice.statusFailed')} error={voice.status.error} />
-      ) : null}
-      {voice.status.state === 'ready' && voice.settings.state === 'ready' ? (
-        <>
-          <VoiceStatusCard status={voice.status.value} settings={voice.settings.value} />
-          <TalkCard status={voice.status.value} settings={voice.settings.value} />
-          <VoiceSettingsCard status={voice.status.value} settings={voice.settings.value} />
-        </>
-      ) : null}
-      <section className="card" aria-labelledby="camera-title" data-testid="devices-camera">
-        <h2 id="camera-title">{t('devices.camera')}</h2>
-        <p>
-          <span className="badge badge-muted" data-availability="COMING_LATER">
-            {t('availability.COMING_LATER')}
-          </span>{' '}
-          <span className="muted">{t('devices.cameraLater', { set: 13 })}</span>
-        </p>
-      </section>
+      <Tabs<DevicesTab>
+        label={t('nav.devices')}
+        selected={tab}
+        onSelect={setTab}
+        testId="devices-tabs"
+        tabs={[
+          {
+            id: 'voice',
+            label: t('devices.tab.voice'),
+            panel: (
+              <>
+                <p className="muted">{t('voice.intro')}</p>
+                {voice.status.state === 'error' ? (
+                  <LoadFailure title={t('voice.statusFailed')} error={voice.status.error} />
+                ) : null}
+                {voice.status.state === 'ready' && voice.settings.state === 'ready' ? (
+                  <>
+                    <VoiceStatusCard status={voice.status.value} settings={voice.settings.value} />
+                    <TalkCard status={voice.status.value} settings={voice.settings.value} />
+                    <VoiceSettingsCard
+                      status={voice.status.value}
+                      settings={voice.settings.value}
+                    />
+                  </>
+                ) : null}
+              </>
+            )
+          },
+          { id: 'vision', label: t('devices.tab.vision'), panel: <VisionPanel /> },
+          { id: 'camera', label: t('devices.tab.camera'), panel: <CameraPanel /> }
+        ]}
+      />
     </section>
   )
 }

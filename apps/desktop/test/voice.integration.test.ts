@@ -170,10 +170,8 @@ describe('SET 12 — Voice System, in the real application', () => {
     expect(await page.getByTestId('indicator-microphone').count()).toBe(0)
     // Even the interface itself cannot open the microphone.
     expect(await tryMicrophone()).toBe('NotAllowedError')
-    // The camera is SET 13: labelled, with nothing to press.
-    const camera = page.getByTestId('devices-camera')
-    expect(await camera.locator('[data-availability="COMING_LATER"]').count()).toBe(1)
-    expect(await camera.locator('button, input, select').count()).toBe(0)
+    // The camera (SET 13) is off too: no indicator.
+    expect(await page.getByTestId('indicator-camera').count()).toBe(0)
     await evidence('01-voice-off')
   })
 

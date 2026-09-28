@@ -11,7 +11,8 @@
     "./protocol-servers": "./src/protocol-servers.ts",
     "./web-fixtures": "./src/web-fixtures.ts",
     "./documents": "./src/documents.ts",
-    "./voice": "./src/voice.ts"
+    "./voice": "./src/voice.ts",
+    "./vision": "./src/vision.ts"
   },
   "scripts": {
     "typecheck": "tsc -p tsconfig.json"

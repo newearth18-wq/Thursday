@@ -12,6 +12,7 @@ import { PermissionName, SkillId } from './plans'
 import { PermissionDecision } from './permissions'
 import { BrowserActionType, BrowserMethod, BrowserTaskStatus, SuspiciousContent } from './browser'
 import { SpokenLanguage, VoiceState } from './voice'
+import { CameraState, VisionSource, VisionTask } from './vision'
 import { ComputerActionType, ComputerTaskStatus, InteractionMethod } from './computer'
 import { ArtifactVerificationStatus, DocumentFormat, FileRoot } from './files'
 import {
@@ -51,7 +52,8 @@ export const StreamKind = z.enum([
   'artifact',
   'memory',
   'notes',
-  'voice'
+  'voice',
+  'vision'
 ])
 export type StreamKind = z.infer<typeof StreamKind>
 
@@ -477,6 +479,35 @@ export const EventPayloads = {
   'voice.utterance_ready': z
     .object({ utteranceId: Uuidv7, language: SpokenLanguage, ttsLocality: Locality })
     .strict(),
+  // Vision and camera (SET 13), on the stream `vision/vision`. No event carries an image or its text.
+  /** Something was looked at: what, how confident, and where the image went — never what it showed. */
+  'vision.observed': z
+    .object({
+      observationId: Uuidv7,
+      source: VisionSource,
+      tasks: z.array(z.object({ task: VisionTask, status: z.string().max(20) }).strict()).max(10),
+      confidence: z.number().min(0).max(1).nullable(),
+      sentTo: z.array(Locality).max(10)
+    })
+    .strict(),
+  /** Transient: the camera's state, tied to the real camera track. */
+  'camera.state_changed': z
+    .object({
+      state: CameraState,
+      previous: CameraState,
+      reason: z.string().max(80),
+      sessionId: Uuidv7.nullable()
+    })
+    .strict(),
+  /** A camera session began or ended (the camera was on in between). */
+  'camera.session': z
+    .object({
+      sessionId: Uuidv7,
+      change: z.enum(['started', 'ended']),
+      reason: z.string().max(80),
+      frames: z.number().int().nonnegative()
+    })
+    .strict(),
   'artifact.changed': z
     .object({
       artifactId: Uuidv7,
@@ -570,7 +601,10 @@ export const DomainEvent = z
     variant('notes.changed'),
     variant('voice.state_changed'),
     variant('voice.session'),
-    variant('voice.utterance_ready')
+    variant('voice.utterance_ready'),
+    variant('vision.observed'),
+    variant('camera.state_changed'),
+    variant('camera.session')
   ])
   .refine(
     (event) =>

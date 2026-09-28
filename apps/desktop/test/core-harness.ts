@@ -8,7 +8,7 @@ import type {
   MissionStatus,
   ResultEnvelope
 } from '@jupiter/contracts'
-import { HostOperations } from '@jupiter/contracts'
+import { HostOperations, type HostOperationInput } from '@jupiter/contracts'
 import {
   CoreKernel,
   JupiterError,
@@ -17,6 +17,7 @@ import {
   uuidv7,
   type HostPort,
   type ProviderAdapter,
+  type CameraTimings,
   type SkillImplementation,
   type SkillResource
 } from '@jupiter/core'
@@ -28,6 +29,7 @@ import { startOpenAiCompatibleServer, type ProtocolServer } from '@jupiter/testi
 import { afterAll, afterEach, beforeAll, beforeEach, expect } from 'vitest'
 import { envelope } from './helpers'
 import type { MicrophoneGate, SpeechHost } from '../src/main/speech-host'
+import type { VisionHost } from '../src/main/vision-host'
 
 /**
  * Jupiter Core assembled in-process as the Core entry assembles it — real
@@ -101,6 +103,11 @@ export async function startCore(
      * microphone gate, serving host.speech.* and host.microphone.gate.
      */
     voice?: { speech: SpeechHost | null; gate: MicrophoneGate }
+    /**
+     * SET 13: the real vision host (Tesseract, jsQR, image processing; its screen capturer is
+     * the test's) and the real camera gate, serving host.vision.* and host.camera.gate.
+     */
+    vision?: { host: VisionHost; camera: MicrophoneGate; timings?: CameraTimings }
   } = {}
 ): Promise<Running> {
   const sessionId = uuidv7()
@@ -184,6 +191,40 @@ export async function startCore(
               )
             })
           return Promise.reject(new Error('unexpected host call host.microphone.gate'))
+        case 'host.vision.engines':
+        case 'host.vision.capture':
+        case 'host.vision.ocr':
+        case 'host.vision.qr':
+        case 'host.vision.redact':
+        case 'host.vision.compare':
+        case 'host.camera.gate': {
+          const vision = knowledge.vision
+          if (!vision) return Promise.reject(new Error(`unexpected host call ${capability}`))
+          const request = HostOperations[capability].input.parse(input)
+          switch (capability) {
+            case 'host.vision.engines':
+              return vision.host.engines()
+            case 'host.vision.capture':
+              return vision.host.capture(request as HostOperationInput<'host.vision.capture'>)
+            case 'host.vision.ocr':
+              return vision.host.ocr(request as HostOperationInput<'host.vision.ocr'>)
+            case 'host.vision.qr':
+              return vision.host.qr(request as HostOperationInput<'host.vision.qr'>)
+            case 'host.vision.redact':
+              return Promise.resolve(
+                vision.host.redact(request as HostOperationInput<'host.vision.redact'>)
+              )
+            case 'host.vision.compare':
+              return Promise.resolve(
+                vision.host.compare(request as HostOperationInput<'host.vision.compare'>)
+              )
+            case 'host.camera.gate': {
+              const gate = request as HostOperationInput<'host.camera.gate'>
+              return Promise.resolve({ open: vision.camera.set({ ...gate, purpose: 'listen' }) })
+            }
+          }
+          break
+        }
         default:
           return Promise.reject(new Error(`unexpected host call ${capability}`))
       }
@@ -213,6 +254,17 @@ export async function startCore(
         ...(knowledge.notes ? ['host.notes.call'] : []),
         ...(knowledge.voice
           ? ['host.speech.voices', 'host.speech.synthesize', 'host.microphone.gate']
+          : []),
+        ...(knowledge.vision
+          ? [
+              'host.vision.engines',
+              'host.vision.capture',
+              'host.vision.ocr',
+              'host.vision.qr',
+              'host.vision.redact',
+              'host.vision.compare',
+              'host.camera.gate'
+            ]
           : [])
       ]
     },
@@ -237,7 +289,8 @@ export async function startCore(
     adapters,
     skillSandbox: new WorkerSkillSandbox(),
     extraSkills,
-    extraResources
+    extraResources,
+    ...(knowledge.vision?.timings ? { cameraTimings: knowledge.vision.timings } : {})
   })
   await core.start()
   // As the Core entry does once Core is running (SET 8).

@@ -163,6 +163,24 @@ UNTRUSTED NOTE TEXT`).
   database. Test speech with the real fixtures in
   `packages/testing/fixtures/voice/` and Chromium's fake microphone
   (`JUPITER_TEST_FAKE_AUDIO`, test environment only).
+- Vision and camera (SET 13): `VisionService` (`packages/core/src/vision/`)
+  decides every capture, analysis and camera state; images live only in its
+  `ImageStore` (memory, 15 minutes): never write an image, or text read from
+  one, to disk, the database, a log or an event. The host
+  (`apps/desktop/src/main/vision-host.ts`) chooses what is captured (a
+  request names a source and a region, never a path or a window it did not
+  find) and reads text and QR codes on this computer (Tesseract; jsQR in the host
+  process).
+  Analysis by a model goes through the router (`capability: 'vision'`), after
+  secrets are blacked out; never send an image to a cloud model that could
+  not be checked for secrets. Only Core opens the camera gate
+  (`host.camera.gate`), after `camera.read`; the camera's state changes only
+  through its transition table and after the interface reports what the real
+  track did. An observation is untrusted evidence with a confidence: never
+  treat one below the minimum confidence, or a comparison of different
+  targets, as verified. Test with the fixtures in
+  `packages/testing/fixtures/vision/` and Chromium's fake camera
+  (`JUPITER_TEST_FAKE_CAMERA`, test environment only).
 - Schema changes are new migrations at the end of `JUPITER_MIGRATIONS`; never
   edit a migration that has shipped (see `packages/database/README.md`).
 

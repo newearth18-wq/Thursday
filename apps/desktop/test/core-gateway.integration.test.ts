@@ -403,10 +403,11 @@ describe('SET 1 — typed gateway, authorization and persistence (real app)', ()
 
     // The old subscriptions were released: only the current page is subscribed — for the
     // Diagnostics event log, the permission prompt (SET 7), the Computer Agent card (SET 8),
-    // the Browser Agent card (SET 9) and the voice controller (SET 12).
+    // the Browser Agent card (SET 9), the voice controller (SET 12) and the camera controller
+    // (SET 13).
     await expect
       .poll(async () => (await query(page, 'diagnostics.snapshot')).events.activeSubscriptions)
-      .toBe(5)
+      .toBe(6)
     // The stored log has no duplicates either, and its order is total.
     const all = await query(page, 'events.list', {
       afterSequence: 0,

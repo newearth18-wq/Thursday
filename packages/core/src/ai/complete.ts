@@ -27,6 +27,8 @@ export interface CompletionRequest {
   readonly idleTimeoutMs?: number
   /** Called once, when the route is known and the request is about to be sent. */
   readonly onRoute?: (route: RouteDecision) => void
+  /** Which kind of model answers: a chat model (default) or a vision model (SET 13). */
+  readonly capability?: 'chat' | 'vision'
 }
 
 export interface Completion {
@@ -42,7 +44,8 @@ export async function completeText(
   providers: ProviderService,
   request: CompletionRequest
 ): Promise<Completion> {
-  const { result, mode } = providers.route('chat', null)
+  const capability = request.capability ?? 'chat'
+  const { result, mode } = providers.route(capability, null)
   if (!result.ok)
     throw new JupiterError(result.error.code, result.error.message, {
       category: result.error.category,
@@ -54,7 +57,7 @@ export async function completeText(
   for (const [index, candidate] of candidates.entries()) {
     const route = decisionOf(
       candidate,
-      'chat',
+      capability,
       mode,
       failure
         ? {

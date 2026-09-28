@@ -129,6 +129,26 @@ const VOICE_WRITE: Policy = {
 }
 const VOICE_SPEAK: Policy = { ...VOICE_READ, risk: 'LOW', audit: 'always', timeoutMs: 120_000 }
 const NOTES_WRITE: Policy = { ...MEMORY_READ, risk: 'MEDIUM', audit: 'always', timeoutMs: 180_000 }
+/**
+ * Vision and the camera (SET 13): only the person's interface drives them. Capturing,
+ * looking at an image and starting the camera are audited; image content never is.
+ */
+const VISION_READ: Policy = { ...UI_READ, requires: ['database', 'vision'], timeoutMs: 30_000 }
+const VISION_PART: Policy = { ...VISION_READ, timeoutMs: 15_000 }
+const VISION_CAPTURE: Policy = {
+  ...VISION_READ,
+  requires: ['database', 'permission-engine', 'vision'],
+  risk: 'HIGH',
+  audit: 'always',
+  timeoutMs: 60_000
+}
+const VISION_ANALYZE: Policy = {
+  ...VISION_READ,
+  requires: ['database', 'vision'],
+  risk: 'MEDIUM',
+  audit: 'always',
+  timeoutMs: 180_000
+}
 /** Commands that plan or run a workflow (SET 5) also need the workflow engine. */
 const WORKFLOW_WRITE: Policy = {
   ...MISSION_WRITE,
@@ -824,6 +844,32 @@ export function coreCapabilities(kernel: CoreKernel): CapabilityDefinition<never
       return kernel.voice.status()
     }),
 
+    define('vision.status', VISION_READ, () => kernel.vision.status()),
+    define('vision.capture', VISION_CAPTURE, (input, context) =>
+      kernel.vision.capture(input, visionContext(context))
+    ),
+    define('vision.image.part', VISION_PART, (input) => kernel.vision.imagePart(input)),
+    define('vision.image', VISION_READ, (input) => kernel.vision.image(input.imageId)),
+    define('vision.image.discard', VISION_PART, (input) => ({
+      discarded: kernel.vision.discard(input.imageId)
+    })),
+    define('vision.analyze', VISION_ANALYZE, (input, context) =>
+      kernel.vision.analyze(input, visionContext(context))
+    ),
+    define('vision.compare', VISION_ANALYZE, (input, context) =>
+      kernel.vision.compare(input, visionContext(context))
+    ),
+    define('camera.status', VISION_READ, () => kernel.vision.cameraStatus()),
+    define('camera.start', VISION_CAPTURE, (_input, context) =>
+      kernel.vision.startCamera(visionContext(context))
+    ),
+    define('camera.report', VISION_PART, (input, context) =>
+      kernel.vision.reportCamera(input, visionContext(context))
+    ),
+    define('camera.stop', VISION_PART, (input, context) =>
+      kernel.vision.stopCamera(input, visionContext(context))
+    ),
+
     define('permissions.catalogue', PERMISSION_READ, () => ({
       capabilities: kernel.permissions.catalogue()
     })),
@@ -871,6 +917,14 @@ export function coreCapabilities(kernel: CoreKernel): CapabilityDefinition<never
 
 /** Who asked, for a memory or notes operation (SET 11). */
 /** Who asked, for the voice pipeline (SET 12). The pipeline outlives one request, so no signal. */
+function visionContext(context: CapabilityContext) {
+  return {
+    actor: context.request.actor.type,
+    correlationId: context.request.correlationId,
+    signal: context.signal
+  }
+}
+
 function voiceContext(context: CapabilityContext) {
   return {
     actor: context.request.actor.type,
