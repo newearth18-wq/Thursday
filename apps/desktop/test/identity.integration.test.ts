@@ -193,9 +193,10 @@ describe('SET 14 — Identity, in the real application', () => {
         timeout: 60_000
       })
       .toBe('enrolled')
-    expect(await page.getByTestId('identity-face-enrolled').getAttribute('data-enrolled')).toBe(
-      'true'
-    )
+    // The result shows at once; the method list follows when the panel reloads the status.
+    await expect
+      .poll(() => page.getByTestId('identity-face-enrolled').getAttribute('data-enrolled'))
+      .toBe('true')
     // AT2: the template is kept only as the operating system's ciphertext (safeStorage, here a
     // real, throwaway GNOME Keyring); only the OS can open it again.
     const database = new DatabaseSync(join(userDataDir, 'jupiter.db'), { readOnly: true })

@@ -189,12 +189,19 @@ describe('SET 8 — Windows Computer Agent, in the real application', () => {
           .getByTestId('permission-facts')
           .getAttribute('data-request-id')
         await prompt.getByTestId('permission-allow-once').click()
-        // The dialog either closes or shows the next waiting request.
+        // The dialog either closes or shows the next waiting request. Read it in one step: a
+        // locator that checks visibility and then the request id can see the dialog close in
+        // between and wait on the vanished request until the poll runs out.
         await expect
-          .poll(async () =>
-            (await prompt.isVisible())
-              ? await prompt.getByTestId('permission-facts').getAttribute('data-request-id')
-              : 'closed'
+          .poll(() =>
+            page.evaluate(
+              () =>
+                document
+                  .querySelector(
+                    'dialog[open][data-testid="permission-dialog"] [data-testid="permission-facts"]'
+                  )
+                  ?.getAttribute('data-request-id') ?? 'closed'
+            )
           )
           .not.toBe(answered)
           .catch(async (error: unknown) => {

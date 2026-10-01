@@ -136,12 +136,27 @@ function states(running: Running): VoiceState[] {
     .map((event) => (event.payload as { state: VoiceState }).state)
 }
 
+function errors(running: Running): number {
+  return states(running).filter((value) => value === 'ERROR').length
+}
+
 async function nextUtterance(running: Running, seen = 0): Promise<Utterance> {
+  const readyEvents = () => running.events.filter((event) => event.type === 'voice.utterance_ready')
+  const failed = errors(running)
+  // Windows SAPI starts a PowerShell for every answer, which can take longer than the default
+  // poll window on a busy runner: wait up to the speech host's own 60 s deadline, and stop
+  // early with the real reason if the turn fails instead.
   await expect
-    .poll(() => running.events.filter((event) => event.type === 'voice.utterance_ready').length)
-    .toBeGreaterThan(seen)
-  const ready = running.events.filter((event) => event.type === 'voice.utterance_ready')[seen]
-  const utteranceId = (ready?.payload as { utteranceId: string }).utteranceId
+    .poll(() => readyEvents().length > seen || errors(running) > failed, { timeout: 60_000 })
+    .toBe(true)
+  const ready = readyEvents()[seen]
+  if (!ready) {
+    const { lastError } = await call(running, 'voice.status', {})
+    throw new Error(
+      `No speech was made: ${lastError?.code ?? 'no error'} ${lastError?.message ?? ''}`
+    )
+  }
+  const utteranceId = (ready.payload as { utteranceId: string }).utteranceId
   return call(running, 'voice.utterance', { utteranceId })
 }
 
