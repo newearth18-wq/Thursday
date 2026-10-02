@@ -60,7 +60,9 @@ its reason), `INCOMPATIBLE` (this Jupiter is older than the plugin needs).
   file system beyond its own entry script, no child processes, worker
   threads or add-ons), a memory limit, a fixed stack,
   `--disallow-code-generation-from-strings`, an environment of one
-  variable (`ELECTRON_RUN_AS_NODE`) and no stdin or stdout.
+  variable (`ELECTRON_RUN_AS_NODE`; on Windows libuv also passes the system
+  variables every program needs, such as `SYSTEMROOT` and `PATH`) and no
+  stdin or stdout.
 - Inside it, the plugin's code runs in a `vm` context with no `require`,
   `process`, `Buffer`, `console`, timers, `fetch`, `WebSocket` or
   `WebAssembly`, and code generation from strings off. Only strings cross
@@ -167,7 +169,7 @@ backup is taken before the upgrade, as for every migration.
 
 - Third-party code never runs in Electron main, Core or the renderer.
 - Defence in depth for a plugin run: separate process, Node's permission
-  model, empty environment, memory and time limits, `vm` without Node or
+  model, none of Jupiter's environment, memory and time limits, `vm` without Node or
   network globals, code generation off, strings only across the boundary.
 - Every effect goes through a handle the manifest declares, the Skill
   declares, and the Permission Engine allows at the moment of use.
@@ -224,6 +226,7 @@ The SET 15 suites:
 | A storage path that leaves the folder came back as `PLUGIN_FAILED` (the host's input schema refused it first)                                                                             | Core checks the path itself and answers `PLUGIN_PATH_INVALID`                                                                                                                                                                                  |
 | `PluginInfo.storage` carried the host's `op` field and failed the output schema                                                                                                           | Only the three fields are copied                                                                                                                                                                                                               |
 | CI (first run): the secret scan found the key-shaped test value in AT9, and the Core bundle imported `node:module` (a `createRequire` shim triggered by a method named `require`)         | AT9 uses `@jupiter/testing/fake-credentials` and now asserts the key appears nowhere in the plugin's results; the method renamed; `node:child_process` and `node:url` (starting the plugin runtime) added to the Core bundle's allowed imports |
+| CI (Windows): the runtime test expected an empty environment, but libuv passes the Windows system variables to every new process                                                          | The test allows exactly those on Windows (and nothing else, no secret) and is unchanged elsewhere; the documents say so                                                                                                                        |
 | Staging folders left by a crash would stay                                                                                                                                                | The host empties staging when it starts (it only ever holds Jupiter's own temporary copies)                                                                                                                                                    |
 
 ### CI
@@ -242,9 +245,15 @@ the real application, with screenshots (§11).
 - **Network at the process level.** Electron 44 ships Node 24, whose
   permission model has no `--allow-net`; the plugin process is not denied
   the network by it. Plugin code has no network API in its sandbox (no
-  `require`, `fetch`, sockets) and its process has no environment, files or
+  `require`, `fetch`, sockets) and its process has none of Jupiter's environment, files or
   child processes; when Electron ships Node 25 the runtime will add the
   network to the permission model.
+- **Windows system variables.** On Windows, libuv always gives a new
+  process the variables Windows programs need (`HOMEDRIVE`, `HOMEPATH`,
+  `LOGONSERVER`, `PATH`, `SYSTEMDRIVE`, `SYSTEMROOT`, `TEMP`, `USERDOMAIN`,
+  `USERNAME`, `USERPROFILE`, `WINDIR`); none is a secret, and plugin code
+  cannot read them (no `process` in its sandbox). The runtime test checks
+  that nothing else of Jupiter's environment arrives.
 - **A `vm` context is not a security boundary by itself**; here it is the
   inner layer inside a restricted process.
 - **Publishers are not verified** (shown as _Unverified_); signing is SET 21.

@@ -192,7 +192,27 @@ describe('SET 15 — plugin runtime process', () => {
     })
     delete process.env.JUPITER_TEST_SECRET_PROBE
     const found = JSON.parse(result.stdout) as Record<string, unknown>
-    expect(found).toEqual({
+    // Windows: libuv always passes these system variables to a new process (programs need
+    // them there); no other variable of Jupiter's environment reaches it, and none is a secret.
+    const windowsRequired = [
+      'HOMEDRIVE',
+      'HOMEPATH',
+      'LOGONSERVER',
+      'PATH',
+      'SYSTEMDRIVE',
+      'SYSTEMROOT',
+      'TEMP',
+      'USERDOMAIN',
+      'USERNAME',
+      'USERPROFILE',
+      'WINDIR'
+    ]
+    const env = (found.env as string[]).map((name) => name.toUpperCase()).sort()
+    expect(env).not.toContain('JUPITER_TEST_SECRET_PROBE')
+    if (process.platform === 'win32')
+      expect(env.every((name) => windowsRequired.includes(name))).toBe(true)
+    else expect(env).toEqual([])
+    expect({ ...found, env: [] }).toEqual({
       env: [],
       readOwnFolder: 'ERR_ACCESS_DENIED',
       readHome: 'ERR_ACCESS_DENIED',

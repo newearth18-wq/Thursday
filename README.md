@@ -16,7 +16,8 @@ SHA-256 of every file check out and you allow `plugin.install` (critical:
 asked every time). Publishers are shown as _Unverified_ (signing comes in
 SET 21). A plugin's Skills run in the plugin runtime: a separate process for
 each run, with Node's permission model (no files, child processes, workers
-or add-ons), no environment, a memory limit, a timeout and cancel, and the
+or add-ons), none of Jupiter's environment (on Windows only the system
+variables every program gets), a memory limit, a timeout and cancel, and the
 plugin code inside a sandbox where it reaches Jupiter only through the
 handles its manifest declares (Jupiter's version, the time, and its own
 storage folder with quotas) — each behind a permission you grant. A crash

@@ -128,7 +128,8 @@ async function initialise(config: CoreConfig): Promise<void> {
       }),
     skillSandbox: new WorkerSkillSandbox(),
     // SET 15: plugin Skills run in the plugin runtime: a new process per invocation, Electron
-    // acting as Node, with Node's permission model and no environment beyond that one flag.
+    // acting as Node, with Node's permission model and no environment beyond that one flag (and,
+    // on Windows, the system variables libuv always passes).
     ...(existsSync(pluginRuntimeEntry)
       ? {
           pluginSandbox: new PluginSandbox({

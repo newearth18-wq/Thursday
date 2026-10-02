@@ -65,7 +65,9 @@ not a boundary for hostile code.
    no file system beyond its own entry script, no child processes, worker
    threads or add-ons), `--max-old-space-size`, a fixed stack size,
    `--disallow-code-generation-from-strings`, an environment with only that
-   one variable, and stdin and stdout closed. The plugin's code arrives by
+   one variable (on Windows, libuv also passes the system variables every
+   program needs, such as `SYSTEMROOT` and `PATH`; nothing else of Jupiter's
+   environment), and stdin and stdout closed. The plugin's code arrives by
    message and runs in a `vm` context without `require`, `process`,
    `console`, `WebAssembly`, timers or `fetch`, with code generation from
    strings off; only strings cross the boundary. The timeout and cancel
@@ -116,7 +118,8 @@ not a boundary for hostile code.
 - Node 24 (Electron 44) has no `--allow-net`; the plugin process itself is
   not blocked from the network by the permission model. The plugin's code
   has no network API inside the sandbox (no `require`, `fetch`, sockets),
-  and its process has no environment, files or child processes to get one.
+  and its process has none of Jupiter's environment, no files and no child
+  processes to get one.
   When Electron ships Node 25, `--permission` also denies the network and
   the runtime will use it.
 - A `vm` context is not a security boundary on its own; here it is the inner
