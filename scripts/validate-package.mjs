@@ -146,6 +146,10 @@ check('app.asar contains only the self-contained bundles', () => {
     '/package.json',
     '/out/main/index.js',
     '/out/main/core.js',
+    // SET 15: the plugin runtime and the plugin that ships with Jupiter.
+    '/out/main/plugin-runtime.cjs',
+    '/out/main/plugins/demo-tools/manifest.json',
+    '/out/main/plugins/demo-tools/index.js',
     '/out/preload/index.cjs',
     '/out/renderer/index.html'
   ]) {

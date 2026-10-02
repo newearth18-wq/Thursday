@@ -7,7 +7,16 @@ import {
   type LaunchedPackagedJupiter
 } from '@jupiter/testing'
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
-import { gatewayStatus, packageJson, query, serviceStatus, settledOverallStatus } from './helpers'
+import { uuidv7 } from '@jupiter/core'
+import {
+  envelope,
+  gatewayStatus,
+  invoke,
+  packageJson,
+  query,
+  serviceStatus,
+  settledOverallStatus
+} from './helpers'
 import { JUPITER_MIGRATIONS } from '@jupiter/database'
 
 /**
@@ -141,6 +150,38 @@ describe.skipIf(!executablePath)('packaged Jupiter build', () => {
     )
     expect(face).toMatchObject({ available: true, experimental: true, maxLevel: 'VERIFIED' })
     expect(face?.engine).toMatch(/^face-api /)
+  })
+
+  it('installs the bundled demo-tools plugin and runs its Skill in the plugin runtime (SET 15)', async () => {
+    const page = jupiter.window
+    const status = await query(page, 'plugins.list', {})
+    expect(status.runtime).toEqual({ name: 'plugin@1', available: true, reason: null })
+    expect(status.available).toEqual([
+      expect.objectContaining({ pluginId: 'demo-tools', version: '1.0.0', valid: true })
+    ])
+    // plugin.install is CRITICAL: asked, then allowed once, as the person would in the dialog.
+    const asked = await invoke(
+      page,
+      envelope('plugins.install', { source: 'bundled', pluginId: 'demo-tools' })
+    )
+    expect(asked).toMatchObject({ ok: false, error: { code: 'PERMISSION_REQUIRED' } })
+    const { requests } = await query(page, 'permissions.requests', { status: 'PENDING', limit: 10 })
+    expect(requests.map((request) => request.capability)).toEqual(['plugin.install'])
+    await query(page, 'permissions.decide', {
+      requestId: requests[0]?.requestId,
+      decision: 'ALLOW_ONCE'
+    })
+    await query(page, 'plugins.install', { source: 'bundled', pluginId: 'demo-tools' })
+    expect(await query(page, 'plugins.enable', { pluginId: 'demo-tools' })).toMatchObject({
+      state: 'ENABLED',
+      integrity: { files: 2 }
+    })
+    const echo = await query(page, 'skills.invoke', {
+      executionId: uuidv7(),
+      skillId: 'demo-tools.echo_text',
+      input: { text: 'packaged' }
+    })
+    expect(echo).toMatchObject({ status: 'SUCCESS', output: { text: 'packaged' } })
   })
 
   it('keeps DevTools unavailable in the packaged production build', async () => {

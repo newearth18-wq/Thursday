@@ -14,6 +14,7 @@ import type { ComputerHost } from './computer-host'
 import type { CredentialVault } from './credential-vault'
 import type { MicrophoneGate, SpeechHost } from './speech-host'
 import type { IdentityHost } from './identity-host'
+import type { PluginHost } from './plugin-host'
 import type { VisionHost } from './vision-host'
 
 /**
@@ -65,6 +66,8 @@ export interface HostCapabilityDependencies {
   readonly camera: MicrophoneGate
   /** SET 14: the face engine (identity runtime) and Windows Hello. */
   readonly identity: IdentityHost
+  /** Plugin folders and plugin storage (SET 15). */
+  readonly plugins: PluginHost
   readonly now?: () => number
 }
 
@@ -95,7 +98,14 @@ export const HOST_CAPABILITIES = [
   'host.camera.gate',
   'host.identity.engines',
   'host.identity.face',
-  'host.identity.hello'
+  'host.identity.hello',
+  'host.plugins.discover',
+  'host.plugins.code',
+  'host.plugins.choose',
+  'host.plugins.commit',
+  'host.plugins.discard',
+  'host.plugins.remove',
+  'host.plugins.storage'
 ] as const
 
 /** Desktop notifications the interface may show per minute. */
@@ -152,6 +162,14 @@ export class HostCapabilities {
       case 'host.identity.face':
       case 'host.identity.hello':
         return this.identityOperation(call, call.capability, log)
+      case 'host.plugins.discover':
+      case 'host.plugins.code':
+      case 'host.plugins.choose':
+      case 'host.plugins.commit':
+      case 'host.plugins.discard':
+      case 'host.plugins.remove':
+      case 'host.plugins.storage':
+        return this.pluginOperation(call, call.capability, log)
       default:
         log.warn('host-capability.unknown', `Refused unknown host capability ${call.capability}`)
         return this.failure(
@@ -539,6 +557,97 @@ export class HostCapabilities {
         'IDENTITY_HOST_FAILED',
         'internal',
         'The identity engine failed unexpectedly.',
+        'Try again.'
+      )
+    }
+  }
+
+  /**
+   * Plugins (SET 15): Jupiter Core only. The host reads, copies and removes plugin folders and
+   * keeps plugin storage; it never runs plugin code, and logs no plugin file content.
+   */
+  private async pluginOperation(
+    call: HostCall,
+    operation:
+      | 'host.plugins.discover'
+      | 'host.plugins.code'
+      | 'host.plugins.choose'
+      | 'host.plugins.commit'
+      | 'host.plugins.discard'
+      | 'host.plugins.remove'
+      | 'host.plugins.storage',
+    log: Logger
+  ): Promise<HostOutcome> {
+    if (call.actor.type !== 'core') {
+      log.warn('host-capability.denied', `Refused ${operation} for ${call.actor.type}`)
+      return this.failure(
+        'PERMISSION_DENIED',
+        'permission',
+        `Only Jupiter Core may use ${operation}.`,
+        null
+      )
+    }
+    const plugins = this.deps.plugins
+    try {
+      switch (operation) {
+        case 'host.plugins.discover':
+          if (!HostOperations[operation].input.safeParse(call.input).success)
+            return this.invalid(operation)
+          return { ok: true, data: await plugins.discover() }
+        case 'host.plugins.code': {
+          const input = HostOperations[operation].input.safeParse(call.input)
+          if (!input.success) return this.invalid(operation)
+          return { ok: true, data: await plugins.code(input.data) }
+        }
+        case 'host.plugins.choose': {
+          const input = HostOperations[operation].input.safeParse(call.input)
+          if (!input.success) return this.invalid(operation)
+          return { ok: true, data: await plugins.choose(input.data.purpose) }
+        }
+        case 'host.plugins.commit': {
+          const input = HostOperations[operation].input.safeParse(call.input)
+          if (!input.success) return this.invalid(operation)
+          await plugins.commit(input.data.stagingId, input.data.pluginId)
+          log.info('plugins.installed', `Plugin ${input.data.pluginId} put in place`)
+          return { ok: true, data: { committed: true } }
+        }
+        case 'host.plugins.discard': {
+          const input = HostOperations[operation].input.safeParse(call.input)
+          if (!input.success) return this.invalid(operation)
+          return { ok: true, data: { discarded: await plugins.discard(input.data.stagingId) } }
+        }
+        case 'host.plugins.remove': {
+          const input = HostOperations[operation].input.safeParse(call.input)
+          if (!input.success) return this.invalid(operation)
+          const removed = await plugins.remove(input.data.pluginId)
+          log.info('plugins.removed', `Plugin ${input.data.pluginId} removed`)
+          return { ok: true, data: { removed } }
+        }
+        case 'host.plugins.storage': {
+          const input = HostOperations[operation].input.safeParse(call.input)
+          if (!input.success) return this.invalid(operation)
+          return { ok: true, data: await plugins.storage(input.data) }
+        }
+      }
+    } catch (error) {
+      if (error instanceof JupiterError)
+        return {
+          ok: false,
+          error: createErrorEnvelope({
+            code: error.code,
+            category: error.category,
+            message: error.message,
+            userAction: error.userAction,
+            retryable: error.retryable
+          })
+        }
+      log.warn('plugins.host.failed', `${operation} failed`, {
+        reason: error instanceof Error ? error.message.slice(0, 200) : 'unknown'
+      })
+      return this.failure(
+        'PLUGIN_HOST_FAILED',
+        'internal',
+        `The plugin folder could not be handled: ${error instanceof Error ? error.message.slice(0, 200) : 'unknown error'}`,
         'Try again.'
       )
     }

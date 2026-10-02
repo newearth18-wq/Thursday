@@ -41,7 +41,7 @@ export const CoreConfig = z
       .strict()
       .nullable(),
     /** Capabilities the host executes on Core's behalf. */
-    hostCapabilities: z.array(CapabilityId).max(32)
+    hostCapabilities: z.array(CapabilityId).max(128)
   })
   .strict()
 export type CoreConfig = z.infer<typeof CoreConfig>

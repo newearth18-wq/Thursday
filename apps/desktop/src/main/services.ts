@@ -31,14 +31,12 @@ interface ServiceDependencies {
 }
 
 /** Jupiter Core modules and isolated runtimes that later SETs deliver. Never started, never shown as working. */
-export const PLANNED_SERVICES = [
-  {
-    id: 'plugin-runtime',
-    availability: 'COMING_LATER',
-    plannedSet: 15,
-    capabilities: ['plugin.isolated-runtime']
-  }
-] as const
+export const PLANNED_SERVICES: readonly {
+  readonly id: string
+  readonly availability: 'COMING_LATER'
+  readonly plannedSet: number
+  readonly capabilities: readonly string[]
+}[] = []
 
 export function registerServices(supervisor: ServiceSupervisor, deps: ServiceDependencies): void {
   const { env, fileSink, core } = deps

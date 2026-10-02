@@ -1,7 +1,9 @@
-import { resolve } from 'node:path'
+import { cpSync, readdirSync, rmSync } from 'node:fs'
+import { join, resolve } from 'node:path'
 import { bundleBrowserRuntime } from '@jupiter/browser-runtime/build'
 import { bundleDocumentRuntime } from '@jupiter/document-runtime/build'
 import { bundleIdentityRuntime } from '@jupiter/identity-runtime/build'
+import { bundlePluginRuntime } from '@jupiter/plugin-runtime/build'
 import react from '@vitejs/plugin-react'
 import { defineConfig } from 'electron-vite'
 import type { BuildOptions, Plugin } from 'vite'
@@ -66,6 +68,26 @@ function identityRuntime(): Plugin {
   }
 }
 
+/**
+ * SET 15: the plugin runtime process (one dependency-free CommonJS file), and the plugins that
+ * ship with Jupiter (each folder of the repository's plugins/ folder, copied as is).
+ */
+function pluginRuntime(): Plugin {
+  return {
+    name: 'jupiter-plugin-runtime',
+    apply: 'build',
+    async closeBundle() {
+      await bundlePluginRuntime(resolve(__dirname, 'out/main/plugin-runtime.cjs'))
+      const source = resolve(__dirname, '../../plugins')
+      const target = resolve(__dirname, 'out/main/plugins')
+      rmSync(target, { recursive: true, force: true })
+      for (const entry of readdirSync(source, { withFileTypes: true }))
+        if (entry.isDirectory())
+          cpSync(join(source, entry.name), join(target, entry.name), { recursive: true })
+    }
+  }
+}
+
 /** zod ships comments Rollup cannot place; the warning is noise, not a defect. */
 const onwarn: NonNullable<NonNullable<BuildOptions['rollupOptions']>['onwarn']> = (
   warning,
@@ -81,7 +103,7 @@ export default defineConfig(({ command }) => {
   return {
     main: {
       define: { __JUPITER_BUILD_METADATA__: JSON.stringify(metadata) },
-      plugins: [browserRuntime(), documentRuntime(), identityRuntime()],
+      plugins: [browserRuntime(), documentRuntime(), identityRuntime(), pluginRuntime()],
       build: {
         // Everything is bundled: the packaged app ships no node_modules.
         externalizeDeps: false,

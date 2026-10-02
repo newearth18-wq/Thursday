@@ -65,8 +65,8 @@ export type SkillVersion = z.infer<typeof SkillVersion>
 export const SkillCategory = z.enum(['text', 'system', 'information', 'developer'])
 export type SkillCategory = z.infer<typeof SkillCategory>
 
-/** Who provides the Skill: built into Jupiter, or registered by a test harness. Plugins arrive in SET 15. */
-export const SkillProvider = z.enum(['internal', 'test-fixture'])
+/** Who provides the Skill: built into Jupiter, a test harness, or a plugin (SET 15). */
+export const SkillProvider = z.enum(['internal', 'test-fixture', 'plugin'])
 export type SkillProvider = z.infer<typeof SkillProvider>
 
 /** The runtime a Skill needs. This build provides `sandbox@1`: an isolated worker per invocation. */

@@ -100,6 +100,7 @@ import {
   VoiceSession,
   VoiceStartInput
 } from './identity'
+import { PluginInfo, PluginInstallInput, PluginRef, PluginsStatus } from './plugins'
 import { UtcTimestamp, Uuidv7 } from './primitives'
 import { CapabilityId, RequestKind } from './request'
 import { ServiceHealth } from './service-health'
@@ -1106,7 +1107,27 @@ export const Capabilities = {
   /** Ends the current verification now. */
   'identity.forget': { kind: 'command', input: Empty, output: IdentityStatus },
   /** The host reports that the computer was locked, suspended or is shutting down. */
-  'identity.security-event': { kind: 'command', input: SecurityEventInput, output: Assurance }
+  'identity.security-event': { kind: 'command', input: SecurityEventInput, output: Assurance },
+
+  // ---- Plugins (SET 15) ----------------------------------------------------------------------
+  /** Installed plugins with their state, and bundled plugins that can be installed. */
+  'plugins.list': { kind: 'query', input: Empty, output: PluginsStatus },
+  /** Installs a bundled plugin, or one from a folder the person picks (validated first). */
+  'plugins.install': { kind: 'command', input: PluginInstallInput, output: PluginInfo },
+  /** Loads the plugin and registers its Skills. */
+  'plugins.enable': { kind: 'command', input: PluginRef, output: PluginInfo },
+  /** Unregisters its Skills (their history is kept) and unloads it. */
+  'plugins.disable': { kind: 'command', input: PluginRef, output: PluginInfo },
+  /** Runs each of its Skills' health checks in the plugin runtime. */
+  'plugins.health': { kind: 'command', input: PluginRef, output: PluginInfo },
+  /** Replaces it with a newer version from a folder the person picks (validated first). */
+  'plugins.update': { kind: 'command', input: PluginRef, output: PluginInfo },
+  /** Removes it; its Skills' history and its storage are kept. */
+  'plugins.uninstall': {
+    kind: 'command',
+    input: PluginRef,
+    output: z.object({ uninstalled: z.literal(true) }).strict()
+  }
 } as const satisfies Record<string, { kind: RequestKind; input: z.ZodType; output: z.ZodType }>
 
 export type CapabilityName = keyof typeof Capabilities

@@ -41,6 +41,21 @@ export const PERMISSION_CATALOGUE = {
     reversible: true,
     dataLeavesDevice: null
   },
+  'plugin.storage.read': {
+    risk: 'LOW',
+    summary: 'Read files in the plugin’s own storage',
+    consequence: 'The plugin reads what it saved earlier in its own folder.',
+    reversible: true,
+    dataLeavesDevice: null
+  },
+  'plugin.storage.write': {
+    risk: 'MEDIUM',
+    summary: 'Save files in the plugin’s own storage',
+    consequence:
+      'The plugin creates or replaces files in its own folder (nothing outside it, and within its quota).',
+    reversible: true,
+    dataLeavesDevice: null
+  },
   'skills.read': {
     risk: 'LOW',
     summary: 'Read the list of Skills',

@@ -3,13 +3,25 @@
 Jupiter is a Windows desktop AI agent, built in stages (SET 0–24). This
 repository is the Jupiter monorepo.
 
-**Current stage: SET 14 — Identity: Windows Security, Face and Voice** (on
-top of SET 13, Vision and Camera; SET 12, Voice Interface; SET 11, Memory System and Obsidian Knowledge Base; SET 10, File,
+**Current stage: SET 15 — Plugin Engine and Isolated Runtime** (on top of
+SET 14, Identity: Windows Security, Face and Voice; SET 13, Vision and Camera; SET 12, Voice Interface; SET 11, Memory System and Obsidian Knowledge Base; SET 10, File,
 Document, Office and Artifact System; SET 9, Browser Agent; SET 8, Windows
 Computer Agent; SET 7, Permission and Security Engine; SET 6, Skill System;
 SET 5, Planner and Workflow Engine; SET 4, Mission System; SET 3, AI
 providers, Model Router and Chat; SET 2, the product shell; SET 1, Core
-architecture; and SET 0, the repository foundation). **Settings → Identity**
+architecture; and SET 0, the repository foundation). The **Plugins** screen
+installs plugins: _demo-tools_ ships with Jupiter, and a plugin folder you
+pick is copied into Jupiter only after its manifest, its Skills and the
+SHA-256 of every file check out and you allow `plugin.install` (critical:
+asked every time). Publishers are shown as _Unverified_ (signing comes in
+SET 21). A plugin's Skills run in the plugin runtime: a separate process for
+each run, with Node's permission model (no files, child processes, workers
+or add-ons), no environment, a memory limit, a timeout and cancel, and the
+plugin code inside a sandbox where it reaches Jupiter only through the
+handles its manifest declares (Jupiter's version, the time, and its own
+storage folder with quotas) — each behind a permission you grant. A crash
+stays in that process; disabling removes its Skills and keeps their history;
+an update must be newer, compatible and intact. **Settings → Identity**
 shows how sure Jupiter is that you are at the computer (_Unknown_,
 _Recognized_, _Verified_ or _Strongly verified_), until when, and why.
 Windows Hello (face, fingerprint or PIN, checked by Windows) is the strong
@@ -43,10 +55,10 @@ Agent** reads and writes documents in the folders Jupiter may use, the
 note says is untrusted data. Nothing Jupiter does with an effect happens
 without a **permission** that matches exactly what, who, which target and
 for how long (the microphone, the screen and the camera are among them); _Settings › Permissions_ lists them
-and the audit trail. **Devices**, **Memory**, **Files**, **Skills**,
+and the audit trail. **Plugins**, **Devices**, **Memory**, **Files**, **Skills**,
 **Missions** planned by your model, _Chat_, _AI Models_, _Settings_ and
-_Diagnostics_ work; the other two screens are labelled _Coming later_ with
-the SET that builds them.
+_Diagnostics_ work; _Automations_ is labelled _Coming later_ with the SET
+that builds it.
 
 |                 |                                                                                            |
 | --------------- | ------------------------------------------------------------------------------------------ |
@@ -90,7 +102,7 @@ Running as root in a container? Chromium's sandbox cannot start as root, so use
 ```text
 apps/desktop/            Jupiter desktop app: host (Electron main + gateway), Core utility process, preload, React renderer
 packages/contracts/      Versioned zod schemas for every trust boundary
-packages/core/           Core kernel: capability dispatcher, event bus, service supervisor, logger, IDs; model router, chat, adapter port; Mission Manager, planner and workflow engine; Skill Registry and sandbox; Permission Engine; Computer Agent; Browser Agent; File Agent and Artifact Manager; Memory System and Notes agent; voice pipeline (VAD, wake word, speech to text, spoken answers); vision and camera; Identity Engine (levels, enrollment, assurance, protection)
+packages/core/           Core kernel: capability dispatcher, event bus, service supervisor, logger, IDs; model router, chat, adapter port; Mission Manager, planner and workflow engine; Skill Registry and sandbox; Permission Engine; Computer Agent; Browser Agent; File Agent and Artifact Manager; Memory System and Notes agent; voice pipeline (VAD, wake word, speech to text, spoken answers); vision and camera; Identity Engine (levels, enrollment, assurance, protection); Plugin Manager
 packages/providers/      Provider adapters (OpenAI-compatible, Anthropic), reached only through Core's guarded transport
 packages/database/       SQLite (node:sqlite): migrations, transactions, backups, repositories
 packages/security/       Secret patterns and redaction
@@ -100,8 +112,8 @@ services/agent-runtime/  Windows UI Automation runtime (PowerShell) behind a val
 services/browser-runtime/ Browser runtime: playwright-core bundled into one file, in its own process; its Node client
 services/document-runtime/ Document runtime: readers, OOXML writers and validators in their own process; its Node client
 services/identity-runtime/ Identity runtime: face-api on TensorFlow.js (WebAssembly) in its own process; its Node client
-services/plugin-runtime/ Coming later (SET 15)
-plugins/                 Coming later (SET 15)
+services/plugin-runtime/ Plugin runtime: plugin code in a sandbox, in its own process per run under Node's permission model; its Core sandbox
+plugins/                 Plugins that ship with Jupiter (demo-tools), each checked by the SHA-256 in its manifest
 docs/                    Architecture, decisions, definition of done, SET reports
 scripts/                 verify, secret scan, package validation, dev smoke test
 legacy/thursday-browser/ The earlier Thursday Browser prototype, preserved and still tested
@@ -135,6 +147,12 @@ The Browser Agent keeps its files in `<data folder>\browser\`: `quarantine\`
 `uploads\` (the only files it may upload) and, only if you turn on the
 persistent profile, `profile\`. Screenshots and page snapshots go to
 `<data folder>\browser-evidence\`. It never uses your own browser profile.
+
+Plugins you install are Jupiter's own copies in `<data folder>\plugins\`
+(a folder you pick is copied into `plugins-staging\` while it is checked, and
+removed after). Each plugin's storage is `<data folder>\plugin-data\<plugin id>\`
+(at most 200 files, 1 MB each, 5 MB in all); a plugin never replaces one of
+its files, and uninstalling a plugin keeps its storage.
 
 Files Jupiter makes go to `<data folder>\workspace\`, one folder per Mission
 (`workspace\<Mission id>\`). A copy you save goes to Downloads, Documents or
@@ -193,6 +211,7 @@ is shown as _Not configured_. QR codes need nothing installed.
 - [docs/sets/SET-12-voice-interface.md](docs/sets/SET-12-voice-interface.md) — SET 12 report and acceptance results
 - [docs/sets/SET-13-vision-and-camera.md](docs/sets/SET-13-vision-and-camera.md) — SET 13 report and acceptance results
 - [docs/sets/SET-14-identity.md](docs/sets/SET-14-identity.md) — SET 14 report and acceptance results
+- [docs/sets/SET-15-plugins.md](docs/sets/SET-15-plugins.md) — SET 15 report and acceptance results
 - [docs/decisions/](docs/decisions/) — architecture decision records
 
 ## License

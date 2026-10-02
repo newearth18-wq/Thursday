@@ -1,4 +1,4 @@
-import { existsSync, mkdirSync } from 'node:fs'
+import { existsSync, mkdirSync, readFileSync } from 'node:fs'
 import { rename, writeFile } from 'node:fs/promises'
 import { basename, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
@@ -58,6 +58,7 @@ import { MicrophoneGate, SpeechHost } from './speech-host'
 import { electronScreenCapturer } from './screen-capture'
 import { VisionHost } from './vision-host'
 import { IdentityHost } from './identity-host'
+import { PluginHost } from './plugin-host'
 import { IdentityRuntime } from '@jupiter/identity-runtime'
 import { registerServices } from './services'
 import { createMainWindow, type RendererSource } from './window'
@@ -298,6 +299,36 @@ async function start(environment: MainEnvironment, mainLogging: MainLogging): Pr
           })
         : null
   })
+  // SET 15: plugin folders and plugin storage. Bundled plugins ship next to the main bundle;
+  // installed ones are Jupiter's own copies. Plugin code runs only in the plugin runtime,
+  // started by Jupiter Core — never here.
+  const testPluginChoice = testing ? process.env.JUPITER_TEST_PLUGIN_CHOICE : undefined
+  const plugins = new PluginHost({
+    logger: logger.child({ component: 'plugin-host' }),
+    bundledDirectory: join(here, 'plugins'),
+    installedDirectory: join(environment.userDataDir, 'plugins'),
+    stagingDirectory: join(environment.userDataDir, 'plugins-staging'),
+    dataDirectory: join(environment.userDataDir, 'plugin-data'),
+    chooseFolder: async (purpose) => {
+      // Tests only: the file names the folder "chosen" in the dialog (empty: cancelled).
+      if (testPluginChoice) {
+        const chosen = readFileSync(testPluginChoice, 'utf8').trim()
+        return chosen || null
+      }
+      const options: Electron.OpenDialogOptions = {
+        title:
+          purpose === 'install'
+            ? 'Choose a plugin folder to install'
+            : 'Choose the new version of the plugin',
+        properties: ['openDirectory']
+      }
+      const result =
+        mainWindow && !mainWindow.isDestroyed()
+          ? await dialog.showOpenDialog(mainWindow, options)
+          : await dialog.showOpenDialog(options)
+      return result.canceled ? null : (result.filePaths[0] ?? null)
+    }
+  })
   const hostCapabilities = new HostCapabilities({
     logger,
     speech,
@@ -305,6 +336,7 @@ async function start(environment: MainEnvironment, mainLogging: MainLogging): Pr
     vision,
     camera: cameraGate,
     identity,
+    plugins,
     computer,
     browser,
     files,

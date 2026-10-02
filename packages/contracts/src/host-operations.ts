@@ -5,6 +5,15 @@ import { AutomationCall } from './computer'
 import { FileCall } from './files'
 import { HostFaceResult, HostHelloResult, HostIdentityEngines } from './identity'
 import { NoteCall } from './notes'
+import {
+  HostPluginChoice,
+  HostPluginCode,
+  HostPluginLocation,
+  HostPluginPackage,
+  HostPluginStorageInput,
+  HostPluginStorageResult,
+  PluginId
+} from './plugins'
 import { Uuidv7 } from './primitives'
 import { MicrophoneGateInput, SystemSpeech, SystemSpeechInput, SystemVoices } from './voice'
 import {
@@ -111,6 +120,39 @@ export const HostOperations = {
     input: z.object({ message: z.string().min(1).max(200) }).strict(),
     output: HostHelloResult
   },
+  /**
+   * Plugins (SET 15): the host owns the plugin folders — the bundled ones
+   * and Jupiter's own copy of those the person installed — reads them
+   * (listing and hashing every file itself), shows the folder dialog, and
+   * keeps each plugin's storage inside its own folder. Core only.
+   */
+  'host.plugins.discover': {
+    input: z.object({}).strict(),
+    output: z
+      .object({
+        bundled: z.array(HostPluginPackage).max(50),
+        installed: z.array(HostPluginPackage).max(100)
+      })
+      .strict()
+  },
+  'host.plugins.code': { input: HostPluginLocation, output: HostPluginCode },
+  'host.plugins.choose': {
+    input: z.object({ purpose: z.enum(['install', 'update']) }).strict(),
+    output: HostPluginChoice
+  },
+  'host.plugins.commit': {
+    input: z.object({ stagingId: Uuidv7, pluginId: PluginId }).strict(),
+    output: z.object({ committed: z.literal(true) }).strict()
+  },
+  'host.plugins.discard': {
+    input: z.object({ stagingId: Uuidv7 }).strict(),
+    output: z.object({ discarded: z.boolean() }).strict()
+  },
+  'host.plugins.remove': {
+    input: z.object({ pluginId: PluginId }).strict(),
+    output: z.object({ removed: z.boolean() }).strict()
+  },
+  'host.plugins.storage': { input: HostPluginStorageInput, output: HostPluginStorageResult },
   'host.vault.status': {
     input: z.object({}).strict(),
     output: z.object({ available: z.boolean(), reason: z.string().max(500).nullable() }).strict()

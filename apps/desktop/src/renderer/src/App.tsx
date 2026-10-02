@@ -20,6 +20,7 @@ import { FeatureView } from './views/FeatureViews'
 import { FilesView } from './views/FilesView'
 import { MemoryView } from './views/MemoryView'
 import { DevicesView } from './views/DevicesView'
+import { PluginsView } from './views/PluginsView'
 import { useVoiceShortcuts } from './components/VoiceControls'
 import { VoiceProvider } from './voice/VoiceProvider'
 import { CameraProvider } from './vision/CameraProvider'
@@ -224,6 +225,8 @@ function ViewContent({
       return <DevicesView />
     case 'memory':
       return <MemoryView />
+    case 'plugins':
+      return <PluginsView />
     default:
       return <FeatureView view={view} />
   }

@@ -1,2 +1,4 @@
 # Test fixtures are compared byte for byte (sizes, hashes): never convert their line endings.
 packages/testing/fixtures/** -text
+# Plugins are checked against the SHA-256 of every file (SET 15): never convert their line endings.
+plugins/** -text

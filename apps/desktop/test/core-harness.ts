@@ -20,7 +20,8 @@ import {
   type ProviderAdapter,
   type CameraTimings,
   type SkillImplementation,
-  type SkillResource
+  type SkillResource,
+  type SkillSandbox
 } from '@jupiter/core'
 import { WorkerSkillSandbox } from '@jupiter/core/node'
 import { JupiterDatabase } from '@jupiter/database'
@@ -31,6 +32,7 @@ import { afterAll, afterEach, beforeAll, beforeEach, expect } from 'vitest'
 import { envelope } from './helpers'
 import type { MicrophoneGate, SpeechHost } from '../src/main/speech-host'
 import type { IdentityHost } from '../src/main/identity-host'
+import type { PluginHost } from '../src/main/plugin-host'
 import type { VisionHost } from '../src/main/vision-host'
 
 /**
@@ -120,6 +122,11 @@ export async function startCore(
     }
     /** Core's clock (to test assurance that expires). */
     now?: () => Date
+    /**
+     * SET 15: the real plugin host (temporary folders) and the real plugin runtime, serving
+     * host.plugins.*; `version` is this Jupiter's version for compatibility checks.
+     */
+    plugins?: { host: PluginHost; sandbox: SkillSandbox; version: string }
   } = {}
 ): Promise<Running> {
   const sessionId = uuidv7()
@@ -262,6 +269,16 @@ export async function startCore(
           }
           break
         }
+        case 'host.plugins.discover':
+        case 'host.plugins.code':
+        case 'host.plugins.choose':
+        case 'host.plugins.commit':
+        case 'host.plugins.discard':
+        case 'host.plugins.remove':
+        case 'host.plugins.storage':
+          return knowledge.plugins
+            ? servePlugins(knowledge.plugins.host, capability, input)
+            : Promise.reject(new Error(`unexpected host call ${capability}`))
         default:
           return Promise.reject(new Error(`unexpected host call ${capability}`))
       }
@@ -274,7 +291,18 @@ export async function startCore(
       defaultLogLevel: 'debug',
       databasePath: join(dir, 'jupiter.db'),
       backupDirectory: join(dir, 'backups'),
-      build: null,
+      build: knowledge.plugins
+        ? {
+            schemaVersion: 1,
+            productName: 'Jupiter',
+            version: knowledge.plugins.version,
+            channel: 'alpha',
+            commit: 'unknown',
+            dirty: true,
+            buildId: 'test',
+            builtAt: '2026-10-01T00:00:00.000Z'
+          }
+        : null,
       restarts: 0,
       previousExit: null,
       hostCapabilities: [
@@ -305,6 +333,17 @@ export async function startCore(
           : []),
         ...(knowledge.identity
           ? ['host.identity.engines', 'host.identity.face', 'host.identity.hello']
+          : []),
+        ...(knowledge.plugins
+          ? [
+              'host.plugins.discover',
+              'host.plugins.code',
+              'host.plugins.choose',
+              'host.plugins.commit',
+              'host.plugins.discard',
+              'host.plugins.remove',
+              'host.plugins.storage'
+            ]
           : [])
       ]
     },
@@ -328,6 +367,7 @@ export async function startCore(
     onLogLevel: () => undefined,
     adapters,
     skillSandbox: new WorkerSkillSandbox(),
+    ...(knowledge.plugins ? { pluginSandbox: knowledge.plugins.sandbox } : {}),
     extraSkills,
     extraResources,
     ...(knowledge.vision?.timings ? { cameraTimings: knowledge.vision.timings } : {}),
@@ -351,6 +391,41 @@ export async function startCore(
   const running = { dir, core, logs, vault, events }
   kernels.push(running)
   return running
+}
+
+/** The plugin host operations, validated both ways as the real host capabilities do. */
+async function servePlugins(
+  host: PluginHost,
+  capability: string,
+  input: unknown
+): Promise<unknown> {
+  switch (capability) {
+    case 'host.plugins.discover':
+      return host.discover()
+    case 'host.plugins.code':
+      return host.code(HostOperations['host.plugins.code'].input.parse(input))
+    case 'host.plugins.choose':
+      return host.choose(HostOperations['host.plugins.choose'].input.parse(input).purpose)
+    case 'host.plugins.commit': {
+      const data = HostOperations['host.plugins.commit'].input.parse(input)
+      await host.commit(data.stagingId, data.pluginId)
+      return { committed: true }
+    }
+    case 'host.plugins.discard':
+      return {
+        discarded: await host.discard(
+          HostOperations['host.plugins.discard'].input.parse(input).stagingId
+        )
+      }
+    case 'host.plugins.remove':
+      return {
+        removed: await host.remove(
+          HostOperations['host.plugins.remove'].input.parse(input).pluginId
+        )
+      }
+    default:
+      return host.storage(HostOperations['host.plugins.storage'].input.parse(input))
+  }
 }
 
 export const standard = () => [openAiCompatibleAdapter(), anthropicAdapter()]
