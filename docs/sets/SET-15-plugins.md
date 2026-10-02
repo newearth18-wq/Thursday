@@ -5,7 +5,8 @@
   temporary folders, plugin code in the real plugin runtime — its own
   process under Node's permission model) and in the real Electron
   application (E2E with screenshots, and the packaged build). Local
-  `npm run verify`: **VERIFY**. CI: **CI**. Evidence: §7 and §12.
+  `npm run verify`: 13/13 steps PASS (on `63af524`). CI: green on Linux,
+  Windows and Legacy (`07bb0f0`, run 36981805616). Evidence: §7 and §12.
 - SET 14 was checked first: green in CI and merged (PR #11, `396050e`).
 - Choices the person made for this SET:
   - **Source**: plugins that ship with Jupiter (`demo-tools`) and a local
@@ -202,19 +203,31 @@ npm run verify
 
 ### Local run
 
-**LOCAL**
+`npm run verify` on Linux (Xvfb, a throwaway GNOME Keyring, Tesseract), on
+commit `63af524`: **13/13 steps PASS**, exit 0. (`07bb0f0` changes only the
+Windows branch of one runtime test assertion, a code comment and documents;
+CI ran everything on it.)
+
+- unit tests: 34 files, 301 tests
+- integration and Electron E2E: 54 files passed and 2 skipped; 402 tests
+  passed and 18 skipped (the Windows-only SET 8 suites, the Windows
+  installer check and the packaged-app suite, which runs as its own step)
+- secret scan, development-mode launch, Windows and Linux unpacked builds
+  and their validation: PASS
+- packaged-app launch: 7 tests, including installing demo-tools and running
+  its Skill in the plugin runtime from inside the package
 
 The SET 15 suites:
 
-| Suite                                                      | Tests | What it runs                                                                                                                                                                                    |
-| ---------------------------------------------------------- | ----- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `packages/contracts/src/plugins.test.ts`                   | 5     | A valid manifest; bad ids, versions, entrypoints and unknown fields; permissions plugins cannot have and Skills reaching beyond the plugin; relative paths; semantic version order              |
-| `services/plugin-runtime/test/runtime.integration.test.ts` | 6     | The real runtime process: a run, handles, no globals and no escapes, timeout and cancel, a throw, an exit and running out of memory, and a probe of the process itself (no env, files or shell) |
-| `apps/desktop/test/plugin-host.integration.test.ts`        | 3     | The host lists and hashes files itself and reports links and odd names; staging and commit; storage paths, links, quotas, no overwrite                                                          |
-| `apps/desktop/test/plugins-core.integration.test.ts`       | 10    | Real Core, SQLite, Permission Engine, Skill Registry, host and runtime: AT1–AT10                                                                                                                |
-| `apps/desktop/test/plugins.integration.test.ts`            | 6     | The real Electron app: the Plugins screen, install with the permission dialog, Skills, a refused manifest, refused and accepted updates, disable and uninstall                                  |
-| `apps/desktop/test/packaged.integration.test.ts`           | 1 new | The packaged app installs demo-tools and runs its Skill in the plugin runtime from inside the package                                                                                           |
-| `apps/desktop/src/main/host-capabilities.test.ts`          | 1 new | The host operation list fits the Core protocol                                                                                                                                                  |
+| Suite                                                      | Tests | What it runs                                                                                                                                                                                                              |
+| ---------------------------------------------------------- | ----- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `packages/contracts/src/plugins.test.ts`                   | 5     | A valid manifest; bad ids, versions, entrypoints and unknown fields; permissions plugins cannot have and Skills reaching beyond the plugin; relative paths; semantic version order                                        |
+| `services/plugin-runtime/test/runtime.integration.test.ts` | 6     | The real runtime process: a run, handles, no globals and no escapes, timeout and cancel, a throw, an exit and running out of memory, and a probe of the process itself (none of Jupiter's environment, no files or shell) |
+| `apps/desktop/test/plugin-host.integration.test.ts`        | 3     | The host lists and hashes files itself and reports links and odd names; staging and commit; storage paths, links, quotas, no overwrite                                                                                    |
+| `apps/desktop/test/plugins-core.integration.test.ts`       | 10    | Real Core, SQLite, Permission Engine, Skill Registry, host and runtime: AT1–AT10                                                                                                                                          |
+| `apps/desktop/test/plugins.integration.test.ts`            | 6     | The real Electron app: the Plugins screen, install with the permission dialog, Skills, a refused manifest, refused and accepted updates, disable and uninstall                                                            |
+| `apps/desktop/test/packaged.integration.test.ts`           | 1 new | The packaged app installs demo-tools and runs its Skill in the plugin runtime from inside the package                                                                                                                     |
+| `apps/desktop/src/main/host-capabilities.test.ts`          | 1 new | The host operation list fits the Core protocol                                                                                                                                                                            |
 
 ### Found and fixed during the SET
 
@@ -231,7 +244,27 @@ The SET 15 suites:
 
 ### CI
 
-**CIDETAIL**
+Evidence: commit `07bb0f0`, run 36981805616. All three jobs succeeded
+(Linux job 110757782404, Windows job 110757782492, Legacy job
+110757782266).
+
+| Job                                                                                                                                  | Result  | Notes                                                                                                      |
+| ------------------------------------------------------------------------------------------------------------------------------------ | ------- | ---------------------------------------------------------------------------------------------------------- |
+| Linux — format, lint, typecheck, unit, build, integration + E2E, secret scan, dev smoke, Windows and Linux packages, packaged launch | success | Package validation PASS (41 entries in `app.asar`); packaged launch 7/7, demo-tools installed and run      |
+| Windows — typecheck, unit, build, integration + E2E, NSIS installer, package validation, packaged launch                             | success | The plugin runtime ran under Node's permission model on Windows; NSIS installer valid; packaged launch 7/7 |
+| Legacy Thursday — build and acceptance suite                                                                                         | success |                                                                                                            |
+
+Earlier runs on this PR:
+
+- **Run 36976378562** (`3bac3d2`): Linux failed two tests — the secret scan
+  found the key-shaped value in AT9, and the Core bundle's import check
+  found `node:module` (a `createRequire` shim), `node:child_process` and
+  `node:url`. Fixed in `63af524` (§7, found and fixed).
+- **Run 36978008251** (`63af524`): Linux and Legacy succeeded. Windows
+  first died in setup (a 504 from GitHub downloading Tesseract's Thai data,
+  before any test ran) and was re-run once; the re-run failed one test —
+  the plugin runtime's environment on Windows holds the system variables
+  libuv always passes (410 other tests passed). Fixed in `07bb0f0`.
 
 ## 8. Manual tests
 
@@ -289,22 +322,25 @@ npm ci && npm run dev
 - `docs/sets/set-15/*.png`: the E2E screenshots (also written to
   `test-results/set-15/` on each run)
 - `test-results/package-validation-linux.json`: package validation
-  **EVIDENCE**
+- CI run 36981805616 (commit `07bb0f0`): Linux job 110757782404, Windows
+  job 110757782492, Legacy job 110757782266; artifacts
+  `jupiter-linux-evidence` and `jupiter-windows-installer`
+- Earlier runs 36976378562 and 36978008251: the failures and fixes in §7
 
 ## 12. Acceptance tests
 
-| #   | Test                                     | Status   | Evidence (`plugins-core.integration.test.ts` unless noted)                                                                                                                                                                                                                                                                                                                                                                                            |
-| --- | ---------------------------------------- | -------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| 1   | Valid plugin loads                       | **PASS** | demo-tools listed as valid, installed after `plugin.install` (CRITICAL, Allow once or Deny only), enabled: `ENABLED`, publisher unverified, 2 files checked, three Skills registered; after a Core restart it is loaded (and checked) again. E2E: installed through the permission dialog and enabled (screenshots 02, 03); packaged build: installed and run from inside the package                                                                 |
-| 2   | Invalid manifest rejected                | **PASS** | A bad id, version and entrypoint; unknown permissions and an undeclared Skill permission; a manifest that is not JSON — each refused with `PLUGIN_INVALID` and its reasons, `install-rejected` published, nothing installed, staging empty. E2E: refused from a folder with the reasons shown, no permission asked (screenshot 05)                                                                                                                    |
-| 3   | Skill registers and executes             | **PASS** | Three Skills registered with provider `plugin`, runtime `plugin@1`; `echo_text` returns Thai text unchanged; `get_app_version` asks for its own `app.version.read` and returns the version. E2E: `echo_text`, `get_app_version` and `save_note` each asking for their own permission; the note written in plugin storage; a second note never replaces the first (screenshot 04)                                                                      |
-| 4   | Undeclared permission denied             | **PASS** | A plugin that calls `storage.write` without declaring it: the run fails with `PERMISSION_DENIED`, nothing is asked, nothing is written                                                                                                                                                                                                                                                                                                                |
-| 5   | Storage sandbox prevents escape          | **PASS** | `../../escape`, `../../../../tmp/escape`, `a/../../b`, `..` refused with `PLUGIN_PATH_INVALID`; a link (a junction on Windows) planted in the storage is not followed and nothing appears outside; a second note gets `today (2).md`. Host test: absolute paths, links and quotas (`PLUGIN_STORAGE_FULL`)                                                                                                                                             |
-| 6   | Broken plugin isolated                   | **PASS** | A plugin whose Skills throw, call `process.exit`, eat memory and return bad output: `DEGRADED` with its reason, each run fails on its own (`SKILL_UNHEALTHY`, `PLUGIN_FAILED`, `SKILL_CRASHED`, `SKILL_OUTPUT_INVALID`), and Jupiter and demo-tools keep working                                                                                                                                                                                      |
-| 7   | Timeout and cancellation                 | **PASS** | An endless loop is stopped at its 2-second timeout (`TIMEOUT`, process killed); a long run is `RUNNING`, cancelled (`CANCELLED`), and the plugin is `ENABLED` again                                                                                                                                                                                                                                                                                   |
-| 8   | Disable removes Skills safely            | **PASS** | Disabled: no plugin Skill registered, `SKILL_NOT_FOUND`, execution history kept; enabled again it works; uninstalled: gone from the list, history and storage kept. E2E: disabled, Skills gone; uninstall after confirmation; the notes and execution history stay (screenshots 09–11)                                                                                                                                                                |
-| 9   | No secrets or shell                      | **PASS** | With a key in the vault: no `require`, `process`, `Buffer`, `fetch`, `WebSocket`, timers or `console` in the sandbox; `Function` constructors, `eval` and `import()` refused; `/etc/passwd` through storage refused; reaching for credentials, the vault, a shell, files, the network or `skills.list` fails the run; a plugin declaring `shell.execute` is refused at install. Runtime test: the process has no environment, files, shell or workers |
-| 10  | Incompatible or tampered update rejected | **PASS** | Refused: needs Jupiter 99 (`PLUGIN_INCOMPATIBLE`), a changed `index.js` and an unlisted file (`PLUGIN_INVALID`), not newer (`PLUGIN_NOT_NEWER`), another plugin's folder; 1.0.0 keeps running throughout; a valid 1.1.0 is accepted after `plugin.install` (refused once by the person: the folder is asked again); a file changed on disk after install is refused at the next load (`PLUGIN_TAMPERED`, `FAILED`). E2E: screenshots 06–08            |
+| #   | Test                                     | Status   | Evidence (`plugins-core.integration.test.ts` unless noted)                                                                                                                                                                                                                                                                                                                                                                                                                                                                   |
+| --- | ---------------------------------------- | -------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 1   | Valid plugin loads                       | **PASS** | demo-tools listed as valid, installed after `plugin.install` (CRITICAL, Allow once or Deny only), enabled: `ENABLED`, publisher unverified, 2 files checked, three Skills registered; after a Core restart it is loaded (and checked) again. E2E: installed through the permission dialog and enabled (screenshots 02, 03); packaged build: installed and run from inside the package                                                                                                                                        |
+| 2   | Invalid manifest rejected                | **PASS** | A bad id, version and entrypoint; unknown permissions and an undeclared Skill permission; a manifest that is not JSON — each refused with `PLUGIN_INVALID` and its reasons, `install-rejected` published, nothing installed, staging empty. E2E: refused from a folder with the reasons shown, no permission asked (screenshot 05)                                                                                                                                                                                           |
+| 3   | Skill registers and executes             | **PASS** | Three Skills registered with provider `plugin`, runtime `plugin@1`; `echo_text` returns Thai text unchanged; `get_app_version` asks for its own `app.version.read` and returns the version. E2E: `echo_text`, `get_app_version` and `save_note` each asking for their own permission; the note written in plugin storage; a second note never replaces the first (screenshot 04)                                                                                                                                             |
+| 4   | Undeclared permission denied             | **PASS** | A plugin that calls `storage.write` without declaring it: the run fails with `PERMISSION_DENIED`, nothing is asked, nothing is written                                                                                                                                                                                                                                                                                                                                                                                       |
+| 5   | Storage sandbox prevents escape          | **PASS** | `../../escape`, `../../../../tmp/escape`, `a/../../b`, `..` refused with `PLUGIN_PATH_INVALID`; a link (a junction on Windows) planted in the storage is not followed and nothing appears outside; a second note gets `today (2).md`. Host test: absolute paths, links and quotas (`PLUGIN_STORAGE_FULL`)                                                                                                                                                                                                                    |
+| 6   | Broken plugin isolated                   | **PASS** | A plugin whose Skills throw, call `process.exit`, eat memory and return bad output: `DEGRADED` with its reason, each run fails on its own (`SKILL_UNHEALTHY`, `PLUGIN_FAILED`, `SKILL_CRASHED`, `SKILL_OUTPUT_INVALID`), and Jupiter and demo-tools keep working                                                                                                                                                                                                                                                             |
+| 7   | Timeout and cancellation                 | **PASS** | An endless loop is stopped at its 2-second timeout (`TIMEOUT`, process killed); a long run is `RUNNING`, cancelled (`CANCELLED`), and the plugin is `ENABLED` again                                                                                                                                                                                                                                                                                                                                                          |
+| 8   | Disable removes Skills safely            | **PASS** | Disabled: no plugin Skill registered, `SKILL_NOT_FOUND`, execution history kept; enabled again it works; uninstalled: gone from the list, history and storage kept. E2E: disabled, Skills gone; uninstall after confirmation; the notes and execution history stay (screenshots 09–11)                                                                                                                                                                                                                                       |
+| 9   | No secrets or shell                      | **PASS** | With a key in the vault: no `require`, `process`, `Buffer`, `fetch`, `WebSocket`, timers or `console` in the sandbox; `Function` constructors, `eval` and `import()` refused; `/etc/passwd` through storage refused; reaching for credentials, the vault, a shell, files, the network or `skills.list` fails the run; a plugin declaring `shell.execute` is refused at install. Runtime test: the process gets none of Jupiter's environment (on Windows only the system variables libuv passes), no files, shell or workers |
+| 10  | Incompatible or tampered update rejected | **PASS** | Refused: needs Jupiter 99 (`PLUGIN_INCOMPATIBLE`), a changed `index.js` and an unlisted file (`PLUGIN_INVALID`), not newer (`PLUGIN_NOT_NEWER`), another plugin's folder; 1.0.0 keeps running throughout; a valid 1.1.0 is accepted after `plugin.install` (refused once by the person: the folder is asked again); a file changed on disk after install is refused at the next load (`PLUGIN_TAMPERED`, `FAILED`). E2E: screenshots 06–08                                                                                   |
 
 ### SET 0–14 re-check (on the SET 15 code)
 
