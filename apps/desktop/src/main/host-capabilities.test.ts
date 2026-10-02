@@ -10,7 +10,7 @@ import {
 } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { CORE_PROTOCOL_VERSION, type DesktopNotification } from '@jupiter/contracts'
+import { CORE_PROTOCOL_VERSION, CoreConfig, type DesktopNotification } from '@jupiter/contracts'
 import { AgentRuntime } from '@jupiter/agent-runtime'
 import { Logger, MemorySink, uuidv7 } from '@jupiter/core'
 import { fakeCredentials } from '@jupiter/testing/fake-credentials'
@@ -20,9 +20,10 @@ import { FileHost } from './file-host'
 import { NotesHost } from './notes-host'
 import { ComputerHost } from './computer-host'
 import { CredentialVault, type SafeStorageLike } from './credential-vault'
-import { HostCapabilities, type HostCall } from './host-capabilities'
+import { HOST_CAPABILITIES, HostCapabilities, type HostCall } from './host-capabilities'
 import { MicrophoneGate, SpeechHost, wavDurationMs } from './speech-host'
 import { IdentityHost } from './identity-host'
+import { PluginHost } from './plugin-host'
 import { VisionHost } from './vision-host'
 
 /** Stands in for Electron's safeStorage: reversible, and never stores the plaintext. */
@@ -62,6 +63,14 @@ function setup(
     vision: new VisionHost({ logger, capturer: null, platform: 'linux', env: { PATH: '' } }),
     camera,
     identity: new IdentityHost({ logger, runtime: null, platform: 'linux' }),
+    plugins: new PluginHost({
+      logger,
+      bundledDirectory: join(tmpdir(), 'jupiter-no-bundled-plugins'),
+      installedDirectory: join(tmpdir(), 'jupiter-no-installed-plugins'),
+      stagingDirectory: join(tmpdir(), 'jupiter-no-plugin-staging'),
+      dataDirectory: join(tmpdir(), 'jupiter-no-plugin-data'),
+      chooseFolder: () => Promise.resolve(null)
+    }),
     // No system voice here (an empty PATH), so nothing depends on the machine's engines.
     speech: new SpeechHost({ logger, platform: 'linux', env: { PATH: '' } }),
     microphone,
@@ -568,5 +577,11 @@ describe('voice host operations (SET 12)', () => {
     header.write('data', 36)
     header.writeUInt32LE(16_000, 40)
     expect(wavDurationMs(Buffer.concat([header, Buffer.alloc(16_000)]))).toBe(500)
+  })
+})
+
+describe('the host capability list', () => {
+  it('fits the Core protocol, so Core accepts the init message that carries it', () => {
+    expect(CoreConfig.shape.hostCapabilities.safeParse([...HOST_CAPABILITIES]).success).toBe(true)
   })
 })

@@ -2509,3 +2509,13 @@ kbd {
   margin: 0;
   padding-inline-start: var(--jp-space-lg);
 }
+
+/* ---- Plugins (SET 15) ---- */
+
+.view-plugins .card {
+  margin-bottom: var(--jp-space-lg);
+}
+
+.view-plugins .plain-list li + li {
+  margin-top: var(--jp-space-xs);
+}

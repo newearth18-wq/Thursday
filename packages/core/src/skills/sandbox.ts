@@ -15,6 +15,8 @@
 export interface SandboxRequest {
   /** The Skill's code: a JavaScript function expression `async (input, context) => output`. */
   readonly source: string
+  /** For module code (plugins): the exported function to run. Absent: `source` is the function. */
+  readonly handler?: string | undefined
   readonly input: unknown
   readonly timeoutMs: number
   readonly signal: AbortSignal

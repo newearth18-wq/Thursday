@@ -1,3 +1,6 @@
+import { existsSync } from 'node:fs'
+import { dirname, join } from 'node:path'
+import { fileURLToPath } from 'node:url'
 import {
   CORE_PROTOCOL_VERSION,
   HostToCore,
@@ -21,6 +24,10 @@ import {
 import { WorkerSkillSandbox } from '@jupiter/core/node'
 import { JupiterDatabase } from '@jupiter/database'
 import { installedAdapters } from './adapters'
+import { PluginSandbox } from '@jupiter/plugin-runtime'
+
+/** The plugin runtime bundle, next to this one (out/main). */
+const pluginRuntimeEntry = join(dirname(fileURLToPath(import.meta.url)), 'plugin-runtime.cjs')
 
 /**
  * Jupiter Core process entry (Electron utility process).
@@ -120,6 +127,19 @@ async function initialise(config: CoreConfig): Promise<void> {
         logger: log.child({ component: 'database' })
       }),
     skillSandbox: new WorkerSkillSandbox(),
+    // SET 15: plugin Skills run in the plugin runtime: a new process per invocation, Electron
+    // acting as Node, with Node's permission model and no environment beyond that one flag (and,
+    // on Windows, the system variables libuv always passes).
+    ...(existsSync(pluginRuntimeEntry)
+      ? {
+          pluginSandbox: new PluginSandbox({
+            command: process.execPath,
+            entry: pluginRuntimeEntry,
+            memoryLimitMb: 96,
+            env: { ELECTRON_RUN_AS_NODE: '1' }
+          })
+        }
+      : {}),
     // Fixture Skills (known faults, observable effects), only for automated tests of the test environment.
     extraSkills: fixtures ? TEST_FIXTURE_SKILLS : [],
     extraResources: fixtures ? createFixtureResources().resources : {},

@@ -20,7 +20,8 @@ packages/security     ── no dependencies (patterns file is dependency-free o
 packages/contracts    ── depends on ──▶ zod
 packages/ui           ── depends on ──▶ @fontsource fonts (React is a peer)
 packages/testing      ── depends on ──▶ playwright            (tests only; also provider protocol test servers)
-services/*, plugins/  placeholders: no code, labelled Coming later
+services/*            isolated runtimes (agent, browser, document, identity, plugin), each in its own process
+plugins/              plugins that ship with Jupiter (demo-tools), copied next to the bundle at build time
 legacy/thursday-browser                   separate npm project, own lockfile, not a workspace
 ```
 
@@ -758,6 +759,63 @@ A Mission step that pauses for identity (protected steps check identity
 when they run instead), face detection in Vision (faces are used only by
 Face Identity), device identity beyond the Windows account, presentation
 attack detection beyond the Experimental liveness check, a speaker
-verification model, plugins with their own runtime (SET 15), and
-everything after that. The two unfinished destinations are shown as
-_Coming later_ in the app, and none of them is presented as working.
+verification model, and everything after that (plugins with their own
+runtime arrived in SET 15).
+
+## Plugins (SET 15)
+
+Decisions and alternatives: [ADR 0016](decisions/0016-plugins.md).
+
+```text
+Core ── PluginManager ── Skill Registry (runtime plugin@1) ── PluginSandbox
+                                                               │ new process per run
+                                                               ▼
+                         Electron as Node, --permission, no environment
+                           └─ vm context: plugin code, context.use(handle) only
+                                     │ handle request (strings only)
+                                     ▼
+                    Core: Skill resource → Permission Engine → host.plugins.storage
+```
+
+- **Contracts** (`packages/contracts/src/plugins.ts`): `PluginManifest`
+  and its rules (`manifestRuleIssues`), `PLUGIN_HANDLES` and their
+  permissions, `PluginRelativePath`, `compareSemVer`, `PluginState`,
+  `PluginInfo`, `PluginsStatus` and the host shapes. Capabilities
+  `plugins.list`, `plugins.install`, `plugins.update`, `plugins.enable`,
+  `plugins.disable`, `plugins.health`, `plugins.uninstall`; host operations
+  `host.plugins.discover`, `code`, `choose`, `commit`, `discard`, `remove`,
+  `storage` (Core only); event `plugin.changed` (persistent); permissions
+  `plugin.storage.read` (LOW) and `plugin.storage.write` (MEDIUM), with
+  `plugin.install` (CRITICAL).
+- **Core** (`packages/core/src/plugins/`, service `plugin-manager`):
+  `checkPackage` (manifest, Skills, SHA-256 of every file, compatibility)
+  and `PluginManager` (install from the bundled plugins or a folder the
+  person picks, update, uninstall, enable and disable, health, derived
+  states, the storage handles, run tracking for `RUNNING`). It starts after
+  the Skill Registry and loads the plugins the person enabled, checking
+  each again; one failing never stops the rest.
+- **Database**: migration 13 (`plugins`: id, version, source, enabled,
+  manifest, installed, updated and verified times, last error),
+  `SqlitePluginStore`.
+- **Plugin runtime** (`services/plugin-runtime`): `PluginSandbox`
+  (implements the Skill sandbox port for runtime `plugin@1`) and the
+  runtime script (`out/main/plugin-runtime.cjs`), bundled with esbuild.
+- **Host**: `PluginHost` (`plugin-host.ts`): bundled, installed, staging
+  and storage folders; the folder dialog (`JUPITER_TEST_PLUGIN_CHOICE` in
+  the test environment only); copy, check limits and links; atomic,
+  non-overwriting storage writes with quotas.
+- **Interface**: the _Plugins_ screen: the runtime and its isolation, the
+  plugins that ship with Jupiter, install from a folder, and a card per
+  installed plugin (state and reason, publisher _Unverified_, source,
+  integrity, minimum Jupiter, storage use, permissions with their risk,
+  Skills with their health, enable, disable, health check, update,
+  uninstall with confirmation). Plugin events in the activity timeline.
+
+## Not in SET 15
+
+Signed plugins and a publisher identity (SET 21), a plugin catalogue or
+download from the internet, network access for plugins, plugin user
+interface, plugin step types in Missions beyond running their Skills,
+handles beyond Jupiter's version, the time and plugin storage, and
+everything after that. _Automations_ is shown as _Coming later_ in the app,
+and nothing of it is presented as working.

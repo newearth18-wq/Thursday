@@ -14,6 +14,7 @@ import { BrowserActionType, BrowserMethod, BrowserTaskStatus, SuspiciousContent 
 import { SpokenLanguage, VoiceState } from './voice'
 import { CameraState, VisionSource, VisionTask } from './vision'
 import { EnrollableMethod, IdentityLevel, IdentityMethod, LivenessState } from './identity'
+import { PluginState } from './plugins'
 import { ComputerActionType, ComputerTaskStatus, InteractionMethod } from './computer'
 import { ArtifactVerificationStatus, DocumentFormat, FileRoot } from './files'
 import {
@@ -55,7 +56,8 @@ export const StreamKind = z.enum([
   'notes',
   'voice',
   'vision',
-  'identity'
+  'identity',
+  'plugin'
 ])
 export type StreamKind = z.infer<typeof StreamKind>
 
@@ -546,6 +548,28 @@ export const EventPayloads = {
       reason: z.string().max(120)
     })
     .strict(),
+  /** Persistent (SET 15): a plugin was installed, updated, enabled, disabled, removed or refused. */
+  'plugin.changed': z
+    .object({
+      pluginId: z.string().max(80),
+      version: z.string().max(64).nullable(),
+      change: z.enum([
+        'installed',
+        'updated',
+        'enabled',
+        'disabled',
+        'uninstalled',
+        'failed',
+        'degraded',
+        'recovered',
+        'install-rejected',
+        'update-rejected'
+      ]),
+      state: PluginState.nullable(),
+      /** Why, for a refusal or failure (never plugin output). */
+      reason: z.string().max(300).nullable()
+    })
+    .strict(),
   'artifact.changed': z
     .object({
       artifactId: Uuidv7,
@@ -646,7 +670,8 @@ export const DomainEvent = z
     variant('identity.verification'),
     variant('identity.enrollment'),
     variant('identity.protection_changed'),
-    variant('identity.assurance_changed')
+    variant('identity.assurance_changed'),
+    variant('plugin.changed')
   ])
   .refine(
     (event) =>

@@ -29,7 +29,7 @@ export const DESTINATIONS: readonly Destination[] = [
   main('automations', 'nav.automations', 'automations', '18', '7'),
   main('models', 'nav.aiModels', 'models', null, '8'),
   main('devices', 'nav.devices', 'devices', null, '9'),
-  main('plugins', 'nav.plugins', 'plugins', '15', null),
+  main('plugins', 'nav.plugins', 'plugins', null, null),
   {
     id: 'settings',
     label: 'nav.settings',

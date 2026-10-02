@@ -501,6 +501,30 @@ export interface IdentityStore {
   setProtection(enabled: boolean, at: string): void
 }
 
+/** An installed plugin as stored (SET 15). */
+export interface StoredPlugin {
+  readonly pluginId: string
+  readonly version: string
+  readonly source: 'bundled' | 'local'
+  readonly enabled: boolean
+  /** The validated manifest it was installed (or last updated) with. */
+  readonly manifestJson: string
+  readonly installedAt: string
+  readonly updatedAt: string
+  readonly verifiedAt: string | null
+  readonly lastError: ErrorEnvelope | null
+}
+
+export interface PluginStore {
+  get(pluginId: string): StoredPlugin | null
+  list(): StoredPlugin[]
+  put(plugin: StoredPlugin): void
+  setEnabled(pluginId: string, enabled: boolean, at: string): void
+  setVerified(pluginId: string, at: string): void
+  setLastError(pluginId: string, error: ErrorEnvelope | null, at: string): void
+  remove(pluginId: string): boolean
+}
+
 export interface DatabasePort {
   readonly transactions: TransactionRunner
   readonly events: EventStore
@@ -517,6 +541,7 @@ export interface DatabasePort {
   readonly artifacts: ArtifactStore
   readonly memories: MemoryStore
   readonly identity: IdentityStore
+  readonly plugins: PluginStore
   info(): DatabaseInfo
   backup(reason: BackupInfo['reason'], options?: BackupOptions): Promise<BackupInfo>
   close(): void

@@ -693,5 +693,25 @@ export const JUPITER_MIGRATIONS: readonly Migration[] = [
         updated_at  TEXT NOT NULL
       ) STRICT;
     `
+  },
+  {
+    version: 13,
+    name: '0013_plugins',
+    sql: `
+      -- Installed plugins (SET 15): the validated manifest they were installed
+      -- with, whether the person enabled them, and their last failure. Their
+      -- Skills' execution history lives with the Skills and outlives the plugin.
+      CREATE TABLE plugins (
+        plugin_id      TEXT PRIMARY KEY NOT NULL CHECK (length(plugin_id) BETWEEN 3 AND 40),
+        version        TEXT NOT NULL,
+        source         TEXT NOT NULL CHECK (source IN ('bundled', 'local')),
+        enabled        INTEGER NOT NULL CHECK (enabled IN (0, 1)),
+        manifest_json  TEXT NOT NULL CHECK (json_valid(manifest_json)),
+        installed_at   TEXT NOT NULL,
+        updated_at     TEXT NOT NULL,
+        verified_at    TEXT,
+        last_error     TEXT CHECK (last_error IS NULL OR json_valid(last_error))
+      ) STRICT;
+    `
   }
 ]

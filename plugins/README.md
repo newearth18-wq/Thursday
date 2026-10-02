@@ -1,13 +1,21 @@
-# Plugins — Coming later (SET 15)
+# Plugins (SET 15)
 
-**Status: not implemented.** Jupiter has no plugin engine yet. Nothing in this
-folder is loaded or executed, and the desktop shell shows **Plugins** as
-_Coming later_.
+Each folder here is a plugin that ships with Jupiter. It is copied next to
+the app at build time and shown in **Plugins** as available to install; it
+runs only after the person installs and enables it.
 
-SET 15 adds the Plugin Manager, manifest validation and the isolated plugin
-runtime (`services/plugin-runtime`). Third-party plugin code will never run in
-the Electron main process or the renderer.
+- [`demo-tools`](demo-tools/) — the demonstration plugin: `echo_text`,
+  `get_app_version` and `save_note`.
 
-The `demo-tools` plugin of the earlier Thursday Browser prototype lives with
-that prototype in [`legacy/thursday-browser/plugins`](../legacy/thursday-browser/plugins);
-it is not a Jupiter plugin.
+A plugin is a folder with a `manifest.json` (id, name, version, entrypoint,
+`minimumJupiterVersion`, publisher, permissions, capabilities, Skills, and the
+SHA-256 of every file) and its code. Jupiter validates all of it before
+anything runs, and runs the code only in the isolated plugin runtime
+(`services/plugin-runtime`) — never in the Electron main process or the
+interface. See [AGENTS.md](../AGENTS.md) and ADR 0016.
+
+After changing a plugin's files, refresh its integrity list:
+
+```bash
+node scripts/plugin-integrity.mjs plugins/<plugin>
+```

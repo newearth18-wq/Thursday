@@ -53,6 +53,7 @@ import { completeText } from '../ai/complete'
 import { VoiceService, type SpeechPlan, type VoiceCallContext } from '../voice/service'
 import { VisionService, type CameraTimings, type VisionPlan } from '../vision/service'
 import { IdentityService } from '../identity/service'
+import { PluginManager, type PluginEngines } from '../plugins/manager'
 import { ChatService } from '../ai/chat'
 import { BrowserAgent } from '../browser/agent'
 import { checkedBrowserDriver } from '../browser/driver'
@@ -142,6 +143,8 @@ export interface CoreKernelOptions {
    * Without one, the Skill Registry reports that no runtime is available.
    */
   readonly skillSandbox?: SkillSandbox
+  /** Where plugin Skills run (SET 15): the plugin runtime. Without one, plugins cannot be enabled. */
+  readonly pluginSandbox?: SkillSandbox
   /** Skills registered besides the built-in ones (test fixtures in the test environment). */
   readonly extraSkills?: readonly SkillImplementation[]
   /** Resources for those Skills (the test fixtures' in-memory notes). */
@@ -168,6 +171,7 @@ export class CoreKernel {
   readonly computer: ComputerAgent
   readonly vision: VisionService
   readonly identity: IdentityService
+  readonly plugins: PluginManager
   readonly browser: BrowserAgent
   readonly files: FileAgent
   readonly memory: MemoryService
@@ -264,6 +268,37 @@ export class CoreKernel {
       now: this.now,
       sessionId: uuidv7()
     })
+    // Resources Skills can `use`. The plugin storage handles are added once the plugin manager exists.
+    const skillResources: Record<string, SkillResource> = {
+      // Extra resources first: they can never replace a built-in one.
+      ...options.extraResources,
+      'app.version': {
+        permission: 'app.version.read',
+        target: 'jupiter:app-version',
+        handler: () => {
+          const build = options.config.build
+          if (!build)
+            throw new ResourceDenied(
+              'APP_VERSION_UNAVAILABLE',
+              'This copy of Jupiter has no build information.'
+            )
+          return { version: build.version, channel: build.channel, commit: build.commit }
+        }
+      },
+      'system.time': {
+        permission: 'system.time.read',
+        target: 'system:clock',
+        handler: () => {
+          const now = this.now()
+          return {
+            utc: now.toISOString(),
+            timeZone: Intl.DateTimeFormat().resolvedOptions().timeZone,
+            utcOffsetMinutes: -now.getTimezoneOffset()
+          }
+        }
+      }
+    }
+    const pluginSandbox = options.pluginSandbox
     this.skills = new SkillRegistry({
       permissions: this.permissions,
       database: () => this.requireDatabase(),
@@ -280,36 +315,59 @@ export class CoreKernel {
             })
           )
       },
-      resources: {
-        // Extra resources first: they can never replace a built-in one.
-        ...options.extraResources,
-        'app.version': {
-          permission: 'app.version.read',
-          target: 'jupiter:app-version',
-          handler: () => {
-            const build = options.config.build
-            if (!build)
-              throw new ResourceDenied(
-                'APP_VERSION_UNAVAILABLE',
-                'This copy of Jupiter has no build information.'
-              )
-            return { version: build.version, channel: build.channel, commit: build.commit }
-          }
-        },
-        'system.time': {
-          permission: 'system.time.read',
-          target: 'system:clock',
-          handler: () => {
-            const now = this.now()
-            return {
-              utc: now.toISOString(),
-              timeZone: Intl.DateTimeFormat().resolvedOptions().timeZone,
-              utcOffsetMinutes: -now.getTimezoneOffset()
+      // SET 15: plugin Skills run in the plugin runtime (tracked, so a plugin shows RUNNING).
+      sandboxes: pluginSandbox
+        ? {
+            [pluginSandbox.runtime]: {
+              runtime: pluginSandbox.runtime,
+              run: (request) => this.plugins.trackRuns(pluginSandbox).run(request)
             }
           }
-        }
+        : {},
+      resources: skillResources
+    })
+    // SET 15: plugins. The host owns their folders and storage; Core checks and loads them.
+    this.plugins = new PluginManager({
+      database: () => this.requireDatabase(),
+      bus: this.bus,
+      logger: this.logger.child({ component: 'plugin-manager' }),
+      now: this.now,
+      skills: this.skills,
+      permissions: this.permissions,
+      jupiterVersion: options.config.build?.version ?? '0.0.0',
+      runtime: () =>
+        pluginSandbox
+          ? { available: true, reason: null }
+          : { available: false, reason: 'Unavailable: this build has no plugin runtime.' },
+      engines: {
+        discover: async () =>
+          (await this.hostOperation('host.plugins.discover', {}, uuidv7())) as Awaited<
+            ReturnType<PluginEngines['discover']>
+          >,
+        code: async (location) =>
+          (await this.hostOperation('host.plugins.code', location, uuidv7())) as Awaited<
+            ReturnType<PluginEngines['code']>
+          >,
+        choose: async (purpose) =>
+          (await this.hostOperation('host.plugins.choose', { purpose }, uuidv7())) as Awaited<
+            ReturnType<PluginEngines['choose']>
+          >,
+        commit: async (stagingId, pluginId) => {
+          await this.hostOperation('host.plugins.commit', { stagingId, pluginId }, uuidv7())
+        },
+        discard: async (stagingId) => {
+          await this.hostOperation('host.plugins.discard', { stagingId }, uuidv7())
+        },
+        remove: async (pluginId) => {
+          await this.hostOperation('host.plugins.remove', { pluginId }, uuidv7())
+        },
+        storage: async (input) =>
+          (await this.hostOperation('host.plugins.storage', input, uuidv7())) as Awaited<
+            ReturnType<PluginEngines['storage']>
+          >
       }
     })
+    Object.assign(skillResources, this.plugins.storageResources())
     // SET 8: the Computer Agent decides and checks permissions here; the host acts.
     // SET 13: Vision decides what is captured and looked at; the host captures and runs OCR/QR.
     this.vision = new VisionService({
@@ -879,6 +937,7 @@ export class CoreKernel {
         await this.supervisor.retry('vision')
         await this.supervisor.retry('identity')
         await this.supervisor.retry('skill-registry')
+        await this.supervisor.retry('plugin-manager')
       }
       return null
     } catch (error) {
@@ -1100,6 +1159,12 @@ export class CoreKernel {
             userAction: null
           }
         )
+      if (operation.startsWith('host.plugins.'))
+        throw new JupiterError(
+          'PLUGINS_UNAVAILABLE',
+          'This host does not offer plugins (Unavailable).',
+          { category: 'unsupported', userAction: null }
+        )
       if (operation === 'host.notes.call')
         throw new JupiterError(
           'NOTES_UNAVAILABLE',
@@ -1120,7 +1185,8 @@ export class CoreKernel {
       operation === 'host.notes.call' ||
       operation === 'host.identity.face' ||
       operation === 'host.identity.hello' ||
-      operation === 'host.identity.engines'
+      operation === 'host.identity.engines' ||
+      operation.startsWith('host.plugins.')
         ? BROWSER_OPERATION_TIMEOUT_MS
         : HOST_OPERATION_TIMEOUT_MS
     const controller = new AbortController()
@@ -1388,6 +1454,33 @@ export class CoreKernel {
       },
       stop: () => {
         this.skills.stopAll()
+      }
+    })
+
+    // SET 15: the Plugin Manager. After the Skill Registry: it loads the plugins the person
+    // enabled (each checked again) and registers their Skills; one failing never stops the rest.
+    this.supervisor.register({
+      id: 'plugin-manager',
+      version: null,
+      capabilities: ['plugins.manage', 'plugins.isolated-runtime'],
+      critical: false,
+      retryable: true,
+      start: async () => {
+        if (!this.database)
+          throw new JupiterError(
+            'DEPENDENCY_UNAVAILABLE',
+            'The Plugin Manager needs the database, which is not available.',
+            {
+              category: 'dependency',
+              userAction: 'Fix the Database service, then press Retry on it.',
+              retryable: true
+            }
+          )
+        await this.plugins.start()
+        return undefined
+      },
+      stop: () => {
+        this.plugins.stop()
       }
     })
 

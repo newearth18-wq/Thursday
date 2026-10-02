@@ -1,11 +1,23 @@
 {
   "name": "@jupiter/plugin-runtime",
-  "version": "0.0.0",
+  "version": "0.1.0",
   "private": true,
-  "description": "Coming later (SET 15): isolated runtime that executes third-party plugins outside the Electron main process, with capability-scoped RPC.",
+  "description": "The plugin runtime (SET 15): runs third-party plugin code in its own process \u2014 one per invocation, under Node's permission model, without environment, file system, require or network modules \u2014 reaching Jupiter only through declared capability handles.",
   "license": "MIT",
-  "jupiter": {
-    "status": "COMING_LATER",
-    "plannedSet": 15
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts",
+    "./build": "./src/build.ts"
+  },
+  "scripts": {
+    "typecheck": "tsc -p tsconfig.json"
+  },
+  "dependencies": {
+    "@jupiter/contracts": "0.1.0",
+    "@jupiter/core": "0.1.0"
+  },
+  "devDependencies": {
+    "@jupiter/testing": "0.1.0",
+    "esbuild": "^0.25.12"
   }
 }

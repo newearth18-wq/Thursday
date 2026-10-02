@@ -46,7 +46,8 @@ Jupiter is developed one SET at a time from the _Jupiter Complete Master Prompt_
 | Redaction, secret detection                          | `packages/security`  |
 | Design tokens, shared visual components              | `packages/ui`        |
 | Electron host, Core entry, preload, renderer         | `apps/desktop`       |
-| Isolated runtimes (future SETs)                      | `services/*`         |
+| Isolated runtimes                                    | `services/*`         |
+| Plugins that ship with Jupiter (SET 15)              | `plugins/*`          |
 
 Do not modify `legacy/thursday-browser` unless a task is explicitly about it.
 
@@ -200,6 +201,23 @@ UNTRUSTED NOTE TEXT`).
   changes protection. Test with `packages/testing/fixtures/identity/` and
   the `id-*` voice fixtures, and the fake camera with a video
   (`JUPITER_TEST_FAKE_CAMERA=<file.y4m>`, test environment only).
+- Plugins (SET 15): `PluginManager` (`packages/core/src/plugins/`) decides
+  every install, update, enable, disable and uninstall, and checks a package
+  with `checkPackage` (manifest, Skills, SHA-256 of every file, compatibility)
+  before anything of it runs, and again at every load. Plugin code runs only
+  in the plugin runtime (`services/plugin-runtime`): never in Electron main,
+  Core or the renderer. The host (`apps/desktop/src/main/plugin-host.ts`)
+  owns every plugin folder and each plugin's storage, copies a folder the
+  person picks into staging (never a path from a request) and resolves every
+  storage path itself. A new handle is an entry in `PLUGIN_HANDLES`
+  (`packages/contracts/src/plugins.ts`) with its permission, and a resource
+  in `PluginManager.storageResources` or Core's Skill resources; never give a
+  plugin files, secrets, devices, network, a shell or the environment.
+  Installing and updating ask `plugin.install` (CRITICAL) every time; only
+  the `user-interface` actor manages plugins. Never overwrite a plugin's file
+  or delete its storage, keep the installed version until an update is
+  accepted, and after changing a file in `plugins/*` run
+  `node scripts/plugin-integrity.mjs <folder>`.
 - Schema changes are new migrations at the end of `JUPITER_MIGRATIONS`; never
   edit a migration that has shipped (see `packages/database/README.md`).
 

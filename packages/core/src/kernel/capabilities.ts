@@ -163,6 +163,20 @@ const IDENTITY_WRITE: Policy = {
   timeoutMs: 180_000
 }
 const IDENTITY_SAMPLE: Policy = { ...IDENTITY_READ, timeoutMs: 15_000 }
+/** Plugins (SET 15): listing reads every plugin folder; changes wait for the folder dialog. */
+const PLUGIN_READ: Policy = {
+  ...UI_READ,
+  requires: ['database', 'plugin-manager'],
+  timeoutMs: 60_000
+}
+const PLUGIN_WRITE: Policy = {
+  ...PLUGIN_READ,
+  requires: ['database', 'permission-engine', 'skill-registry', 'plugin-manager'],
+  risk: 'HIGH',
+  audit: 'always',
+  timeoutMs: 600_000
+}
+const PLUGIN_INSTALL: Policy = { ...PLUGIN_WRITE, risk: 'CRITICAL' }
 /** Commands that plan or run a workflow (SET 5) also need the workflow engine. */
 const WORKFLOW_WRITE: Policy = {
   ...MISSION_WRITE,
@@ -917,6 +931,26 @@ export function coreCapabilities(kernel: CoreKernel): CapabilityDefinition<never
       },
       (input, context) => kernel.identity.securityEvent(input.event, visionContext(context))
     ),
+    define('plugins.list', PLUGIN_READ, () => kernel.plugins.status()),
+    define('plugins.install', PLUGIN_INSTALL, (input, context) =>
+      kernel.plugins.install(input, voiceContext(context))
+    ),
+    define('plugins.update', PLUGIN_INSTALL, (input, context) =>
+      kernel.plugins.update(input.pluginId, voiceContext(context))
+    ),
+    define('plugins.enable', PLUGIN_WRITE, (input, context) =>
+      kernel.plugins.enable(input.pluginId, voiceContext(context))
+    ),
+    define('plugins.disable', PLUGIN_WRITE, (input, context) =>
+      kernel.plugins.disable(input.pluginId, voiceContext(context))
+    ),
+    define('plugins.health', PLUGIN_WRITE, (input, context) =>
+      kernel.plugins.health(input.pluginId, voiceContext(context))
+    ),
+    define('plugins.uninstall', PLUGIN_WRITE, async (input, context) => {
+      await kernel.plugins.uninstall(input.pluginId, voiceContext(context))
+      return { uninstalled: true as const }
+    }),
     define('camera.status', VISION_READ, () => kernel.vision.cameraStatus()),
     define('camera.start', VISION_CAPTURE, (_input, context) =>
       kernel.vision.startCamera(visionContext(context))

@@ -42,9 +42,9 @@ const RUNNING = [
   'voice',
   'vision',
   'identity',
+  'plugin-manager',
   'capability-dispatcher'
 ] as const
-const PLANNED = ['plugin-runtime'] as const
 
 beforeAll(() => {
   assertBuilt()
@@ -78,11 +78,10 @@ describe('Jupiter desktop shell — healthy start', () => {
         'HEALTHY'
       )
     }
-    for (const id of PLANNED) {
-      expect(await page.getByTestId(`service-${id}`).getAttribute('data-status'), id).toBe(
-        'COMING_LATER'
-      )
-    }
+    // SET 15: the plugin runtime is built, so no service is listed as Coming later any more.
+    expect(
+      await page.locator('[data-testid^="service-"][data-status="COMING_LATER"]').count()
+    ).toBe(0)
     // SET 8: the agent runtime runs on Windows and is truthfully Unavailable elsewhere.
     expect(await page.getByTestId('service-agent-runtime').getAttribute('data-status')).toBe(
       process.platform === 'win32' ? 'HEALTHY' : 'UNAVAILABLE'
@@ -131,8 +130,8 @@ describe('Jupiter desktop shell — healthy start', () => {
     // Unbuilt destinations (SET 2: real screens) are grouped under "Coming later" and say so.
     expect(await page.getByTestId('nav-planned-heading').textContent()).toBe('Coming later')
     const planned = page.locator('[data-availability="COMING_LATER"].nav-link')
-    expect(await planned.count()).toBe(2)
-    for (let i = 0; i < 2; i++) {
+    expect(await planned.count()).toBe(1)
+    for (let i = 0; i < 1; i++) {
       expect(await planned.nth(i).getAttribute('aria-describedby')).toBe('nav-planned-heading')
     }
 
@@ -252,8 +251,7 @@ describe('Jupiter desktop shell — healthy start', () => {
       if (!bridge) throw new Error('bridge missing')
       return {
         wrongType: await bridge.retryService(42 as unknown as string),
-        unknownService: await bridge.retryService('no-such-service'),
-        planned: await bridge.retryService('plugin-runtime')
+        unknownService: await bridge.retryService('no-such-service')
       }
     })
     expect(replies.wrongType).toMatchObject({
@@ -263,10 +261,6 @@ describe('Jupiter desktop shell — healthy start', () => {
     expect(replies.unknownService).toMatchObject({
       ok: false,
       error: { code: 'SERVICE_NOT_FOUND', category: 'validation' }
-    })
-    expect(replies.planned).toMatchObject({
-      ok: false,
-      error: { code: 'SERVICE_NOT_AVAILABLE', category: 'unsupported' }
     })
     const badReport = await invoke(
       page,

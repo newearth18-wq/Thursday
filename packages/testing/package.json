@@ -13,7 +13,8 @@
     "./documents": "./src/documents.ts",
     "./voice": "./src/voice.ts",
     "./vision": "./src/vision.ts",
-    "./identity": "./src/identity.ts"
+    "./identity": "./src/identity.ts",
+    "./plugins": "./src/plugins.ts"
   },
   "scripts": {
     "typecheck": "tsc -p tsconfig.json"

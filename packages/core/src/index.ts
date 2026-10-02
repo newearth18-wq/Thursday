@@ -42,6 +42,8 @@ export type {
   StoredMemory,
   IdentityAttempts,
   IdentityStore,
+  PluginStore,
+  StoredPlugin,
   StoredIdentityMethod,
   BrowserTaskStore,
   ComputerTaskStore,
@@ -156,3 +158,5 @@ export { BROWSER_AGENT } from './browser/agent'
 export { findSuspiciousInstructions } from './browser/injection'
 export { FILE_AGENT } from './files/agent'
 export type { CameraTimings } from './vision/service'
+export { PluginManager, type PluginEngines } from './plugins/manager'
+export { checkPackage, pluginSkillId, type PackageCheck } from './plugins/validate'

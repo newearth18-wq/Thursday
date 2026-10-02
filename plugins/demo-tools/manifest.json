@@ -1,0 +1,132 @@
+{
+  "manifestVersion": 1,
+  "id": "demo-tools",
+  "name": "Demo tools",
+  "version": "1.0.0",
+  "description": "Echoes text, reads Jupiter's version, and saves notes in its own storage.",
+  "entrypoint": "index.js",
+  "minimumJupiterVersion": "0.1.0-alpha.0",
+  "publisher": {
+    "name": "Jupiter Project",
+    "url": null
+  },
+  "permissions": ["app.version.read", "plugin.storage.write"],
+  "capabilities": ["app.version", "storage.write"],
+  "skills": [
+    {
+      "id": "echo_text",
+      "name": "Echo text (plugin)",
+      "description": "Returns exactly the text it is given, from the demo-tools plugin.",
+      "handler": "echoText",
+      "category": "text",
+      "permissions": [],
+      "timeoutMs": 10000,
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "text": {
+            "type": "string",
+            "maxLength": 10000
+          }
+        },
+        "required": ["text"],
+        "additionalProperties": false
+      },
+      "outputSchema": {
+        "type": "object",
+        "properties": {
+          "text": {
+            "type": "string",
+            "maxLength": 10000
+          }
+        },
+        "required": ["text"],
+        "additionalProperties": false
+      },
+      "healthInput": {
+        "text": "health check"
+      },
+      "healthExpect": {
+        "text": "health check"
+      }
+    },
+    {
+      "id": "get_app_version",
+      "name": "Get app version (plugin)",
+      "description": "Returns the version and channel of this Jupiter, from the demo-tools plugin.",
+      "handler": "getAppVersion",
+      "category": "information",
+      "permissions": ["app.version.read"],
+      "timeoutMs": 10000,
+      "inputSchema": {
+        "type": "object",
+        "properties": {},
+        "additionalProperties": false
+      },
+      "outputSchema": {
+        "type": "object",
+        "properties": {
+          "version": {
+            "type": "string",
+            "maxLength": 64
+          },
+          "channel": {
+            "type": "string",
+            "maxLength": 32
+          }
+        },
+        "required": ["version", "channel"],
+        "additionalProperties": false
+      },
+      "healthInput": {}
+    },
+    {
+      "id": "save_note",
+      "name": "Save note (plugin)",
+      "description": "Saves a note in the plugin's own storage, as notes/<name>.md, without replacing one.",
+      "handler": "saveNote",
+      "category": "text",
+      "permissions": ["plugin.storage.write"],
+      "timeoutMs": 10000,
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 60
+          },
+          "text": {
+            "type": "string",
+            "maxLength": 100000
+          }
+        },
+        "required": ["name", "text"],
+        "additionalProperties": false
+      },
+      "outputSchema": {
+        "type": "object",
+        "properties": {
+          "path": {
+            "type": "string",
+            "maxLength": 200
+          },
+          "bytes": {
+            "type": "integer",
+            "minimum": 0
+          }
+        },
+        "required": ["path", "bytes"],
+        "additionalProperties": false
+      },
+      "healthInput": null
+    }
+  ],
+  "integrity": {
+    "algorithm": "sha256",
+    "files": {
+      "index.js": "3f5ff882e8a786961cfdff87ed97eb13c32bf39d40be4f1b88668e0d3edd6dfc",
+      "README.md": "b43c69aa7e12f753b456788104f97411713d8a6a84189ab6e65269b45421a3d4"
+    }
+  }
+}

@@ -53,8 +53,8 @@ export interface ResourceContext {
 export interface SkillResource {
   /** The capability it needs (a PERMISSION_CATALOGUE entry). */
   readonly permission: string
-  /** The exact target the grant must name, e.g. `jupiter:app-version`. */
-  readonly target: string
+  /** The exact target the grant must name, e.g. `jupiter:app-version` (or one per caller). */
+  readonly target: string | ((context: ResourceContext) => string)
   readonly handler: (args: unknown, context: ResourceContext) => unknown
 }
 
@@ -64,6 +64,8 @@ export interface SkillRegistryOptions {
   readonly logger: Logger
   readonly now: () => Date
   readonly sandbox: SkillSandbox
+  /** Other runtimes this build provides, by name (the plugin runtime, SET 15). */
+  readonly sandboxes?: Readonly<Record<string, SkillSandbox>>
   /** Resources Skills can `use`, each behind a permission. `skills.list` is provided by the registry. */
   readonly resources: Readonly<Record<string, SkillResource>>
   readonly permissions: PermissionEngine
@@ -101,6 +103,12 @@ export class SkillRegistry {
 
   get runtime(): string {
     return this.options.sandbox.runtime
+  }
+
+  /** The sandbox for a runtime this build provides, or null. */
+  private sandboxFor(runtime: string): SkillSandbox | null {
+    if (runtime === this.options.sandbox.runtime) return this.options.sandbox
+    return this.options.sandboxes?.[runtime] ?? null
   }
 
   // ---- registration ------------------------------------------------------------------------
@@ -369,8 +377,11 @@ export class SkillRegistry {
     let output: unknown = null
     let error: ErrorEnvelope | null = null
     try {
-      const outcome = await this.options.sandbox.run({
+      // Checked before the invocation started (refusalFor): this runtime exists.
+      const sandbox = this.sandboxFor(definition.compatibleRuntime) ?? this.options.sandbox
+      const outcome = await sandbox.run({
         source: implementation.source,
+        handler: implementation.handler,
         input: request.input,
         timeoutMs,
         signal: running.controller.signal,
@@ -599,7 +610,7 @@ export class SkillRegistry {
         `${definition.name} is disabled.`,
         'Enable it in Skills.'
       )
-    if (definition.compatibleRuntime !== this.runtime)
+    if (!this.sandboxFor(definition.compatibleRuntime))
       return fail(
         'SKILL_INCOMPATIBLE',
         'unsupported',
@@ -663,7 +674,8 @@ export class SkillRegistry {
       capability: provided.permission,
       subject: { kind: 'skill', id: definition.skillId, name: definition.name },
       actor: context.actor,
-      target: provided.target,
+      target:
+        typeof provided.target === 'string' ? provided.target : provided.target(context.execution),
       reason: `${definition.name} uses ${resource}.`,
       missionId: context.execution.missionId,
       missionTitle: context.missionTitle,
@@ -697,7 +709,8 @@ export class SkillRegistry {
     implementation: SkillImplementation
   ): Promise<Pick<SkillHealth, 'status' | 'detail'>> {
     const { definition } = implementation
-    if (definition.compatibleRuntime !== this.runtime)
+    const sandbox = this.sandboxFor(definition.compatibleRuntime)
+    if (!sandbox)
       return {
         status: 'UNHEALTHY',
         detail: `Needs the runtime ${definition.compatibleRuntime}; this build provides ${this.runtime}.`
@@ -710,8 +723,9 @@ export class SkillRegistry {
     const violations: string[] = []
     const waiting: { code: string; requestId: string | null; message: string }[] = []
     try {
-      const outcome = await this.options.sandbox.run({
+      const outcome = await sandbox.run({
         source: implementation.source,
+        handler: implementation.handler,
         input: implementation.healthInput,
         timeoutMs: Math.min(definition.timeoutMs, HEALTH_TIMEOUT_MS),
         signal: new AbortController().signal,
@@ -786,7 +800,7 @@ export class SkillRegistry {
         id: definition.skillId
       })
     }))
-    const runtimeCompatible = definition.compatibleRuntime === this.runtime
+    const runtimeCompatible = this.sandboxFor(definition.compatibleRuntime) !== null
     const blockedReason = !state.enabled
       ? 'Disabled.'
       : !runtimeCompatible
@@ -798,7 +812,7 @@ export class SkillRegistry {
       definition,
       enabled: state.enabled,
       health: state.health,
-      runtime: this.runtime,
+      runtime: runtimeCompatible ? definition.compatibleRuntime : this.runtime,
       runtimeCompatible,
       permissions,
       versions: this.registeredVersions(skillId),

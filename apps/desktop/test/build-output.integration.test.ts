@@ -74,8 +74,18 @@ describe('production build output', () => {
       .flatMap(imports)
       .filter((specifier) => !specifier.startsWith('./'))
     // node:worker_threads: each Skill invocation runs in its own worker (SET 6).
+    // node:child_process and node:url: each plugin Skill run starts the plugin runtime, a
+    // separate process, from the file next to this bundle (SET 15).
     expect(new Set(external)).toEqual(
-      new Set(['node:crypto', 'node:fs', 'node:path', 'node:sqlite', 'node:worker_threads'])
+      new Set([
+        'node:child_process',
+        'node:crypto',
+        'node:fs',
+        'node:path',
+        'node:sqlite',
+        'node:url',
+        'node:worker_threads'
+      ])
     )
     expect(core).toContain('parentPort')
     for (const forbidden of ['BrowserWindow', 'ipcMain', 'webContents', 'shell.openPath']) {

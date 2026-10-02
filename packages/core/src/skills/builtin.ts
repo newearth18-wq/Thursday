@@ -11,6 +11,8 @@ import type { SkillResource } from './registry'
 export interface SkillImplementation {
   readonly definition: SkillDefinition
   readonly source: string
+  /** For module code (plugin Skills, SET 15): the function `source` exports for this Skill. */
+  readonly handler?: string | undefined
   /** Input for the health check; the check passes when the output is valid (and equals `expect`, if given). */
   readonly healthInput: unknown
   readonly healthExpect?: unknown
