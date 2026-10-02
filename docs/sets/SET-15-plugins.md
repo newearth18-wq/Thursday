@@ -265,6 +265,9 @@ Earlier runs on this PR:
   before any test ran) and was re-run once; the re-run failed one test —
   the plugin runtime's environment on Windows holds the system variables
   libuv always passes (410 other tests passed). Fixed in `07bb0f0`.
+- **Run 36984039994** (`8854e71`, documents only): Windows died in the same
+  setup step (a second 504 downloading Tesseract's Thai data, before any
+  test ran). The download now retries (`-MaximumRetryCount 5`).
 
 ## 8. Manual tests
 
