@@ -169,7 +169,7 @@ export class PluginManager {
   }
 
   async get(pluginId: string): Promise<PluginInfo> {
-    return this.info(this.require(pluginId))
+    return this.info(this.storedOrThrow(pluginId))
   }
 
   /** The plugin a registered Skill belongs to (for storage), or null. */
@@ -220,7 +220,7 @@ export class PluginManager {
   /** A newer version from a folder the person picks; the installed one stays until it is accepted. */
   async update(pluginId: string, context: PluginCallContext): Promise<PluginInfo> {
     this.requirePerson(context, 'update plugins')
-    const stored = this.require(pluginId)
+    const stored = this.storedOrThrow(pluginId)
     const current = PluginManifest.parse(JSON.parse(stored.manifestJson))
     const choice = await this.chosenFolder('update', pluginId)
     try {
@@ -251,7 +251,7 @@ export class PluginManager {
 
   async uninstall(pluginId: string, context: PluginCallContext): Promise<void> {
     this.requirePerson(context, 'uninstall plugins')
-    const stored = this.require(pluginId)
+    const stored = this.storedOrThrow(pluginId)
     this.unregister(pluginId)
     if (stored.source === 'local') await this.options.engines.remove(pluginId)
     const database = this.options.database()
@@ -266,7 +266,7 @@ export class PluginManager {
 
   async enable(pluginId: string, context: PluginCallContext, quiet = false): Promise<PluginInfo> {
     if (!quiet) this.requirePerson(context, 'enable plugins')
-    const stored = this.require(pluginId)
+    const stored = this.storedOrThrow(pluginId)
     await this.load(stored, context)
     const at = this.options.now().toISOString()
     const database = this.options.database()
@@ -279,7 +279,7 @@ export class PluginManager {
 
   async disable(pluginId: string, context: PluginCallContext): Promise<PluginInfo> {
     this.requirePerson(context, 'disable plugins')
-    const stored = this.require(pluginId)
+    const stored = this.storedOrThrow(pluginId)
     this.unregister(pluginId)
     this.loadFailures.delete(pluginId)
     const database = this.options.database()
@@ -580,7 +580,7 @@ export class PluginManager {
       )
     })
     this.loadFailures.delete(manifest.id)
-    return this.infoSync(this.require(manifest.id))
+    return this.infoSync(this.storedOrThrow(manifest.id))
   }
 
   /** Reads the plugin again, checks it against the manifest it was installed with, registers its Skills. */
@@ -812,7 +812,7 @@ export class PluginManager {
     })
   }
 
-  private require(pluginId: string): StoredPlugin {
+  private storedOrThrow(pluginId: string): StoredPlugin {
     const stored = this.store().get(pluginId)
     if (!stored)
       throw new JupiterError('PLUGIN_NOT_FOUND', `The plugin "${pluginId}" is not installed.`, {

@@ -11,6 +11,7 @@ import { Logger, MemorySink, uuidv7, type SkillSandbox } from '@jupiter/core'
 import { PluginSandbox } from '@jupiter/plugin-runtime'
 import { bundlePluginRuntime } from '@jupiter/plugin-runtime/build'
 import { createTempDir, removeDir } from '@jupiter/testing'
+import { fakeCredentials } from '@jupiter/testing/fake-credentials'
 import {
   DEMO_TOOLS,
   demoManifest,
@@ -462,7 +463,10 @@ describe('SET 15 — Plugin Engine in Jupiter Core', () => {
 
   it('AT9: a plugin cannot read secrets, the environment or files, or run a shell', async () => {
     const plugins = await pluginCore()
-    plugins.running.vault.set('provider-key', 'sk-test-must-never-reach-a-plugin')
+    const secret =
+      fakeCredentials().find((item) => item.patternId === 'openai-api-key')?.value ?? ''
+    expect(secret).not.toBe('')
+    plugins.running.vault.set('provider-key', secret)
     const escape = join(plugins.folders.bundled, '..', 'escape')
     writePlugin(escape, {
       manifest: testManifest(
@@ -553,6 +557,8 @@ describe('SET 15 — Plugin Engine in Jupiter Core', () => {
       importer: 'refused'
     })
     expect(output.passwd).toBe('PLUGIN_PATH_INVALID')
+    // The key in the vault appears nowhere in what the plugin returned or was told.
+    expect(JSON.stringify([result, reach])).not.toContain(secret)
     // A plugin asking for a shell is refused at install: shell.execute is not available to plugins.
     const shell = join(plugins.folders.bundled, '..', 'shell')
     writePlugin(shell, {
